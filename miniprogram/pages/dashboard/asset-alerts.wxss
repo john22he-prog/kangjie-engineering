@@ -1,0 +1,241 @@
+/* pages/dashboard/asset-alerts.wxss */
+
+.detail-header {
+  padding: 24rpx;
+}
+
+.detail-title {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 700;
+}
+
+.detail-sub {
+  display: block;
+  font-size: 26rpx;
+  color: var(--weui-FG-1);
+  margin-top: 8rpx;
+}
+
+/* 报警卡片 */
+.alert-card {
+  padding: 24rpx;
+  margin-bottom: 4rpx;
+  border-left: 6rpx solid #FA5151;
+}
+
+.alert-acked {
+  border-left-color: #ccc;
+  opacity: 0.7;
+}
+
+.alert-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.alert-icon {
+  font-size: 32rpx;
+  flex-shrink: 0;
+}
+
+.alert-head-info {
+  flex: 1;
+}
+
+.alert-part-name {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.alert-time {
+  display: block;
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.alert-status-tag {
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 6rpx;
+  flex-shrink: 0;
+}
+
+.tag-open {
+  background: #FDE8E8;
+  color: #FA5151;
+}
+
+.tag-ack {
+  background: #f0f0f0;
+  color: #888;
+}
+
+/* 阈值数据行 */
+.threshold-row {
+  display: flex;
+  gap: 8rpx;
+  margin-bottom: 16rpx;
+}
+
+.threshold-item {
+  flex: 1;
+  text-align: center;
+  padding: 12rpx 8rpx;
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+}
+
+.threshold-label {
+  display: block;
+  font-size: 20rpx;
+  color: var(--weui-FG-2);
+}
+
+.threshold-val {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  margin-top: 4rpx;
+}
+
+.threshold-warn {
+  color: #E6A23C;
+}
+
+.threshold-over {
+  color: #FA5151;
+}
+
+/* 进度条 */
+.progress-bar-wrap {
+  margin-bottom: 16rpx;
+}
+
+.progress-bar-bg {
+  height: 16rpx;
+  background: #eee;
+  border-radius: 8rpx;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #E6A23C, #FA5151);
+  border-radius: 8rpx;
+  transition: width 0.3s;
+}
+
+.progress-threshold-mark {
+  position: absolute;
+  top: 0;
+  width: 3rpx;
+  height: 100%;
+  background: #333;
+}
+
+/* 消耗明细 */
+.log-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16rpx 0;
+  font-size: 26rpx;
+  color: var(--weui-BRAND);
+  border-top: 1rpx solid var(--weui-BG-1);
+}
+
+.log-toggle-icon {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+.log-list {
+  padding: 8rpx 0 0;
+}
+
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 10rpx 0;
+  font-size: 24rpx;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.log-row:last-child {
+  border-bottom: none;
+}
+
+.log-date {
+  color: var(--weui-FG-1);
+  width: 160rpx;
+  flex-shrink: 0;
+}
+
+.log-type {
+  color: var(--weui-BRAND);
+  font-size: 22rpx;
+  padding: 2rpx 10rpx;
+  background: #E8F8EE;
+  border-radius: 4rpx;
+  flex-shrink: 0;
+}
+
+.log-loc {
+  flex: 1;
+  color: var(--weui-FG-1);
+}
+
+.log-qty {
+  font-weight: 600;
+  color: var(--weui-FG-0);
+  flex-shrink: 0;
+}
+
+.log-reporter {
+  color: var(--weui-FG-2);
+  flex-shrink: 0;
+}
+
+.log-remark {
+  padding: 4rpx 0 8rpx;
+}
+
+.log-remark-text {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ACK 按钮 */
+.ack-btn-wrap {
+  margin-top: 16rpx;
+  border-top: 1rpx solid var(--weui-BG-1);
+  padding-top: 16rpx;
+}
+
+.ack-btn {
+  text-align: center;
+  padding: 16rpx 0;
+  background: var(--weui-BRAND);
+  color: #fff;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.ack-btn:active {
+  opacity: 0.8;
+}
+
+.loading-tip {
+  text-align: center;
+  padding: 40rpx;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+}

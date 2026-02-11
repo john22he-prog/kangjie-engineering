@@ -127,6 +127,23 @@ function importData(params) {
   return callCloud('importData', params)
 }
 
+/**
+ * 设备报警明细下钻
+ * @param {Object} params { assetId, yearMonth }
+ */
+function getAssetAlerts(params) {
+  if (USE_MOCK) return mockApi.getAssetAlerts(params)
+  return callCloud('getAssetAlerts', params)
+}
+
+/**
+ * 获取设备列表
+ */
+function listAssets() {
+  if (USE_MOCK) return mockApi.listAssets()
+  return callCloud('listAssets', {})
+}
+
 module.exports = {
   getMe,
   getAssetByQr,
@@ -140,5 +157,7 @@ module.exports = {
   getPartUsageDetail,
   getAssetUsageDetail,
   exportData,
-  importData
+  importData,
+  getAssetAlerts,
+  listAssets
 }

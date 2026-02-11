@@ -1,0 +1,75 @@
+<!-- pages/dashboard/asset-alerts.wxml -->
+<view class="page-container">
+  <!-- 设备信息头 -->
+  <view class="card detail-header">
+    <text class="detail-title">{{assetName}}</text>
+    <text class="detail-sub">{{yearMonth}} · OPEN 报警：{{info.openCount || 0}} 条</text>
+  </view>
+
+  <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
+
+  <!-- 报警列表 -->
+  <block wx:for="{{info.alerts}}" wx:key="alertId">
+    <view class="card alert-card {{item.status === 'ACK' ? 'alert-acked' : ''}}">
+      <!-- 报警头部 -->
+      <view class="alert-head">
+        <text class="alert-icon">{{item.status === 'OPEN' ? '⚠' : '✓'}}</text>
+        <view class="alert-head-info">
+          <text class="alert-part-name">{{item.partName}} {{item.partCode}}</text>
+          <text class="alert-time">{{item.createdAtStr}}</text>
+        </view>
+        <text class="alert-status-tag {{item.status === 'OPEN' ? 'tag-open' : 'tag-ack'}}">{{item.status === 'OPEN' ? 'OPEN' : '已确认'}}</text>
+      </view>
+
+      <!-- 阈值数据 -->
+      <view class="threshold-row">
+        <view class="threshold-item">
+          <text class="threshold-label">阈值</text>
+          <text class="threshold-val">{{item.thresholdValue}} {{item.unit}}/月</text>
+        </view>
+        <view class="threshold-item">
+          <text class="threshold-label">当前累计</text>
+          <text class="threshold-val threshold-warn">{{item.currentQty}} {{item.unit}}</text>
+        </view>
+        <view class="threshold-item">
+          <text class="threshold-label">超出</text>
+          <text class="threshold-val threshold-over">+{{item.overQty}} ({{item.overRate}}%)</text>
+        </view>
+      </view>
+
+      <!-- 进度条 -->
+      <view class="progress-bar-wrap">
+        <view class="progress-bar-bg">
+          <view class="progress-bar-fill" style="width: {{item.overRate > 200 ? 100 : item.overRate / 2}}%;"></view>
+          <view class="progress-threshold-mark" style="left: 50%;"></view>
+        </view>
+      </view>
+
+      <!-- 消耗明细折叠 -->
+      <view class="log-toggle" bindtap="toggleLogs" data-idx="{{index}}">
+        <text>消耗明细 ({{item.logs.length}} 条)</text>
+        <text class="log-toggle-icon">{{item.expanded ? '收起 ▲' : '展开 ▼'}}</text>
+      </view>
+
+      <view class="log-list" wx:if="{{item.expanded}}">
+        <view class="log-row" wx:for="{{item.logs}}" wx:for-item="log" wx:key="logId">
+          <text class="log-date">{{log.dateStr}}</text>
+          <text class="log-type">{{log.type}}</text>
+          <text class="log-loc">{{log.locationName}}</text>
+          <text class="log-qty">{{log.qty}}{{item.unit}}</text>
+          <text class="log-reporter">{{log.reporterName}}</text>
+        </view>
+        <view class="log-remark" wx:for="{{item.logs}}" wx:for-item="log" wx:key="logId" wx:if="{{log.remark}}">
+          <text class="log-remark-text">备注：{{log.remark}}</text>
+        </view>
+      </view>
+
+      <!-- ACK 按钮 -->
+      <view class="ack-btn-wrap" wx:if="{{item.status === 'OPEN'}}">
+        <view class="ack-btn" bindtap="onAck" data-alert="{{item}}" data-idx="{{index}}">已知晓</view>
+      </view>
+    </view>
+  </block>
+
+  <view class="empty-state" wx:if="{{!loading && (!info || !info.alerts || info.alerts.length === 0)}}">该设备暂无报警记录</view>
+</view>

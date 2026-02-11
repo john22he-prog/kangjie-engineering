@@ -257,6 +257,13 @@ const mockApi = {
     if (params.yearMonth) list = list.filter(l => l.yearMonth === params.yearMonth)
     if (params.assetId) list = list.filter(l => l.assetId === params.assetId)
     if (params.userId) list = list.filter(l => l.reporterUserIdSnapshot === params.userId)
+    if (params.filterDate) {
+      // 按具体日期筛选
+      const d = new Date(params.filterDate)
+      const dayStart = d.getTime()
+      const dayEnd = dayStart + 86400000
+      list = list.filter(l => l.ts >= dayStart && l.ts < dayEnd)
+    }
     list.sort((a, b) => b.ts - a.ts)
 
     const page = params.page || 1
@@ -307,6 +314,11 @@ const mockApi = {
   // 看板数据
   getDashboard(params) {
     const ym = params.yearMonth || getCurrentYearMonth()
+    const ymLogs = replacementLogs.filter(l => l.yearMonth === ym)
+
+    // M1 数字卡
+    const totalLogs = ymLogs.length
+    const totalPartsQty = ymLogs.reduce((s, l) => s + (l.items || []).reduce((ss, i) => ss + i.qty, 0), 0)
 
     // 报警统计
     const totalAlerts = alerts.filter(a => a.yearMonth === ym).length
@@ -325,7 +337,7 @@ const mockApi = {
 
     // 设备更换 TOP 10
     const assetCount = {}
-    replacementLogs.filter(l => l.yearMonth === ym).forEach(l => {
+    ymLogs.forEach(l => {
       if (!assetCount[l.assetId]) assetCount[l.assetId] = { assetId: l.assetId, name: l.assetNameSnapshot, count: 0 }
       assetCount[l.assetId].count++
     })
@@ -333,15 +345,40 @@ const mockApi = {
 
     // 工程人员工作量
     const engineerCount = {}
-    replacementLogs.filter(l => l.yearMonth === ym).forEach(l => {
-      if (!engineerCount[l.reporterUserIdSnapshot]) engineerCount[l.reporterUserIdSnapshot] = { name: l.reporterNameSnapshot, count: 0 }
+    ymLogs.forEach(l => {
+      if (!engineerCount[l.reporterUserIdSnapshot]) {
+        engineerCount[l.reporterUserIdSnapshot] = { userId: l.reporterUserIdSnapshot, name: l.reporterNameSnapshot, count: 0 }
+      }
       engineerCount[l.reporterUserIdSnapshot].count++
     })
     const topEngineers = Object.values(engineerCount).sort((a, b) => b.count - a.count).slice(0, 5)
 
+    // M5 最近7天趋势
+    const dailyTrend = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setHours(0, 0, 0, 0)
+      d.setDate(d.getDate() - i)
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const dayStart = d.getTime()
+      const dayEnd = dayStart + 86400000
+      const count = replacementLogs.filter(l => l.ts >= dayStart && l.ts < dayEnd).length
+      dailyTrend.push({ date: dateStr, label: `${String(d.getMonth() + 1)}/${String(d.getDate()).padStart(2, '0')}`, count })
+    }
+
+    // M6 报警设备分布（OPEN）
+    const alertAssetMap = {}
+    alerts.filter(a => a.yearMonth === ym && a.status === 'OPEN').forEach(a => {
+      if (!alertAssetMap[a.assetId]) {
+        alertAssetMap[a.assetId] = { assetId: a.assetId, assetName: a.assetName || a.assetId, openCount: 0 }
+      }
+      alertAssetMap[a.assetId].openCount++
+    })
+    const alertsByAsset = Object.values(alertAssetMap).sort((a, b) => b.openCount - a.openCount)
+
     return delay({
       ok: true,
-      data: { totalAlerts, openAlerts, topParts, topAssets, topEngineers }
+      data: { totalLogs, totalPartsQty, totalAlerts, openAlerts, topParts, topAssets, topEngineers, dailyTrend, alertsByAsset }
     })
   },
 
@@ -470,6 +507,80 @@ const mockApi = {
         list
       }
     })
+  },
+
+  // ========== 设备报警明细（下钻） ==========
+  getAssetAlerts(params) {
+    const { assetId, yearMonth } = params
+    const ym = yearMonth || getCurrentYearMonth()
+    const asset = assets.find(a => a.assetId === assetId)
+
+    // 该设备本月的报警
+    const assetAlerts = alerts.filter(a => a.assetId === assetId && a.yearMonth === ym)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(a => {
+        const part = parts.find(p => p.partSkuId === a.partSkuId)
+        const overQty = a.currentQty - a.thresholdValue
+        const overRate = Math.round((a.currentQty / a.thresholdValue) * 100)
+
+        // 该设备+该配件本月的更换记录
+        const logs = replacementLogs
+          .filter(l => l.assetId === assetId && l.yearMonth === ym)
+          .filter(l => (l.items || []).some(i => i.partSkuId === a.partSkuId))
+          .map(l => {
+            const partItem = l.items.find(i => i.partSkuId === a.partSkuId)
+            return {
+              logId: l.logId,
+              ts: l.ts,
+              qty: partItem ? partItem.qty : 0,
+              type: l.type,
+              locationName: l.locationNameSnapshot,
+              reporterName: l.reporterNameSnapshot,
+              remark: l.remark
+            }
+          })
+          .sort((a, b) => b.ts - a.ts)
+
+        return {
+          alertId: a.alertId,
+          partSkuId: a.partSkuId,
+          partName: part ? part.partName : a.partSkuId,
+          partCode: part ? part.partCode : '',
+          unit: part ? part.unit : '个',
+          thresholdValue: a.thresholdValue,
+          currentQty: a.currentQty,
+          overQty,
+          overRate,
+          status: a.status,
+          createdAt: a.createdAt,
+          ackNote: a.ackNote,
+          logs
+        }
+      })
+
+    return delay({
+      ok: true,
+      data: {
+        assetId,
+        assetName: asset ? asset.assetName : assetId,
+        assetNo: asset ? asset.assetNo : '',
+        yearMonth: ym,
+        openCount: assetAlerts.filter(a => a.status === 'OPEN').length,
+        alerts: assetAlerts
+      }
+    })
+  },
+
+  // ========== 设备列表 ==========
+  listAssets() {
+    const list = assets.map(a => ({
+      assetId: a.assetId,
+      assetName: a.assetName,
+      assetNo: a.assetNo,
+      workshop: a.workshop,
+      status: a.status
+    }))
+    return delay({ ok: true, data: { list } })
   }
 }
 

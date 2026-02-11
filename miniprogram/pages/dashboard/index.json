@@ -1,4 +1,6 @@
 {
   "usingComponents": {},
-  "navigationBarTitleText": "看板"
+  "navigationBarTitleText": "看板",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark"
 }

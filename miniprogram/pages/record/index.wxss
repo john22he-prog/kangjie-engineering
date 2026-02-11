@@ -75,3 +75,29 @@
   color: var(--weui-FG-2);
   font-size: 26rpx;
 }
+
+/* 人员筛选标签 */
+.filter-tag-bar {
+  padding: 0 24rpx 16rpx;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 10rpx 20rpx;
+  background: #E6F0FF;
+  color: #576B95;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+}
+
+.filter-tag-close {
+  font-size: 28rpx;
+  color: #999;
+  padding: 0 4rpx;
+}
+
+.filter-tag-close:active {
+  color: #333;
+}

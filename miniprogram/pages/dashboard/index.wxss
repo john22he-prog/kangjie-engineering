@@ -1,10 +1,92 @@
 /* pages/dashboard/index.wxss */
-.dash-title {
-  font-size: 34rpx;
-  font-weight: 600;
+
+/* 月份选择器 */
+.month-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24rpx 24rpx 8rpx;
+  gap: 32rpx;
 }
 
+.month-arrow {
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  font-weight: 600;
+  color: var(--weui-BRAND);
+  background: var(--weui-BG-1);
+  border-radius: 50%;
+}
+
+.month-arrow:active {
+  background: #e0e0e0;
+}
+
+.month-arrow-disabled {
+  color: var(--weui-FG-2);
+  opacity: 0.4;
+}
+
+.month-arrow-disabled:active {
+  background: var(--weui-BG-1);
+}
+
+.month-label {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: var(--weui-FG-0);
+  min-width: 200rpx;
+  text-align: center;
+}
+
+/* ========== M1 数字总览卡 ========== */
+.summary-card {
+  background: linear-gradient(135deg, #07C160 0%, #06AD56 100%);
+  color: #fff;
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+}
+
+.summary-item {
+  flex: 1;
+  text-align: center;
+  padding: 12rpx 0;
+}
+
+.summary-num {
+  font-size: 52rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.summary-alert {
+  color: #FFEB3B;
+}
+
+.summary-label {
+  font-size: 22rpx;
+  opacity: 0.9;
+  margin-top: 4rpx;
+}
+
+.summary-divider {
+  width: 1rpx;
+  height: 64rpx;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.summary-item.clickable:active {
+  opacity: 0.7;
+}
+
+/* ========== 通用卡片 ========== */
 .dash-card {
   margin-bottom: 4rpx;
 }
@@ -21,6 +103,75 @@
   font-weight: 500;
 }
 
+.dash-card-link {
+  font-size: 24rpx;
+  color: var(--weui-BRAND);
+}
+
+/* ========== M5 7天趋势图 ========== */
+.trend-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 240rpx;
+  padding-top: 40rpx;
+}
+
+.trend-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+}
+
+.trend-bar-wrap:active {
+  opacity: 0.7;
+}
+
+.trend-count {
+  font-size: 20rpx;
+  color: var(--weui-FG-1);
+  margin-bottom: 6rpx;
+  font-weight: 500;
+}
+
+.trend-bar {
+  width: 48rpx;
+  min-height: 8rpx;
+  background: var(--weui-BRAND);
+  border-radius: 6rpx 6rpx 0 0;
+  transition: height 0.3s ease;
+}
+
+.trend-bar-high {
+  background: #FA5151;
+}
+
+.trend-date {
+  font-size: 20rpx;
+  color: var(--weui-FG-2);
+  margin-top: 8rpx;
+}
+
+/* ========== M6 报警设备分布 ========== */
+.alert-device-item {
+  padding: 16rpx 0;
+}
+
+.alert-device-icon {
+  font-size: 28rpx;
+  margin-right: 8rpx;
+}
+
+.alert-count-text {
+  color: #FA5151;
+  font-weight: 500;
+}
+
+/* ========== 排行榜通用 ========== */
 .dash-rank-list {
   padding: 0;
 }
@@ -76,7 +227,7 @@
   border-radius: 8rpx;
 }
 
-/* 报警统计 */
+/* ========== 报警统计 ========== */
 .alert-summary {
   display: flex;
   margin-top: 16rpx;

@@ -16,6 +16,18 @@
     </picker>
   </view>
 
+  <!-- 筛选标签 -->
+  <view class="filter-tag-bar" wx:if="{{filters.userId || filters.filterDate}}">
+    <view class="filter-tag" wx:if="{{filters.userId}}">
+      <text>人员：{{filters.userName}}</text>
+      <text class="filter-tag-close" bindtap="onClearUserFilter">✕</text>
+    </view>
+    <view class="filter-tag" wx:if="{{filters.filterDate}}">
+      <text>日期：{{filters.filterDateLabel}}</text>
+      <text class="filter-tag-close" bindtap="onClearDateFilter">✕</text>
+    </view>
+  </view>
+
   <!-- 列表 -->
   <view class="record-list" wx:if="{{list.length > 0}}">
     <view class="card record-item" wx:for="{{list}}" wx:key="logId" bindtap="onItemTap" data-log="{{item}}">

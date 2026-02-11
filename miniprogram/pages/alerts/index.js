@@ -19,6 +19,15 @@ Page({
   },
 
   onShow() {
+    // 检查是否从看板跳转过来，带有筛选状态
+    const app = getApp()
+    if (app.globalData && app.globalData.alertFilterStatus) {
+      const status = app.globalData.alertFilterStatus
+      app.globalData.alertFilterStatus = null  // 用完即清
+      if (status !== this.data.tabStatus) {
+        this.setData({ tabStatus: status })
+      }
+    }
     this.loadList(true)
   },
 

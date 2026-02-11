@@ -10,6 +10,7 @@
     "pages/replace/form",
     "pages/dashboard/part-detail",
     "pages/dashboard/asset-detail",
+    "pages/dashboard/asset-alerts",
     "pages/data-manage/index"
   ],
   "window": {

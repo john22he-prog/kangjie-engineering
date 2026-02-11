@@ -1,25 +1,82 @@
 <!-- pages/dashboard/index.wxml -->
 <view class="page-container">
-  <view class="dash-title">本月概览 ({{yearMonth}})</view>
+  <!-- 月份选择器 -->
+  <view class="month-picker">
+    <view class="month-arrow" bindtap="onPrevMonth">‹</view>
+    <view class="month-label">{{yearMonth}}</view>
+    <view class="month-arrow {{isCurrentMonth ? 'month-arrow-disabled' : ''}}" bindtap="onNextMonth">›</view>
+  </view>
 
-  <!-- 报警统计 -->
+  <!-- M1 本月总览数字卡 -->
+  <view class="card dash-card summary-card">
+    <view class="summary-row">
+      <view class="summary-item">
+        <view class="summary-num">{{stats.totalLogs || 0}}</view>
+        <view class="summary-label">更换次数</view>
+      </view>
+      <view class="summary-divider"></view>
+      <view class="summary-item">
+        <view class="summary-num">{{stats.totalPartsQty || 0}}</view>
+        <view class="summary-label">配件总量</view>
+      </view>
+      <view class="summary-divider"></view>
+      <view class="summary-item clickable" bindtap="onOpenAlertsTap">
+        <view class="summary-num summary-alert">{{stats.openAlerts || 0}}</view>
+        <view class="summary-label">待处理报警 ›</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- M5 最近7天趋势 -->
+  <view class="card dash-card" wx:if="{{stats.dailyTrend.length > 0}}">
+    <view class="dash-card-header">
+      <text class="dash-card-title">最近 7 天更换趋势</text>
+    </view>
+    <view class="trend-chart">
+      <view class="trend-bar-wrap" wx:for="{{stats.dailyTrend}}" wx:key="date" bindtap="onTrendDayTap" data-item="{{item}}">
+        <text class="trend-count">{{item.count}}</text>
+        <view class="trend-bar {{item.isHigh ? 'trend-bar-high' : ''}}" style="height: {{item.barHeight}}rpx;"></view>
+        <text class="trend-date">{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- M6 报警设备分布 -->
+  <view class="card dash-card" wx:if="{{stats.alertsByAsset.length > 0}}">
+    <view class="dash-card-header">
+      <text class="dash-card-title">报警设备分布 (OPEN)</text>
+      <text class="dash-card-link" bindtap="onOpenAlertsTap">查看全部 ›</text>
+    </view>
+    <view class="dash-rank-list">
+      <view class="dash-rank-item alert-device-item clickable" wx:for="{{stats.alertsByAsset}}" wx:key="assetId" bindtap="onAlertAssetTap" data-item="{{item}}">
+        <text class="alert-device-icon">⚠</text>
+        <text class="rank-name">{{item.assetName}}</text>
+        <view class="rank-right">
+          <text class="rank-value alert-count-text">{{item.openCount}} 条报警</text>
+          <text class="rank-arrow">›</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 报警统计（待处理/已确认） -->
   <view class="card dash-card">
     <view class="dash-card-header">
-      <text class="dash-card-title">报警：{{stats.totalAlerts}} 次</text>
+      <text class="dash-card-title">报警统计：{{stats.totalAlerts}} 次</text>
     </view>
     <view class="alert-summary">
       <view class="alert-stat clickable" bindtap="onOpenAlertsTap">
         <view class="alert-stat-num open">{{stats.openAlerts}}</view>
         <view class="alert-stat-label">待处理 ›</view>
       </view>
-      <view class="alert-stat">
+      <view class="alert-stat clickable" bindtap="onAckAlertsTap">
         <view class="alert-stat-num ack">{{stats.totalAlerts - stats.openAlerts}}</view>
-        <view class="alert-stat-label">已确认</view>
+        <view class="alert-stat-label">已确认 ›</view>
       </view>
     </view>
   </view>
 
-  <!-- 配件消耗 TOP 10 -->
+  <!-- M2 配件消耗 TOP 10 -->
   <view class="card dash-card">
     <view class="dash-card-header">
       <text class="dash-card-title">配件消耗 TOP 10</text>
@@ -37,7 +94,7 @@
     </view>
   </view>
 
-  <!-- 设备更换 TOP 10 -->
+  <!-- M3 设备更换 TOP 10 -->
   <view class="card dash-card">
     <view class="dash-card-header">
       <text class="dash-card-title">设备更换 TOP 10</text>
@@ -55,17 +112,18 @@
     </view>
   </view>
 
-  <!-- 工程人员工作量 -->
+  <!-- M4 工程人员工作量 -->
   <view class="card dash-card">
     <view class="dash-card-header">
       <text class="dash-card-title">工程人员工作量</text>
     </view>
     <view class="dash-rank-list">
-      <view class="dash-rank-item" wx:for="{{stats.topEngineers}}" wx:key="index">
+      <view class="dash-rank-item clickable" wx:for="{{stats.topEngineers}}" wx:key="index" bindtap="onEngineerTap" data-item="{{item}}">
         <text class="rank-no">{{index + 1}}</text>
         <text class="rank-name">{{item.name}}</text>
         <view class="rank-right">
           <text class="rank-value">{{item.count}} 条</text>
+          <text class="rank-arrow">›</text>
         </view>
       </view>
       <view class="empty-state" wx:if="{{stats.topEngineers.length === 0}}">暂无数据</view>
