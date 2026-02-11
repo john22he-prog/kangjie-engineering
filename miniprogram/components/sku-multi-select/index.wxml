@@ -1,0 +1,62 @@
+<!-- components/sku-multi-select -->
+<view class="sku-select">
+  <!-- 添加配件按钮 -->
+  <view class="sku-add-btn" bindtap="openPicker" wx:if="{{!readonly}}">
+    <text class="sku-add-icon">+</text>
+    <text class="sku-add-text">选择配件 ({{selectedCount}}/{{availableSkus.length}})</text>
+  </view>
+
+  <!-- 已选配件列表 -->
+  <view class="sku-list" wx:if="{{innerValue.length > 0}}">
+    <view class="sku-item" wx:for="{{innerValue}}" wx:key="partSkuId">
+      <view class="sku-info">
+        <text class="sku-name">{{item.partName}}</text>
+        <text class="sku-code">{{item.partCode}}</text>
+      </view>
+      <view class="sku-qty-row">
+        <view class="stepper" wx:if="{{!readonly}}">
+          <view class="stepper-btn" bindtap="onMinus" data-index="{{index}}">-</view>
+          <input
+            class="stepper-input"
+            type="number"
+            value="{{item.qty}}"
+            bindinput="onQtyInput"
+            data-index="{{index}}"
+          />
+          <view class="stepper-btn" bindtap="onPlus" data-index="{{index}}">+</view>
+        </view>
+        <text class="sku-unit">{{item.unit}}</text>
+        <view class="sku-remove" bindtap="onRemove" data-index="{{index}}" wx:if="{{!readonly}}">✕</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空态 -->
+  <view class="sku-empty" wx:if="{{innerValue.length === 0 && availableSkus.length > 0}}">
+    <text>请选择配件</text>
+  </view>
+
+  <!-- 选择弹窗 -->
+  <view class="sku-mask" wx:if="{{showPicker}}" bindtap="closePicker"></view>
+  <view class="sku-picker {{showPicker ? 'show' : ''}}">
+    <view class="picker-header">
+      <text class="picker-title">选择配件</text>
+      <text class="picker-done" bindtap="closePicker">完成</text>
+    </view>
+    <view class="picker-list">
+      <view
+        class="picker-item {{item.selected ? 'selected' : ''}}"
+        wx:for="{{pickerItems}}"
+        wx:key="partSkuId"
+        bindtap="toggleItem"
+        data-index="{{index}}"
+      >
+        <view class="picker-check">{{item.selected ? '☑' : '☐'}}</view>
+        <view class="picker-info">
+          <text class="picker-name">{{item.partName}}</text>
+          <text class="picker-code">{{item.partCode}} · {{item.unit}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,44 @@
+/* components/offline-banner */
+.offline-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #FFF9ED;
+  border: 1rpx solid #FFE4A0;
+  border-radius: 12rpx;
+  margin: 16rpx 24rpx;
+  padding: 16rpx 20rpx;
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+}
+
+.banner-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #FF9500;
+  margin-right: 12rpx;
+}
+
+.banner-text {
+  font-size: 26rpx;
+  color: #996300;
+}
+
+.banner-btn {
+  font-size: 24rpx;
+  color: #FF9500;
+  background: transparent;
+  border: 1rpx solid #FF9500;
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+  line-height: 52rpx;
+  height: 52rpx;
+}
+
+.banner-btn.is-disabled {
+  opacity: 0.6;
+}

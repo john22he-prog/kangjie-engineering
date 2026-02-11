@@ -1,0 +1,13 @@
+# 微信开发者工具
+.idea/
+*.swp
+.DS_Store
+
+# 云函数依赖
+cloudfunctions/**/node_modules/
+
+# 小程序构建
+miniprogram_npm/
+
+# 临时文件
+*.log

@@ -1,0 +1,148 @@
+/* pages/dashboard/asset-detail.wxss */
+.detail-header {
+  text-align: center;
+  padding: 32rpx 24rpx;
+}
+
+.detail-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.detail-meta {
+  display: flex;
+  justify-content: center;
+  gap: 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.detail-code {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.detail-month {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.detail-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+.stat-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-num {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: var(--weui-FG-0);
+  line-height: 1.2;
+}
+
+.stat-num.green {
+  color: var(--weui-BRAND);
+}
+
+.stat-label {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.stat-divider {
+  width: 1rpx;
+  height: 60rpx;
+  background: var(--weui-BG-0);
+}
+
+.list-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  margin-bottom: 20rpx;
+  color: var(--weui-FG-1);
+}
+
+.detail-list {
+  /* list container */
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.detail-item:last-child {
+  border-bottom: none;
+}
+
+.detail-item-left {
+  display: flex;
+  align-items: center;
+  min-width: 260rpx;
+  flex-shrink: 0;
+}
+
+.item-rank {
+  width: 48rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--weui-BRAND);
+  flex-shrink: 0;
+}
+
+.item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-sub {
+  display: block;
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 2rpx;
+}
+
+.item-bar-wrap {
+  flex: 1;
+  height: 16rpx;
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  margin: 0 16rpx;
+  overflow: hidden;
+}
+
+.item-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #07C160, #06AD56);
+  border-radius: 8rpx;
+  min-width: 4rpx;
+}
+
+.item-qty {
+  font-size: 26rpx;
+  color: var(--weui-FG-0);
+  font-weight: 500;
+  min-width: 100rpx;
+  text-align: right;
+  flex-shrink: 0;
+}

@@ -1,0 +1,121 @@
+/* pages/dashboard/index.wxss */
+.dash-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  padding: 24rpx 24rpx 8rpx;
+}
+
+.dash-card {
+  margin-bottom: 4rpx;
+}
+
+.dash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.dash-card-title {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.dash-rank-list {
+  padding: 0;
+}
+
+.dash-rank-item {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.dash-rank-item:last-child {
+  border-bottom: none;
+}
+
+.rank-no {
+  width: 48rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--weui-BRAND);
+}
+
+.rank-name {
+  flex: 1;
+  font-size: 28rpx;
+}
+
+.rank-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.rank-value {
+  font-size: 26rpx;
+  color: var(--weui-FG-1);
+}
+
+.rank-arrow {
+  font-size: 32rpx;
+  color: var(--weui-FG-2);
+  margin-left: 8rpx;
+}
+
+.dash-rank-item.clickable {
+  position: relative;
+}
+
+.dash-rank-item.clickable:active {
+  background: #f5f5f5;
+  margin: 0 -24rpx;
+  padding: 12rpx 24rpx;
+  border-radius: 8rpx;
+}
+
+/* 报警统计 */
+.alert-summary {
+  display: flex;
+  margin-top: 16rpx;
+  gap: 24rpx;
+}
+
+.alert-stat {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 0;
+  background: var(--weui-BG-1);
+  border-radius: 12rpx;
+}
+
+.alert-stat-num {
+  font-size: 48rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.alert-stat-num.open {
+  color: #FA5151;
+}
+
+.alert-stat-num.ack {
+  color: #888;
+}
+
+.alert-stat-label {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+  margin-top: 4rpx;
+}
+
+.alert-stat.clickable {
+  border-radius: 12rpx;
+  position: relative;
+}
+
+.alert-stat.clickable:active {
+  opacity: 0.7;
+}

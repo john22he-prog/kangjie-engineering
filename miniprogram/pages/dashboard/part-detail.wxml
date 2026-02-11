@@ -1,0 +1,37 @@
+<!-- pages/dashboard/part-detail.wxml -->
+<view class="page-container">
+  <!-- 配件信息头部 -->
+  <view class="card detail-header">
+    <view class="detail-title">{{info.partName}}</view>
+    <view class="detail-meta">
+      <text class="detail-code">编号：{{info.partCode}}</text>
+      <text class="detail-month">{{info.yearMonth}}</text>
+    </view>
+    <view class="detail-total">
+      <text class="total-num">{{info.totalQty}}</text>
+      <text class="total-unit">{{info.unit}}</text>
+      <text class="total-label">本月总消耗</text>
+    </view>
+  </view>
+
+  <!-- 各设备用量排行 -->
+  <view class="card">
+    <view class="list-title">各设备使用量（从高到低）</view>
+    <view class="detail-list">
+      <view class="detail-item" wx:for="{{list}}" wx:key="assetId">
+        <view class="detail-item-left">
+          <text class="item-rank">{{index + 1}}</text>
+          <view class="item-info">
+            <text class="item-name">{{item.name}}</text>
+            <text class="item-sub">{{item.assetNo}}</text>
+          </view>
+        </view>
+        <view class="item-bar-wrap">
+          <view class="item-bar" style="width: {{item.percent}}%"></view>
+        </view>
+        <text class="item-qty">{{item.qty}} {{info.unit}}</text>
+      </view>
+    </view>
+    <view class="empty-state" wx:if="{{list.length === 0 && !loading}}">暂无数据</view>
+  </view>
+</view>

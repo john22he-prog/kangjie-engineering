@@ -1,0 +1,11 @@
+<!-- components/offline-banner -->
+<view class="offline-banner" wx:if="{{count > 0}}">
+  <view class="banner-left">
+    <view class="banner-dot"></view>
+    <text class="banner-text">未同步 {{count}} 条</text>
+  </view>
+  <view
+    class="banner-btn {{syncing ? 'is-disabled' : ''}}"
+    bindtap="onSyncTap"
+  >{{syncing ? '同步中...' : '立即同步'}}</view>
+</view>

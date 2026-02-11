@@ -1,0 +1,62 @@
+/* pages/scan/index.wxss */
+.scan-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 80rpx 0 40rpx;
+}
+
+.scan-btn {
+  width: 280rpx;
+  height: 280rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #07C160, #06AD56);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 32rpx rgba(7, 193, 96, 0.35);
+}
+
+.scan-btn:active {
+  opacity: 0.85;
+  transform: scale(0.96);
+}
+
+.scan-icon {
+  width: 80rpx;
+  height: 80rpx;
+  margin-bottom: 12rpx;
+}
+
+.scan-text {
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.scan-hint {
+  margin-top: 24rpx;
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+/* 开发模式 */
+.dev-entry {
+  margin-top: 20rpx;
+}
+
+.dev-btn {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+  font-size: 28rpx;
+  color: #576B95;
+}
+
+.dev-btn:active {
+  background: #f0f0f0;
+}
+
+.dev-btn:last-child {
+  border-bottom: none;
+}

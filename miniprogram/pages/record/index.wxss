@@ -1,0 +1,77 @@
+/* pages/record/index.wxss */
+.filter-bar {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+}
+
+.filter-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12rpx 0;
+}
+
+.filter-label {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+.filter-value {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  margin-top: 4rpx;
+}
+
+.record-item {
+  padding: 20rpx 24rpx;
+}
+
+.record-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.record-date {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+}
+
+.record-reporter {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.record-body {
+  margin-bottom: 8rpx;
+}
+
+.record-asset {
+  font-size: 30rpx;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 4rpx;
+}
+
+.record-location {
+  font-size: 26rpx;
+  color: var(--weui-FG-1);
+}
+
+.record-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.record-count {
+  font-size: 24rpx;
+  color: var(--weui-BRAND);
+}
+
+.loading-tip {
+  text-align: center;
+  padding: 40rpx;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+}

@@ -1,0 +1,29 @@
+<!-- components/image-uploader -->
+<view class="uploader">
+  <!-- 已上传图片列表 -->
+  <view class="uploader-list">
+    <view class="uploader-item" wx:for="{{innerFiles}}" wx:key="index">
+      <image class="uploader-img" src="{{item.url}}" mode="aspectFill" bindtap="onPreview" data-index="{{index}}" />
+      <view class="uploader-remove" bindtap="onRemove" data-index="{{index}}" wx:if="{{!readonly}}">✕</view>
+      <!-- 上传失败标记 -->
+      <view class="uploader-retry" wx:if="{{item.status === 'error'}}" bindtap="onRetry" data-index="{{index}}">
+        <text>重试</text>
+      </view>
+      <!-- 上传中 -->
+      <view class="uploader-loading" wx:if="{{item.status === 'uploading'}}">
+        <text>上传中</text>
+      </view>
+    </view>
+
+    <!-- 添加按钮 -->
+    <view class="uploader-add" bindtap="onChoose" wx:if="{{!readonly && innerFiles.length < maxCount}}">
+      <text class="uploader-add-icon">+</text>
+      <text class="uploader-add-text">{{innerFiles.length}}/{{maxCount}}</text>
+    </view>
+  </view>
+
+  <!-- 提示 -->
+  <view class="uploader-tip" wx:if="{{!readonly}}">
+    <text>至少上传 {{minCount}} 张照片</text>
+  </view>
+</view>

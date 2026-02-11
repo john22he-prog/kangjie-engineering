@@ -1,0 +1,26 @@
+<!-- pages/scan/index.wxml -->
+<view class="page-container">
+  <!-- 离线提示 -->
+  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+  <!-- 扫码大按钮 -->
+  <view class="scan-hero">
+    <view class="scan-btn" bindtap="onScan">
+      <image class="scan-icon" src="/images/tab/scan.png" mode="aspectFit" />
+      <text class="scan-text">扫码录入</text>
+    </view>
+    <text class="scan-hint">扫描设备二维码，快速录入更换记录</text>
+  </view>
+
+  <!-- 开发模式快捷入口（正式上线删除） -->
+  <view class="card dev-entry" wx:if="{{devMode}}">
+    <view class="section-title">开发调试 · 快速跳转</view>
+    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-001">ZB-001 隧道式洗衣龙1号</view>
+    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-002">ZB-002 隧道式洗衣龙2号</view>
+    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-003">ZB-003 烘干机1号</view>
+  </view>
+
+  <!-- 最近设备 -->
+  <view class="section-title" wx:if="{{lastAsset}}">最近扫描的设备</view>
+  <asset-card wx:if="{{lastAsset}}" asset="{{lastAsset}}" clickable="{{true}}" bind:tap="onAssetTap" />
+</view>

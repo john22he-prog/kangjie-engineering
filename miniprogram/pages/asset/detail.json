@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "asset-card": "/components/asset-card/index",
+    "offline-banner": "/components/offline-banner/index"
+  },
+  "navigationBarTitleText": "设备详情"
+}

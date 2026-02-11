@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "sku-multi-select": "/components/sku-multi-select/index",
+    "image-uploader": "/components/image-uploader/index"
+  },
+  "navigationBarTitleText": "更换配件"
+}

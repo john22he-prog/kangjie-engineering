@@ -1,0 +1,41 @@
+<!-- pages/record/index.wxml -->
+<view class="page-container">
+  <!-- 筛选栏 -->
+  <view class="filter-bar card">
+    <picker mode="date" fields="month" value="{{filters.yearMonth}}" bindchange="onMonthChange">
+      <view class="filter-item">
+        <text class="filter-label">月份</text>
+        <text class="filter-value">{{filters.yearMonth || '选择月份'}}</text>
+      </view>
+    </picker>
+    <picker range="{{assetOptions}}" range-key="assetName" value="{{assetPickerIndex}}" bindchange="onAssetFilter">
+      <view class="filter-item">
+        <text class="filter-label">设备</text>
+        <text class="filter-value">{{filters.assetName || '全部设备'}}</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- 列表 -->
+  <view class="record-list" wx:if="{{list.length > 0}}">
+    <view class="card record-item" wx:for="{{list}}" wx:key="logId" bindtap="onItemTap" data-log="{{item}}">
+      <view class="record-header">
+        <text class="record-date">{{item.displayDate}}</text>
+        <text class="record-reporter">{{item.reporterNameSnapshot}}</text>
+      </view>
+      <view class="record-body">
+        <text class="record-asset">{{item.assetNameSnapshot}} ({{item.assetNoSnapshot}})</text>
+        <text class="record-location">部位：{{item.locationNameSnapshot}}</text>
+      </view>
+      <view class="record-footer">
+        <text class="record-count">{{item.items.length}}种配件，共{{item.totalQty}}件</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空态 -->
+  <view class="empty-state" wx:if="{{!loading && list.length === 0}}">暂无记录</view>
+
+  <!-- 加载 -->
+  <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
+</view>

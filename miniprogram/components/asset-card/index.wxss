@@ -1,0 +1,57 @@
+/* components/asset-card */
+.asset-card {
+  background: #fff;
+  border-radius: 16rpx;
+  margin: 20rpx 24rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,.04);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.asset-card.clickable {
+  position: relative;
+}
+
+.asset-card.clickable:active {
+  background: #f7f7f7;
+}
+
+.asset-name {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #000;
+  margin-bottom: 8rpx;
+}
+
+.asset-no {
+  font-size: 26rpx;
+  color: rgba(0,0,0,.55);
+  margin-bottom: 4rpx;
+}
+
+.asset-extra {
+  margin-top: 8rpx;
+}
+
+.asset-workshop {
+  font-size: 24rpx;
+  color: rgba(0,0,0,.3);
+}
+
+.asset-status {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+}
+
+.asset-card.empty {
+  justify-content: center;
+  align-items: center;
+  padding: 40rpx;
+}
+
+.empty-text {
+  color: rgba(0,0,0,.3);
+  font-size: 28rpx;
+}

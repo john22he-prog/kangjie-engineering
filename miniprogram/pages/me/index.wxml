@@ -1,0 +1,50 @@
+<!-- pages/me/index.wxml -->
+<view class="page-container">
+  <!-- 用户信息 -->
+  <view class="card user-card">
+    <view class="user-name">{{userInfo.displayName || '未登录'}}</view>
+    <view class="user-role">
+      <view class="tag tag-active">{{userInfo.role || '--'}}</view>
+    </view>
+  </view>
+
+  <!-- 离线队列 -->
+  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+  <!-- 数据管理（仅主管/管理员可见） -->
+  <view class="card" wx:if="{{canManage}}">
+    <view class="me-cell" bindtap="onDataManage">
+      <view class="me-cell-left">
+        <text class="me-cell-icon">📊</text>
+        <view>
+          <text class="me-cell-title">数据管理</text>
+          <text class="me-cell-desc">导入配件/阈值/记录，导出报表</text>
+        </view>
+      </view>
+      <text class="me-cell-arrow">›</text>
+    </view>
+  </view>
+
+  <!-- 角色切换（开发测试用，正式上线删除） -->
+  <view class="card" wx:if="{{devMode}}">
+    <view class="me-cell-header">切换角色（开发调试）</view>
+    <view
+      class="me-cell {{item.userId === userInfo.userId ? 'me-cell-active' : ''}}"
+      wx:for="{{mockUsers}}"
+      wx:key="userId"
+      bindtap="onSwitchRole"
+      data-userid="{{item.userId}}"
+    >
+      <text>{{item.displayName}}</text>
+      <text class="me-cell-value">{{item.role}}</text>
+    </view>
+  </view>
+
+  <!-- 功能列表 -->
+  <view class="card">
+    <view class="me-cell" bindtap="onAbout">
+      <text>关于</text>
+      <text class="me-cell-value">v1.0.0</text>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,104 @@
+/* pages/alerts/index.wxss */
+.filter-bar {
+  display: flex;
+}
+
+.filter-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12rpx 0;
+}
+
+.filter-label {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+.filter-value {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  margin-top: 4rpx;
+}
+
+.tab-bar {
+  display: flex;
+  background: #fff;
+  margin: 0 24rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.tab-item {
+  flex: 1;
+  text-align: center;
+  padding: 20rpx 0;
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+  position: relative;
+}
+
+.tab-active {
+  color: var(--weui-BRAND);
+  font-weight: 600;
+}
+
+.tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 30%;
+  width: 40%;
+  height: 4rpx;
+  background: var(--weui-BRAND);
+  border-radius: 2rpx;
+}
+
+.alert-item {
+  padding: 20rpx 24rpx;
+}
+
+.alert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+
+.alert-asset {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.alert-body {
+  margin-bottom: 8rpx;
+}
+
+.alert-part {
+  display: block;
+  font-size: 26rpx;
+  color: var(--weui-FG-1);
+  margin-bottom: 4rpx;
+}
+
+.alert-usage {
+  font-size: 26rpx;
+  color: #FA5151;
+}
+
+.alert-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.alert-month {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.loading-tip {
+  text-align: center;
+  padding: 40rpx;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+}

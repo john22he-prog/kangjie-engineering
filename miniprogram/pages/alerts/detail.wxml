@@ -1,0 +1,61 @@
+<!-- pages/alerts/detail.wxml -->
+<view class="page-container">
+  <view class="card">
+    <view class="detail-row">
+      <text class="detail-label">设备</text>
+      <text class="detail-value">{{alert.assetName || alert.assetId}}</text>
+    </view>
+    <view class="detail-row">
+      <text class="detail-label">配件</text>
+      <text class="detail-value">{{alert.partName || alert.partSkuId}}</text>
+    </view>
+    <view class="detail-row">
+      <text class="detail-label">月份</text>
+      <text class="detail-value">{{alert.yearMonth}}</text>
+    </view>
+    <view class="detail-row">
+      <text class="detail-label">当前累计</text>
+      <text class="detail-value warn">{{alert.currentQty}}</text>
+    </view>
+    <view class="detail-row">
+      <text class="detail-label">月度阈值</text>
+      <text class="detail-value">{{alert.thresholdValue}}</text>
+    </view>
+    <view class="detail-row">
+      <text class="detail-label">状态</text>
+      <view class="tag {{alert.status === 'OPEN' ? 'tag-open' : 'tag-ack'}}">{{alert.status === 'OPEN' ? '待处理' : '已确认'}}</view>
+    </view>
+    <view class="detail-row" wx:if="{{alert.status === 'ACK'}}">
+      <text class="detail-label">确认说明</text>
+      <text class="detail-value">{{alert.ackNote}}</text>
+    </view>
+    <view class="detail-row" wx:if="{{alert.status === 'ACK' && alert.ackByName}}">
+      <text class="detail-label">确认人</text>
+      <text class="detail-value">{{alert.ackByName}}</text>
+    </view>
+  </view>
+
+  <!-- 确认区域：OPEN 状态时所有人可见 -->
+  <view class="card ack-section" wx:if="{{alert.status === 'OPEN'}}">
+    <view class="ack-title">确认处理</view>
+    <textarea
+      class="ack-textarea"
+      placeholder="请填写确认说明（必填）"
+      value="{{ackNote}}"
+      bindinput="onAckInput"
+      maxlength="500"
+    />
+    <button
+      class="btn-primary ack-btn"
+      disabled="{{!ackNote || submitting}}"
+      loading="{{submitting}}"
+      bindtap="onAck"
+    >已知晓</button>
+  </view>
+
+  <!-- 已确认提示 -->
+  <view class="card done-section" wx:if="{{alert.status === 'ACK'}}">
+    <view class="done-icon">✓</view>
+    <view class="done-text">该报警已确认处理</view>
+  </view>
+</view>

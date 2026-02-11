@@ -1,0 +1,29 @@
+<!-- pages/asset/detail.wxml -->
+<view class="page-container">
+  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+  <!-- 设备卡片 -->
+  <asset-card asset="{{asset}}" clickable="{{false}}" />
+
+  <!-- 操作按钮 -->
+  <view class="action-bar" wx:if="{{canWrite}}">
+    <button class="btn-primary" bindtap="onReplace">更换配件</button>
+  </view>
+
+  <!-- 最近记录 -->
+  <view class="section-title">最近更换记录</view>
+  <view class="record-list" wx:if="{{recentLogs.length > 0}}">
+    <view class="card record-item" wx:for="{{recentLogs}}" wx:key="logId" bindtap="onLogTap" data-log="{{item}}">
+      <view class="record-header">
+        <text class="record-date">{{item.displayDate}}</text>
+        <text class="record-reporter">{{item.reporterNameSnapshot}}</text>
+      </view>
+      <view class="record-body">
+        <text class="record-location">部位：{{item.locationNameSnapshot}}</text>
+        <text class="record-count">{{item.items.length}}种配件，共{{item.totalQty}}件</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty-state" wx:if="{{!loading && recentLogs.length === 0}}">暂无更换记录</view>
+</view>

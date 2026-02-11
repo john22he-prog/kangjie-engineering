@@ -1,0 +1,90 @@
+<!-- pages/replace/form.wxml -->
+<view class="page-container">
+  <!-- 固定区（不可编辑） -->
+  <view class="card">
+    <view class="form-row readonly">
+      <text class="form-label">设备ID</text>
+      <text class="form-value">{{assetId}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">设备名称</text>
+      <text class="form-value">{{assetName}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">设备编号</text>
+      <text class="form-value">{{assetNo}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">填报人</text>
+      <text class="form-value">{{reporterName}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">提交时间</text>
+      <text class="form-value">{{displayDate}}</text>
+    </view>
+  </view>
+
+  <!-- 可填区 -->
+  <view class="card">
+    <!-- 更换类型 -->
+    <picker range="{{typeOptions}}" value="{{typeIndex}}" bindchange="onTypeChange">
+      <view class="form-row">
+        <text class="form-label required">更换类型</text>
+        <text class="form-value {{type ? '' : 'placeholder'}}">{{type || '请选择更换类型'}}</text>
+      </view>
+    </picker>
+
+    <!-- 部位选择 -->
+    <picker range="{{locations}}" range-key="locationName" value="{{locationIndex}}" bindchange="onLocationChange">
+      <view class="form-row">
+        <text class="form-label required">部位</text>
+        <text class="form-value {{locationId ? '' : 'placeholder'}}">{{locationName || '请选择部位'}}</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- SKU 多选 -->
+  <view class="card" wx:if="{{locationId}}">
+    <view class="form-section-title">选择配件</view>
+    <sku-multi-select
+      availableSkus="{{availableSkus}}"
+      value="{{selectedSkus}}"
+      readonly="{{false}}"
+      bind:change="onSkuChange"
+    />
+  </view>
+
+  <!-- 备注 -->
+  <view class="card">
+    <view class="form-section-title">备注</view>
+    <textarea
+      class="form-textarea"
+      placeholder="选填备注说明"
+      value="{{remark}}"
+      bindinput="onRemarkInput"
+      maxlength="500"
+    />
+  </view>
+
+  <!-- 图片上传 -->
+  <view class="card">
+    <view class="form-section-title required">上传照片（至少1张）</view>
+    <image-uploader
+      minCount="{{1}}"
+      maxCount="{{9}}"
+      value="{{images}}"
+      readonly="{{false}}"
+      bind:change="onImageChange"
+    />
+  </view>
+
+  <!-- 提交按钮 -->
+  <view class="submit-bar">
+    <button
+      class="btn-primary submit-btn"
+      disabled="{{!canSubmit || submitting}}"
+      loading="{{submitting}}"
+      bindtap="onSubmit"
+    >提交</button>
+  </view>
+</view>

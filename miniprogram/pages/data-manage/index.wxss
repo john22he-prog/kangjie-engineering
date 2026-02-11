@@ -1,0 +1,282 @@
+/* pages/data-manage/index.wxss */
+.section-hint {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  padding: 0 32rpx 16rpx;
+  margin-top: -8rpx;
+}
+
+.manage-card {
+  padding: 24rpx;
+}
+
+.manage-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.manage-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  font-weight: 700;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.import-icon {
+  background: #E8F8EE;
+  color: #07C160;
+}
+
+.export-icon {
+  background: #E6F0FF;
+  color: #576B95;
+}
+
+.manage-info {
+  flex: 1;
+}
+
+.manage-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.manage-desc {
+  display: block;
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.manage-template {
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  padding: 16rpx 20rpx;
+  margin-bottom: 16rpx;
+}
+
+.template-label {
+  font-size: 22rpx;
+  color: var(--weui-FG-1);
+  font-weight: 500;
+}
+
+.template-fields {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+.manage-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.manage-btn {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 0;
+  border-radius: 8rpx;
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.manage-btn-outline {
+  border: 1rpx solid var(--weui-FG-2);
+  color: var(--weui-FG-1);
+}
+
+.manage-btn-outline:active {
+  background: var(--weui-BG-1);
+}
+
+.manage-btn-primary {
+  background: var(--weui-BRAND);
+  color: #fff;
+}
+
+.manage-btn-primary:active {
+  opacity: 0.8;
+}
+
+.manage-btn-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ========== 旧版简单结果展示（导出用） ========== */
+.manage-result {
+  margin-top: 12rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 8rpx;
+  background: var(--weui-BG-1);
+}
+
+.result-text {
+  font-size: 24rpx;
+}
+
+.result-ok {
+  color: #07C160;
+}
+
+.result-err {
+  color: #FA5151;
+}
+
+/* ========== 导入去重结果展示 ========== */
+.import-result {
+  margin-top: 16rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+  border: 1rpx solid #eee;
+}
+
+.import-result-header {
+  padding: 16rpx 20rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.result-header-ok {
+  background: #e8f5e9;
+  color: #07C160;
+}
+
+.result-header-err {
+  background: #fde8e8;
+  color: #FA5151;
+}
+
+/* 统计数字卡片 */
+.import-result-body {
+  padding: 16rpx 20rpx;
+}
+
+.result-stat {
+  display: flex;
+  gap: 12rpx;
+}
+
+.stat-item {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 8rpx;
+  border-radius: 8rpx;
+  background: #f9f9f9;
+}
+
+.stat-num {
+  display: block;
+  font-size: 40rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat-label {
+  display: block;
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.stat-inserted .stat-num {
+  color: #07C160;
+}
+
+.stat-skipped .stat-num {
+  color: #576B95;
+}
+
+.stat-error .stat-num {
+  color: #FA5151;
+}
+
+/* 详细信息 */
+.import-result-detail {
+  padding: 12rpx 20rpx 16rpx;
+  border-top: 1rpx solid #f0f0f0;
+}
+
+.result-text-detail {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* ========== 月/年切换按钮 ========== */
+.mode-toggle {
+  display: flex;
+  border: 2rpx solid #ddd;
+  border-radius: 8rpx;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-left: 12rpx;
+}
+
+.mode-btn {
+  padding: 8rpx 28rpx;
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+  background: #fff;
+  line-height: 1.4;
+}
+
+.mode-btn:first-child {
+  border-right: 2rpx solid #ddd;
+}
+
+.mode-active {
+  background: var(--weui-BRAND);
+  color: #fff;
+}
+
+/* ========== 导出行 ========== */
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.export-date-btn {
+  padding: 20rpx 28rpx;
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--weui-FG-0);
+  min-width: 200rpx;
+  text-align: center;
+}
+
+.export-date-btn:active {
+  background: #e8e8e8;
+}
+
+.export-go-btn {
+  padding: 20rpx 48rpx;
+  background: var(--weui-BRAND);
+  color: #fff;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.export-go-btn:active {
+  opacity: 0.8;
+}
+
+.export-go-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

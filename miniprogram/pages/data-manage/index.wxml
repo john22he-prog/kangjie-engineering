@@ -1,0 +1,211 @@
+<!-- pages/data-manage/index.wxml -->
+<view class="page-container">
+  <!-- 导入区 -->
+  <view class="section-title">数据导入</view>
+  <view class="section-hint">导入时自动检查去重：已存在的记录会跳过，只写入新数据</view>
+
+  <!-- 配件字典导入 -->
+  <view class="card manage-card">
+    <view class="manage-header">
+      <view class="manage-icon import-icon">↑</view>
+      <view class="manage-info">
+        <text class="manage-title">配件字典导入</text>
+        <text class="manage-desc">批量导入/更新配件 SKU 信息（按配件ID去重）</text>
+      </view>
+    </view>
+    <view class="manage-template">
+      <text class="template-label">模板字段：</text>
+      <text class="template-fields">配件ID、配件名称、配件编号、单位、规格型号、启用状态</text>
+    </view>
+    <view class="manage-actions">
+      <view class="manage-btn manage-btn-outline" bindtap="onDownloadTemplate" data-type="parts">下载模板</view>
+      <view class="manage-btn manage-btn-primary {{uploading === 'parts' ? 'manage-btn-loading' : ''}}" bindtap="onUpload" data-type="parts">
+        <text wx:if="{{uploading === 'parts'}}">导入中...</text>
+        <text wx:else>选择文件导入</text>
+      </view>
+    </view>
+    <!-- 导入结果 -->
+    <view class="import-result" wx:if="{{results.parts}}">
+      <view class="import-result-header {{results.parts.ok ? 'result-header-ok' : 'result-header-err'}}">
+        <text wx:if="{{results.parts.ok}}">导入完成</text>
+        <text wx:else>导入失败</text>
+      </view>
+      <view class="import-result-body" wx:if="{{results.parts.ok}}">
+        <view class="result-stat">
+          <view class="stat-item stat-inserted">
+            <text class="stat-num">{{results.parts.inserted || 0}}</text>
+            <text class="stat-label">新增</text>
+          </view>
+          <view class="stat-item stat-skipped">
+            <text class="stat-num">{{results.parts.skipped || 0}}</text>
+            <text class="stat-label">已存在跳过</text>
+          </view>
+          <view class="stat-item stat-error" wx:if="{{results.parts.errorCount > 0}}">
+            <text class="stat-num">{{results.parts.errorCount}}</text>
+            <text class="stat-label">校验失败</text>
+          </view>
+        </view>
+      </view>
+      <view class="import-result-detail">
+        <text class="result-text-detail">{{results.parts.message}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 阈值配置导入 -->
+  <view class="card manage-card">
+    <view class="manage-header">
+      <view class="manage-icon import-icon">↑</view>
+      <view class="manage-info">
+        <text class="manage-title">阈值配置导入</text>
+        <text class="manage-desc">批量设置配件月度阈值（按设备+配件去重）</text>
+      </view>
+    </view>
+    <view class="manage-template">
+      <text class="template-label">模板字段：</text>
+      <text class="template-fields">设备ID、配件ID、月度阈值、启用状态</text>
+    </view>
+    <view class="manage-actions">
+      <view class="manage-btn manage-btn-outline" bindtap="onDownloadTemplate" data-type="thresholds">下载模板</view>
+      <view class="manage-btn manage-btn-primary {{uploading === 'thresholds' ? 'manage-btn-loading' : ''}}" bindtap="onUpload" data-type="thresholds">
+        <text wx:if="{{uploading === 'thresholds'}}">导入中...</text>
+        <text wx:else>选择文件导入</text>
+      </view>
+    </view>
+    <view class="import-result" wx:if="{{results.thresholds}}">
+      <view class="import-result-header {{results.thresholds.ok ? 'result-header-ok' : 'result-header-err'}}">
+        <text wx:if="{{results.thresholds.ok}}">导入完成</text>
+        <text wx:else>导入失败</text>
+      </view>
+      <view class="import-result-body" wx:if="{{results.thresholds.ok}}">
+        <view class="result-stat">
+          <view class="stat-item stat-inserted">
+            <text class="stat-num">{{results.thresholds.inserted || 0}}</text>
+            <text class="stat-label">新增</text>
+          </view>
+          <view class="stat-item stat-skipped">
+            <text class="stat-num">{{results.thresholds.skipped || 0}}</text>
+            <text class="stat-label">已存在跳过</text>
+          </view>
+          <view class="stat-item stat-error" wx:if="{{results.thresholds.errorCount > 0}}">
+            <text class="stat-num">{{results.thresholds.errorCount}}</text>
+            <text class="stat-label">校验失败</text>
+          </view>
+        </view>
+      </view>
+      <view class="import-result-detail">
+        <text class="result-text-detail">{{results.thresholds.message}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 更换记录导入 -->
+  <view class="card manage-card">
+    <view class="manage-header">
+      <view class="manage-icon import-icon">↑</view>
+      <view class="manage-info">
+        <text class="manage-title">历史记录导入</text>
+        <text class="manage-desc">批量导入更换记录（按设备+日期+部位+配件+数量去重）</text>
+      </view>
+    </view>
+    <view class="manage-template">
+      <text class="template-label">模板字段：</text>
+      <text class="template-fields">设备ID、日期、更换类型、部位ID、配件ID、数量、备注</text>
+    </view>
+    <view class="manage-actions">
+      <view class="manage-btn manage-btn-outline" bindtap="onDownloadTemplate" data-type="logs">下载模板</view>
+      <view class="manage-btn manage-btn-primary {{uploading === 'logs' ? 'manage-btn-loading' : ''}}" bindtap="onUpload" data-type="logs">
+        <text wx:if="{{uploading === 'logs'}}">导入中...</text>
+        <text wx:else>选择文件导入</text>
+      </view>
+    </view>
+    <view class="import-result" wx:if="{{results.logs}}">
+      <view class="import-result-header {{results.logs.ok ? 'result-header-ok' : 'result-header-err'}}">
+        <text wx:if="{{results.logs.ok}}">导入完成</text>
+        <text wx:else>导入失败</text>
+      </view>
+      <view class="import-result-body" wx:if="{{results.logs.ok}}">
+        <view class="result-stat">
+          <view class="stat-item stat-inserted">
+            <text class="stat-num">{{results.logs.inserted || 0}}</text>
+            <text class="stat-label">新增</text>
+          </view>
+          <view class="stat-item stat-skipped">
+            <text class="stat-num">{{results.logs.skipped || 0}}</text>
+            <text class="stat-label">已存在跳过</text>
+          </view>
+          <view class="stat-item stat-error" wx:if="{{results.logs.errorCount > 0}}">
+            <text class="stat-num">{{results.logs.errorCount}}</text>
+            <text class="stat-label">校验失败</text>
+          </view>
+        </view>
+      </view>
+      <view class="import-result-detail">
+        <text class="result-text-detail">{{results.logs.message}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 分割线 -->
+  <view class="section-title">报表导出</view>
+
+  <!-- 导出更换记录 -->
+  <view class="card manage-card">
+    <view class="manage-header">
+      <view class="manage-icon export-icon">↓</view>
+      <view class="manage-info">
+        <text class="manage-title">导出更换记录</text>
+        <text class="manage-desc">导出所有更换记录为 Excel</text>
+      </view>
+      <view class="mode-toggle">
+        <view class="mode-btn {{logMode === 'month' ? 'mode-active' : ''}}" bindtap="onToggleLogMode" data-mode="month">月</view>
+        <view class="mode-btn {{logMode === 'year' ? 'mode-active' : ''}}" bindtap="onToggleLogMode" data-mode="year">年</view>
+      </view>
+    </view>
+    <view class="export-row">
+      <picker wx:if="{{logMode === 'month'}}" mode="date" fields="month" value="{{exportLogValue}}" bindchange="onLogValueChange">
+        <view class="export-date-btn">{{exportLogValue}}</view>
+      </picker>
+      <picker wx:else mode="date" fields="year" value="{{exportLogValue}}" bindchange="onLogValueChange">
+        <view class="export-date-btn">{{exportLogValue}} 年</view>
+      </picker>
+      <view class="export-go-btn {{exporting === 'logs' ? 'export-go-disabled' : ''}}" bindtap="onExport" data-type="logs">
+        <text wx:if="{{exporting === 'logs'}}">导出中...</text>
+        <text wx:else>导出</text>
+      </view>
+    </view>
+    <view class="manage-result" wx:if="{{results.exportLogs}}">
+      <text class="result-text {{results.exportLogs.ok ? 'result-ok' : 'result-err'}}">{{results.exportLogs.message}}</text>
+    </view>
+  </view>
+
+  <!-- 导出报警记录 -->
+  <view class="card manage-card">
+    <view class="manage-header">
+      <view class="manage-icon export-icon">↓</view>
+      <view class="manage-info">
+        <text class="manage-title">导出报警记录</text>
+        <text class="manage-desc">导出超阈值报警数据为 Excel</text>
+      </view>
+      <view class="mode-toggle">
+        <view class="mode-btn {{alertMode === 'month' ? 'mode-active' : ''}}" bindtap="onToggleAlertMode" data-mode="month">月</view>
+        <view class="mode-btn {{alertMode === 'year' ? 'mode-active' : ''}}" bindtap="onToggleAlertMode" data-mode="year">年</view>
+      </view>
+    </view>
+    <view class="export-row">
+      <picker wx:if="{{alertMode === 'month'}}" mode="date" fields="month" value="{{exportAlertValue}}" bindchange="onAlertValueChange">
+        <view class="export-date-btn">{{exportAlertValue}}</view>
+      </picker>
+      <picker wx:else mode="date" fields="year" value="{{exportAlertValue}}" bindchange="onAlertValueChange">
+        <view class="export-date-btn">{{exportAlertValue}} 年</view>
+      </picker>
+      <view class="export-go-btn {{exporting === 'alerts' ? 'export-go-disabled' : ''}}" bindtap="onExport" data-type="alerts">
+        <text wx:if="{{exporting === 'alerts'}}">导出中...</text>
+        <text wx:else>导出</text>
+      </view>
+    </view>
+    <view class="manage-result" wx:if="{{results.exportAlerts}}">
+      <text class="result-text {{results.exportAlerts.ok ? 'result-ok' : 'result-err'}}">{{results.exportAlerts.message}}</text>
+    </view>
+  </view>
+</view>

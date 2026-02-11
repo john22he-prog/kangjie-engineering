@@ -1,0 +1,203 @@
+// 云函数：submitReplacementLog — 核心：写入+汇总+报警
+const cloud = require('wx-server-sdk')
+cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
+const db = cloud.database()
+const _ = db.command
+
+exports.main = async (event, context) => {
+  try {
+    const wxContext = cloud.getWXContext()
+    const openid = wxContext.OPENID
+    const now = Date.now()
+
+    // ========== 1) 权限校验 ==========
+    const { data: users } = await db.collection('users').where({ openid, status: 'active' }).limit(1).get()
+    if (users.length === 0) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '未绑定或账号已禁用' } }
+    }
+    const user = users[0]
+    if (user.role !== 'Engineer') {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅工程人员可提交' } }
+    }
+
+    // ========== 2) 入参校验 ==========
+    const { assetId, type, locationId, selectedPartSkuIds, qtyMap, remark, images, clientOfflineId } = event
+
+    if (!clientOfflineId) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 clientOfflineId' } }
+    }
+    if (!assetId || !type || !locationId) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段' } }
+    }
+    if (!['维修', '预防', '紧急'].includes(type)) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '更换类型无效' } }
+    }
+    if (!Array.isArray(selectedPartSkuIds) || selectedPartSkuIds.length === 0) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少 1 个配件' } }
+    }
+    if (!qtyMap || typeof qtyMap !== 'object') {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少数量信息' } }
+    }
+    // 验证 qty
+    for (const skuId of selectedPartSkuIds) {
+      const qty = qtyMap[skuId]
+      if (!qty || !Number.isInteger(qty) || qty < 1) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数量必须为正整数' } }
+      }
+    }
+    if (!Array.isArray(images) || images.length < 1) {
+      return { ok: false, error: { code: 'UPLOAD_REQUIRED', message: '至少上传 1 张照片' } }
+    }
+
+    // ========== 3) 幂等检查 ==========
+    const { data: existingLogs } = await db.collection('replacement_logs')
+      .where({ clientOfflineId })
+      .limit(1)
+      .get()
+    if (existingLogs.length > 0) {
+      return { ok: true, data: { logId: existingLogs[0].logId, yearMonth: existingLogs[0].yearMonth, duplicate: true } }
+    }
+
+    // ========== 4) 数据校验：设备、部位、映射 ==========
+    const { data: assets } = await db.collection('assets').where({ assetId, status: 'active' }).limit(1).get()
+    if (assets.length === 0) {
+      return { ok: false, error: { code: 'ASSET_NOT_FOUND', message: '设备不存在或已停用' } }
+    }
+    const asset = assets[0]
+
+    const { data: locs } = await db.collection('asset_locations').where({ locationId, assetId, active: true }).limit(1).get()
+    if (locs.length === 0) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '部位不存在或不属于该设备' } }
+    }
+    const location = locs[0]
+
+    // 映射校验
+    const { data: validMappings } = await db.collection('location_part_map')
+      .where({ assetId, locationId, active: true })
+      .get()
+    const validSkuIds = new Set(validMappings.map(m => m.partSkuId))
+    for (const skuId of selectedPartSkuIds) {
+      if (!validSkuIds.has(skuId)) {
+        return { ok: false, error: { code: 'MAPPING_INVALID', message: `配件 ${skuId} 不在该部位的可用列表中` } }
+      }
+    }
+
+    // 查配件快照
+    const partsSnapshot = {}
+    for (let i = 0; i < selectedPartSkuIds.length; i += 20) {
+      const batch = selectedPartSkuIds.slice(i, i + 20)
+      const { data: batchParts } = await db.collection('parts').where({ partSkuId: _.in(batch) }).get()
+      batchParts.forEach(p => { partsSnapshot[p.partSkuId] = p })
+    }
+
+    // ========== 5) 服务端重写 & 写入 ==========
+    const yearMonth = getYearMonth(now)
+    const logId = `log_${now}_${Math.random().toString(36).slice(2, 8)}`
+
+    const items = selectedPartSkuIds.map(skuId => {
+      const part = partsSnapshot[skuId] || {}
+      return {
+        partSkuId: skuId,
+        partNameSnapshot: part.partName || skuId,
+        partCodeSnapshot: part.partCode || '',
+        qty: qtyMap[skuId]
+      }
+    })
+
+    const logDoc = {
+      logId,
+      assetId: asset.assetId,
+      assetNameSnapshot: asset.assetName,
+      assetNoSnapshot: asset.assetNo,
+      reporterUserIdSnapshot: user.userId,
+      reporterNameSnapshot: user.displayName,
+      ts: now,
+      yearMonth,
+      type,
+      locationIdSnapshot: locationId,
+      locationNameSnapshot: location.locationName,
+      items,
+      remark: remark || '',
+      images,
+      clientOfflineId,
+      createdAt: now
+    }
+
+    await db.collection('replacement_logs').add({ data: logDoc })
+
+    // ========== 6) 更新月度用量 & 检查阈值 ==========
+    const createdAlerts = []
+    for (const item of items) {
+      // upsert monthly_part_usage
+      const usageKey = { assetId: asset.assetId, partSkuId: item.partSkuId, yearMonth }
+      const { data: existingUsage } = await db.collection('monthly_part_usage').where(usageKey).limit(1).get()
+
+      let newQtySum = item.qty
+      if (existingUsage.length > 0) {
+        await db.collection('monthly_part_usage').doc(existingUsage[0]._id).update({
+          data: { qtySum: _.inc(item.qty), lastUpdatedAt: now }
+        })
+        newQtySum = existingUsage[0].qtySum + item.qty
+      } else {
+        await db.collection('monthly_part_usage').add({
+          data: { ...usageKey, qtySum: item.qty, lastUpdatedAt: now }
+        })
+      }
+
+      // 检查阈值
+      const { data: thresholds } = await db.collection('asset_part_thresholds')
+        .where({ assetId: asset.assetId, partSkuId: item.partSkuId, active: true })
+        .limit(1)
+        .get()
+
+      if (thresholds.length > 0 && newQtySum > thresholds[0].thresholdMonthly) {
+        // 本月是否已报警
+        const { data: existingAlerts } = await db.collection('alerts')
+          .where({ assetId: asset.assetId, partSkuId: item.partSkuId, yearMonth })
+          .limit(1)
+          .get()
+
+        if (existingAlerts.length === 0) {
+          const alertId = `alert_${now}_${Math.random().toString(36).slice(2, 8)}`
+          await db.collection('alerts').add({
+            data: {
+              alertId,
+              assetId: asset.assetId,
+              partSkuId: item.partSkuId,
+              yearMonth,
+              thresholdValue: thresholds[0].thresholdMonthly,
+              currentQty: newQtySum,
+              status: 'OPEN',
+              ackByUserId: null,
+              ackTs: null,
+              ackNote: null,
+              createdAt: now,
+              // 冗余快照
+              assetName: asset.assetName,
+              partName: partsSnapshot[item.partSkuId] ? partsSnapshot[item.partSkuId].partName : item.partSkuId
+            }
+          })
+          createdAlerts.push(alertId)
+        } else {
+          // 更新 currentQty
+          await db.collection('alerts').doc(existingAlerts[0]._id).update({
+            data: { currentQty: newQtySum }
+          })
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      data: { logId, yearMonth, createdAlerts }
+    }
+  } catch (err) {
+    console.error('submitReplacementLog error:', err)
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+  }
+}
+
+function getYearMonth(ts) {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}

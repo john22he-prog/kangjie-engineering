@@ -1,0 +1,40 @@
+/* pages/asset/detail.wxss */
+.action-bar {
+  padding: 0 24rpx;
+  margin: 20rpx 0;
+}
+
+.record-item {
+  padding: 20rpx 24rpx;
+}
+
+.record-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.record-date {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+}
+
+.record-reporter {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.record-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.record-location {
+  font-size: 28rpx;
+}
+
+.record-count {
+  font-size: 24rpx;
+  color: var(--weui-BRAND);
+}

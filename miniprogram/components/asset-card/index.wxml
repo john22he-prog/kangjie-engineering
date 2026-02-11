@@ -1,0 +1,20 @@
+<!-- components/asset-card -->
+<view class="asset-card {{clickable ? 'clickable' : ''}}" bindtap="onTap" wx:if="{{asset}}">
+  <view class="asset-main">
+    <view class="asset-name">{{asset.assetName}}</view>
+    <view class="asset-no">编号：{{asset.assetNo}}</view>
+    <view class="asset-extra" wx:if="{{asset.workshop}}">
+      <text class="asset-workshop">{{asset.workshop}}</text>
+    </view>
+  </view>
+  <view class="asset-status" wx:if="{{asset.status}}">
+    <view class="tag {{asset.status === 'active' ? 'tag-active' : 'tag-ack'}}">
+      {{asset.status === 'active' ? '运行中' : '已停用'}}
+    </view>
+  </view>
+</view>
+
+<!-- 空态 -->
+<view class="asset-card empty" wx:if="{{!asset}}">
+  <text class="empty-text">未选择设备</text>
+</view>
