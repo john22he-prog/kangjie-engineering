@@ -3,6 +3,9 @@
     <div class="page-header">
       <h2>配件字典</h2>
       <div class="header-actions">
+        <el-button type="danger" plain @click="handleCleanup" :loading="cleanupLoading">
+          <el-icon><Delete /></el-icon>清理重复
+        </el-button>
         <el-button @click="handleExportParts" :loading="exportLoading">
           <el-icon><Download /></el-icon>导出 Excel
         </el-button>
@@ -12,6 +15,26 @@
         <el-button type="primary" @click="openDialog()">
           <el-icon><Plus /></el-icon>新增配件
         </el-button>
+      </div>
+    </div>
+
+    <!-- 数量汇总 -->
+    <div class="summary-cards">
+      <div class="summary-card">
+        <div class="summary-number">{{ list.length }}</div>
+        <div class="summary-label">配件总数</div>
+      </div>
+      <div class="summary-card summary-active">
+        <div class="summary-number">{{ partsActiveCount }}</div>
+        <div class="summary-label">启用中</div>
+      </div>
+      <div class="summary-card summary-inactive">
+        <div class="summary-number">{{ partsInactiveCount }}</div>
+        <div class="summary-label">已停用</div>
+      </div>
+      <div class="summary-card summary-source">
+        <div class="summary-number">{{ partsSourceCount }}</div>
+        <div class="summary-label">来源类型</div>
       </div>
     </div>
 
@@ -110,8 +133,8 @@
           <div class="el-upload__text">拖拽文件到此处，或 <em>点击上传</em></div>
           <template #tip>
             <div class="el-upload__tip">
-              支持 .xlsx / .xls / .csv 格式。
-              必填列：partSkuId, partName, partCode, unit
+              支持 .xlsx / .xls / .csv 格式。<br />
+              必填列：配件编号、配件名称、单位（支持中英文表头）
             </div>
           </template>
         </el-upload>
@@ -184,11 +207,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const loading = ref(false)
 const submitLoading = ref(false)
+const cleanupLoading = ref(false)
 const list = ref([])
 const searchText = ref('')
 const filterActive = ref(null)
@@ -253,6 +277,15 @@ const importPreview = ref({})
 const importResult = ref({})
 const importLoading = ref(false)
 
+// 数量汇总统计
+const partsActiveCount = computed(() => list.value.filter(p => p.active !== false).length)
+const partsInactiveCount = computed(() => list.value.filter(p => p.active === false).length)
+const partsSourceCount = computed(() => {
+  const sources = new Set()
+  list.value.forEach(p => { if (p.source) sources.add(p.source) })
+  return sources.size
+})
+
 const filteredList = computed(() => {
   return list.value.filter(p => {
     if (searchText.value) {
@@ -311,13 +344,48 @@ function handleFileChange(file) {
   importFile.value = file.raw
 }
 
+// 中文表头 → 英文字段名映射
+const headerMap = {
+  '配件编号': 'partCode',
+  '配件名称': 'partName',
+  '规格型号': 'specModel',
+  '单位': 'unit',
+  '配件SKU-ID': 'partSkuId',
+  'SKU-ID': 'partSkuId',
+  'partSkuId': 'partSkuId',
+  'partName': 'partName',
+  'partCode': 'partCode',
+  'unit': 'unit',
+  'specModel': 'specModel',
+  '规格': 'specModel',
+  '编号': 'partCode',
+  '名称': 'partName',
+  '单价': 'unitPrice',
+  '分类': 'category',
+}
+
+function mapRow(row) {
+  const mapped = {}
+  for (const [key, value] of Object.entries(row)) {
+    const fieldName = headerMap[key.trim()] || key
+    mapped[fieldName] = value
+  }
+  // 如果没有 partSkuId，自动生成
+  if (!mapped.partSkuId && mapped.partCode) {
+    mapped.partSkuId = 'PSK-' + mapped.partCode
+  }
+  return mapped
+}
+
 async function handlePreview() {
   if (!importFile.value) return
   try {
     const data = await importFile.value.arrayBuffer()
     const workbook = XLSX.read(data, { type: 'array' })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const rows = XLSX.utils.sheet_to_json(sheet)
+    const rawRows = XLSX.utils.sheet_to_json(sheet)
+    // 映射中文表头为英文字段名
+    const rows = rawRows.map(mapRow).filter(r => r.partCode || r.partName)
     importRows.value = rows
 
     const res = await api.importPartsPreview(rows)
@@ -353,6 +421,33 @@ function finishImport() {
   importResult.value = {}
 }
 
+async function handleCleanup() {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将：\n1. 同名但不同规格的配件 → 重命名为"名称-规格"格式\n2. 完全重复的配件 → 仅保留第一条，其余标记为停用\n\n确定执行？',
+      '清理重复配件',
+      { confirmButtonText: '确定清理', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+
+  cleanupLoading.value = true
+  try {
+    const res = await api.cleanupParts()
+    if (res.ok) {
+      const d = res.data
+      let msg = `处理完成！\n重命名: ${d.renamed} 条\n停用重复: ${d.deleted} 条`
+      ElMessageBox.alert(msg, '清理结果', { type: 'success' })
+      loadList()
+    } else {
+      ElMessage.error(res.error?.message || '清理失败')
+    }
+  } catch (e) {
+    ElMessage.error('清理失败: ' + (e.message || ''))
+  } finally {
+    cleanupLoading.value = false
+  }
+}
+
 async function loadList() {
   loading.value = true
   try {
@@ -370,6 +465,57 @@ onMounted(loadList)
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.summary-cards {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.summary-card {
+  flex: 1;
+  background: #f0f9ff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  text-align: center;
+  border: 1px solid #e0f0ff;
+  transition: transform 0.2s;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  .summary-number {
+    font-size: 28px;
+    font-weight: 700;
+    color: #409eff;
+    line-height: 1.2;
+  }
+
+  .summary-label {
+    font-size: 13px;
+    color: #909399;
+    margin-top: 4px;
+  }
+
+  &.summary-active {
+    background: #f0f9eb;
+    border-color: #e1f3d8;
+    .summary-number { color: #67c23a; }
+  }
+
+  &.summary-inactive {
+    background: #fef0f0;
+    border-color: #fde2e2;
+    .summary-number { color: #f56c6c; }
+  }
+
+  &.summary-source {
+    background: #f4f4f5;
+    border-color: #e9e9eb;
+    .summary-number { color: #909399; }
+  }
 }
 
 .import-steps {

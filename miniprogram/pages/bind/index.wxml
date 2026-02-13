@@ -1,0 +1,50 @@
+<!-- pages/bind/index.wxml — 微信账号绑定 -->
+<view class="bind-page">
+  <view class="bind-header">
+    <view class="bind-logo">🔗</view>
+    <view class="bind-title">绑定微信账号</view>
+    <view class="bind-desc">首次使用请输入管理员分配的账号密码，绑定后即可使用小程序</view>
+  </view>
+
+  <view class="bind-form">
+    <view class="form-item">
+      <text class="form-label">用户名</text>
+      <input
+        class="form-input"
+        placeholder="请输入用户名"
+        value="{{username}}"
+        bindinput="onUsernameInput"
+        focus="{{!loading}}"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="form-label">密码</text>
+      <input
+        class="form-input"
+        placeholder="请输入密码"
+        password="{{true}}"
+        value="{{password}}"
+        bindinput="onPasswordInput"
+      />
+    </view>
+
+    <view class="error-msg" wx:if="{{errorMsg}}">
+      <text>{{errorMsg}}</text>
+    </view>
+
+    <button
+      class="bind-btn"
+      type="primary"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+      bindtap="onBind"
+    >
+      {{loading ? '绑定中...' : '绑定账号'}}
+    </button>
+  </view>
+
+  <view class="bind-footer">
+    <text>如未分配账号，请联系管理员创建</text>
+  </view>
+</view>

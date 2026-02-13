@@ -12,7 +12,8 @@
     "pages/dashboard/part-detail",
     "pages/dashboard/asset-detail",
     "pages/dashboard/asset-alerts",
-    "pages/dashboard/asset-cost-detail"
+    "pages/dashboard/asset-cost-detail",
+    "pages/bind/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

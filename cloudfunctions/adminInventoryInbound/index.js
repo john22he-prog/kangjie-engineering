@@ -101,6 +101,6 @@ exports.main = async (event, context) => {
     return { ok: true, data: { inboundId } }
   } catch (err) {
     console.error('adminInventoryInbound error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '入库操作失败: ' + (err.message || String(err)) } }
   }
 }

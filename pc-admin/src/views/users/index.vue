@@ -100,6 +100,17 @@
             <el-option label="工程师" value="Engineer" />
             <el-option label="查看员" value="Viewer" />
           </el-select>
+          <!-- 角色权限说明 -->
+          <div class="role-desc">
+            <el-alert
+              :title="roleDescriptions[form.role]?.title || ''"
+              :description="roleDescriptions[form.role]?.desc || ''"
+              type="info"
+              :closable="false"
+              show-icon
+              style="margin-top: 8px;"
+            />
+          </div>
         </el-form-item>
         <el-form-item v-if="form.role === 'Supervisor'" label="管辖工厂" prop="factoryId">
           <el-select v-model="form.factoryId" placeholder="主管仅看该工厂全厂数据" clearable style="width: 100%">
@@ -156,6 +167,26 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   displayName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+}
+
+// 角色权限说明
+const roleDescriptions = {
+  Admin: {
+    title: '管理员 — 最高权限',
+    desc: '可管理所有工厂数据、用户账号、设备配件、阈值报警、库存、AI设置等全部功能。可切换查看不同工厂，可查看成本数据和AI报告汇总。',
+  },
+  Supervisor: {
+    title: '主管 — 本厂管理',
+    desc: '仅能查看和管理所绑定工厂的数据（更换记录、报警、设备、库存等）。可查看成本数据和AI报告。不可管理用户和工厂。',
+  },
+  Engineer: {
+    title: '工程师 — 小程序操作',
+    desc: '通过小程序扫码录入更换记录，查看设备信息。无法登录PC端管理后台。',
+  },
+  Viewer: {
+    title: '查看员 — 只读查看',
+    desc: '仅可查看数据，不可进行编辑、新增、删除等操作。无法登录PC端管理后台。',
+  },
 }
 
 const filteredList = computed(() => {

@@ -5,6 +5,13 @@ const db = cloud.database()
 
 exports.main = async (event, context) => {
   try {
+    // openid 校验：确保调用者已登录小程序
+    const wxContext = cloud.getWXContext()
+    const openid = wxContext.OPENID
+    if (!openid) {
+      return { ok: false, error: { code: 'AUTH_FAILED', message: '无法获取用户身份' } }
+    }
+
     const { factoryId, yearMonth, assetId, userId, page = 1, pageSize = 20 } = event
 
     let query = db.collection('replacement_logs')
@@ -34,6 +41,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('listReplacementLogs error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '查询记录失败: ' + (err.message || String(err)) } }
   }
 }

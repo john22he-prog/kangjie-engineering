@@ -7,6 +7,16 @@ function genId() {
   return 'F-' + String(Date.now()).slice(-6) + String(Math.floor(Math.random() * 1000)).padStart(3, '0')
 }
 
+async function ensureCollection(db, name) {
+  try {
+    await db.createCollection(name)
+    console.log('Collection created:', name)
+  } catch (e) {
+    // 集合已存在或无权限时忽略
+    console.log('ensureCollection ' + name + ':', e.message || e.errMsg || '')
+  }
+}
+
 exports.main = async (event, context) => {
   try {
     const { action, data } = event
@@ -40,6 +50,7 @@ exports.main = async (event, context) => {
           createdAt: Date.now(),
           updatedAt: Date.now()
         }
+        await ensureCollection(db, 'factories')
         await db.collection('factories').add({ data: factory })
         return { ok: true, data: { factoryId: factory.factoryId } }
       }
@@ -67,6 +78,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('adminFactoryManage error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '工厂管理操作失败: ' + (err.message || String(err)) } }
   }
 }

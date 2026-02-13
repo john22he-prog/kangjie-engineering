@@ -1,0 +1,22 @@
+{
+  "envId": "cloud1-0g0grbwt8c230b0d",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    { "name": "pcGateway", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "getAssetByQr", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "getMe", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "bindUser", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "adminPcLogin", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "getLocationsAndParts", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "submitReplacementLog", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "getFactories", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "listReplacementLogs", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "listAlerts", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "ackAlert", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "adminFactoryManage", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "adminInventoryManage", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "adminInventoryInbound", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "exportData", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "importData", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } }
+  ]
+}

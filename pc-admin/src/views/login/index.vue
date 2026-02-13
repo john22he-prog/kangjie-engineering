@@ -42,7 +42,8 @@
         </el-form-item>
       </el-form>
 
-      <div class="login-tips">
+      <!-- 仅开发环境下显示测试账号，生产环境自动隐藏 -->
+      <div v-if="isDev" class="login-tips">
         <el-divider>开发模式测试账号</el-divider>
         <div class="test-accounts">
           <el-tag
@@ -70,6 +71,9 @@ const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+
+// 仅开发模式显示测试账号
+const isDev = import.meta.env.DEV
 
 const form = reactive({
   username: '',

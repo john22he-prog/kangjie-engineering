@@ -16,7 +16,7 @@ Page({
 
   onLoad(options) {
     this.assetId = options.assetId
-    this.setData({ canWrite: auth.isEngineer() })
+    this.setData({ canWrite: auth.canWrite() })
     this.loadAsset()
   },
 

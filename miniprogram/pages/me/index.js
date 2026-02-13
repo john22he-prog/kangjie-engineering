@@ -3,32 +3,34 @@ const auth = require('../../utils/auth')
 const api = require('../../utils/api')
 const offlineQueue = require('../../utils/offline-queue')
 
-const IS_DEV = false  // 正式上线为 false，隐藏角色切换等开发入口
-
 Page({
   data: {
     userInfo: {},
     offlineCount: 0,
     syncing: false,
-    devMode: IS_DEV,
-    mockUsers: [],
     canManage: false,
     canSwitchFactory: false,
     currentFactoryName: '',
-    factories: []
+    factories: [],
+    isLoggedIn: false
   },
 
-  onShow() {
+  async onShow() {
     const app = getApp()
+
+    // 等待登录完成
+    await app.waitForLogin()
+
     const user = auth.getUser()
     this.setData({
       userInfo: user,
+      isLoggedIn: auth.isLoggedIn(),
       offlineCount: offlineQueue.getCount(),
-      mockUsers: IS_DEV ? auth.getMockUsers() : [],
       canManage: auth.canManage(),
       canSwitchFactory: auth.canSwitchFactory(),
       currentFactoryName: app.globalData.currentFactoryName || '未选择'
     })
+
     // Load factories if user can switch
     if (auth.canSwitchFactory()) {
       this.loadFactories()
@@ -42,7 +44,6 @@ Page({
         const app = getApp()
         app.globalData.factories = result.data.factories
         this.setData({ factories: result.data.factories })
-        // If no factory selected yet, auto-select user's factory or first one
         if (!app.globalData.currentFactoryId && result.data.factories.length > 0) {
           const defaultFactory = result.data.factories.find(f => f.factoryId === result.data.userFactoryId) || result.data.factories[0]
           app.setCurrentFactory(defaultFactory.factoryId, defaultFactory.factoryName)
@@ -74,16 +75,23 @@ Page({
     wx.navigateTo({ url: '/pages/ai-report/index' })
   },
 
-  // 切换角色
-  onSwitchRole(e) {
-    const userId = e.currentTarget.dataset.userid
-    auth.switchMockUser(userId)
-    const user = auth.getUser()
-    this.setData({
-      userInfo: user,
-      canManage: auth.canManage()
+  // 退出账号 / 切换账号
+  onLogout() {
+    wx.showModal({
+      title: '切换账号',
+      content: '退出当前账号后需要重新绑定微信。确定要退出吗？',
+      confirmText: '退出',
+      confirmColor: '#e74c3c',
+      success: (res) => {
+        if (res.confirm) {
+          auth.logout()
+          const app = getApp()
+          app.globalData.userInfo = null
+          // 跳转到绑定页
+          wx.navigateTo({ url: '/pages/bind/index' })
+        }
+      }
     })
-    wx.showToast({ title: `已切换为 ${user.displayName}（${user.role}）`, icon: 'none' })
   },
 
   async onSync() {

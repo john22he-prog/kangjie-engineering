@@ -41,16 +41,22 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
-          <!-- 工厂选择器 -->
+          <!-- 工厂选择器（管理员可切换，含全部工厂汇总选项） -->
           <el-select
             v-if="appStore.factories.length > 0"
             :model-value="appStore.currentFactoryId"
             @change="onFactoryChange"
             :disabled="!authStore.canSwitchFactory"
             placeholder="选择工厂"
-            style="width: 160px; margin-right: 16px;"
+            style="width: 180px; margin-right: 16px;"
             size="default"
           >
+            <el-option
+              v-if="authStore.canSwitchFactory"
+              key="__all__"
+              label="全部工厂（汇总）"
+              value=""
+            />
             <el-option
               v-for="f in appStore.factories"
               :key="f.factoryId"
@@ -128,11 +134,16 @@ const roleTagType = computed(() => {
 })
 
 function onFactoryChange(factoryId) {
-  const factory = appStore.factories.find(f => f.factoryId === factoryId)
-  if (factory) {
-    appStore.setCurrentFactory(factory.factoryId, factory.factoryName)
-    // Trigger a page reload to refresh data with new factory context
+  if (factoryId === '') {
+    // 选择了「全部工厂（汇总）」
+    appStore.setCurrentFactory('', '全部工厂')
     router.go(0)
+  } else {
+    const factory = appStore.factories.find(f => f.factoryId === factoryId)
+    if (factory) {
+      appStore.setCurrentFactory(factory.factoryId, factory.factoryName)
+      router.go(0)
+    }
   }
 }
 

@@ -7,6 +7,9 @@ exports.main = async (event, context) => {
   try {
     const wxContext = cloud.getWXContext()
     const openid = wxContext.OPENID
+    if (!openid) {
+      return { ok: false, error: { code: 'AUTH_FAILED', message: '无法获取用户身份' } }
+    }
     const now = Date.now()
 
     // 权限校验：Supervisor / Admin
@@ -53,6 +56,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('ackAlert error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '确认报警失败: ' + (err.message || String(err)) } }
   }
 }

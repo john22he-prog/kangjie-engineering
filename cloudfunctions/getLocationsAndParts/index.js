@@ -16,28 +16,43 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'ASSET_NOT_FOUND', message: '设备不存在' } }
     }
 
-    // 查部位
-    const { data: locations } = await db.collection('asset_locations')
-      .where({ assetId, active: true })
-      .orderBy('sortOrder', 'asc')
-      .get()
+    // 查部位（容错：集合不存在时返回空数组）
+    let locations = []
+    try {
+      const res = await db.collection('asset_locations')
+        .where({ assetId, active: true })
+        .orderBy('sortOrder', 'asc')
+        .get()
+      locations = res.data || []
+    } catch (e) {
+      console.warn('getLocationsAndParts asset_locations:', e)
+    }
 
-    // 查映射
-    const { data: mappings } = await db.collection('location_part_map')
-      .where({ assetId, active: true })
-      .get()
+    // 查映射（容错：集合不存在时返回空数组）
+    let mappings = []
+    try {
+      const res = await db.collection('location_part_map')
+        .where({ assetId, active: true })
+        .get()
+      mappings = res.data || []
+    } catch (e) {
+      console.warn('getLocationsAndParts location_part_map:', e)
+    }
 
-    // 查相关配件
+    // 查相关配件（容错：集合不存在时返回空对象）
     const partSkuIds = [...new Set(mappings.map(m => m.partSkuId))]
     let partsMap = {}
     if (partSkuIds.length > 0) {
-      // CloudBase where-in 限制 20 条，分批查
-      for (let i = 0; i < partSkuIds.length; i += 20) {
-        const batch = partSkuIds.slice(i, i + 20)
-        const { data: batchParts } = await db.collection('parts')
-          .where({ partSkuId: db.command.in(batch), active: true })
-          .get()
-        batchParts.forEach(p => { partsMap[p.partSkuId] = p })
+      try {
+        for (let i = 0; i < partSkuIds.length; i += 20) {
+          const batch = partSkuIds.slice(i, i + 20)
+          const { data: batchParts } = await db.collection('parts')
+            .where({ partSkuId: db.command.in(batch), active: true })
+            .get()
+          ;(batchParts || []).forEach(p => { partsMap[p.partSkuId] = p })
+        }
+      } catch (e) {
+        console.warn('getLocationsAndParts parts:', e)
       }
     }
 
@@ -56,6 +71,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('getLocationsAndParts error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '获取部位配件失败: ' + (err.message || String(err)) } }
   }
 }

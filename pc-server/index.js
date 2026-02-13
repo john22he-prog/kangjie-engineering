@@ -26,11 +26,19 @@ try {
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 
-// CORS — 允许 PC 管理端跨域请求
+// CORS — 限制为已知前端域名（可通过环境变量 CORS_ORIGINS 配置，逗号分隔）
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(',').map(s => s.trim())
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*')
+  const origin = req.headers.origin
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin)
+  } else if (!origin) {
+    // 非浏览器请求（如 curl、服务器间调用）允许通过
+    res.header('Access-Control-Allow-Origin', '')
+  }
   res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+  res.header('Access-Control-Allow-Credentials', 'true')
   if (req.method === 'OPTIONS') return res.sendStatus(200)
   next()
 })

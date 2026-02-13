@@ -1,0 +1,9 @@
+{
+  "name": "bindUser",
+  "version": "1.0.0",
+  "description": "小程序端用户绑定微信",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

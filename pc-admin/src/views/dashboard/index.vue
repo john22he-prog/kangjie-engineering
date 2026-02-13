@@ -1,17 +1,22 @@
 <template>
   <div class="page-container dashboard">
-    <!-- 顶部：标题 + 全局月份选择器 -->
+    <!-- 顶部：标题 + AI报告入口 + 全局月份选择器 -->
     <div class="page-header">
       <h2>数据看板</h2>
-      <el-date-picker
-        v-model="selectedMonth"
-        type="month"
-        placeholder="选择月份"
-        format="YYYY年MM月"
-        value-format="YYYY-MM"
-        :clearable="false"
-        @change="refreshAll"
-      />
+      <div class="header-actions">
+        <el-button type="success" plain @click="$router.push('/dashboard/ai-report')">
+          <el-icon style="margin-right: 4px;"><TrendCharts /></el-icon>AI 分析报告
+        </el-button>
+        <el-date-picker
+          v-model="selectedMonth"
+          type="month"
+          placeholder="选择月份"
+          format="YYYY年MM月"
+          value-format="YYYY-MM"
+          :clearable="false"
+          @change="refreshAll"
+        />
+      </div>
     </div>
 
     <!-- M1：核心数字卡 -->
@@ -940,6 +945,12 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
   }
 }
 

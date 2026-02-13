@@ -19,7 +19,7 @@ const routes = [
     redirect: '/dashboard',
     children: [
       { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/dashboard/index.vue'), meta: { title: '数据看板', icon: DataAnalysis } },
-      { path: 'dashboard/ai-report', name: 'AIReport', component: () => import('@/views/dashboard/ai-report.vue'), meta: { title: 'AI 分析报告', hidden: true } },
+      { path: 'dashboard/ai-report', name: 'AIReport', component: () => import('@/views/dashboard/ai-report.vue'), meta: { title: 'AI 分析报告', icon: TrendCharts } },
       { path: 'records', name: 'Records', component: () => import('@/views/records/index.vue'), meta: { title: '更换记录', icon: List } },
       { path: 'alerts', name: 'Alerts', component: () => import('@/views/alerts/index.vue'), meta: { title: '报警管理', icon: Bell } },
       { path: 'assets', name: 'Assets', component: () => import('@/views/assets/index.vue'), meta: { title: '设备管理', icon: Monitor } },

@@ -1,23 +1,27 @@
 // utils/auth.js — 用户鉴权 / 角色判断
 const { ROLES } = require('./constants')
 
-// Mock 用户列表（开发测试用）
-const MOCK_USERS = [
-  { userId: 'user_001', displayName: '张工程', role: ROLES.ENGINEER, status: 'active', factoryId: '' },
-  { userId: 'user_002', displayName: '李主管', role: ROLES.SUPERVISOR, status: 'active', factoryId: 'F-001' },
-  { userId: 'user_003', displayName: '王工程', role: ROLES.ENGINEER, status: 'active', factoryId: '' },
-  { userId: 'user_004', displayName: '管理员', role: ROLES.ADMIN, status: 'active', factoryId: '' },
-  { userId: 'user_005', displayName: '赵管理', role: ROLES.MANAGEMENT, status: 'active', factoryId: '' }
-]
+// 当前用户
+let _currentUser = null
 
-// 当前用户（默认工程师）
-let _currentUser = MOCK_USERS[0]
+// 尝试从本地缓存恢复用户
+try {
+  const cached = wx.getStorageSync('kj_user')
+  if (cached && cached.userId) {
+    _currentUser = cached
+  }
+} catch (e) {}
 
 /**
  * 设置当前用户（登录成功后调用）
  */
 function setUser(user) {
   _currentUser = user
+  if (user) {
+    wx.setStorageSync('kj_user', user)
+  } else {
+    wx.removeStorageSync('kj_user')
+  }
 }
 
 /**
@@ -28,21 +32,31 @@ function getUser() {
 }
 
 /**
- * 获取 mock 用户列表（开发测试用）
+ * 是否已登录
  */
-function getMockUsers() {
-  return MOCK_USERS
+function isLoggedIn() {
+  return !!(_currentUser && _currentUser.userId)
 }
 
 /**
- * 切换到指定 mock 用户（开发测试用）
+ * 退出登录
+ */
+function logout() {
+  _currentUser = null
+  wx.removeStorageSync('kj_user')
+}
+
+/**
+ * 获取 mock 用户列表（开发测试用，正式环境返回空数组）
+ */
+function getMockUsers() {
+  return []
+}
+
+/**
+ * 切换到指定 mock 用户（开发测试用，正式环境无效）
  */
 function switchMockUser(userId) {
-  const user = MOCK_USERS.find(u => u.userId === userId)
-  if (user) {
-    _currentUser = user
-    return true
-  }
   return false
 }
 
@@ -71,10 +85,10 @@ function isManagement() {
 }
 
 /**
- * 是否有写权限（Engineer）
+ * 是否有写权限（Engineer / Supervisor / Admin）
  */
 function canWrite() {
-  return isEngineer()
+  return isEngineer() || isSupervisor() || isAdmin()
 }
 
 /**
@@ -108,6 +122,8 @@ function canSwitchFactory() {
 module.exports = {
   setUser,
   getUser,
+  isLoggedIn,
+  logout,
   getMockUsers,
   switchMockUser,
   getRole,

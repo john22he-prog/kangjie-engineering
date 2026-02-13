@@ -81,3 +81,13 @@
   color: var(--weui-BRAND);
   font-weight: 600;
 }
+
+.logout-cell {
+  justify-content: center;
+}
+
+.logout-text {
+  color: #e74c3c;
+  font-size: 30rpx;
+  text-align: center;
+}

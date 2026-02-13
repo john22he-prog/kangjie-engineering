@@ -38,6 +38,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('getFactories error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '获取工厂失败: ' + (err.message || String(err)) } }
   }
 }

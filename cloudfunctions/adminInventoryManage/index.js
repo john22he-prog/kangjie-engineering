@@ -5,7 +5,7 @@ const db = cloud.database()
 
 exports.main = async (event, context) => {
   try {
-    const { action, data } = event
+    const { action, data = {} } = event
 
     switch (action) {
       case 'listInventory': {
@@ -106,6 +106,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('adminInventoryManage error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '库存管理操作失败: ' + (err.message || String(err)) } }
   }
 }

@@ -12,8 +12,8 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'AUTH_FAILED', message: '无法获取用户身份' } }
     }
 
-    // 按 openid 查找用户
-    const { data } = await db.collection('users').where({ openid, status: 'active' }).limit(1).get()
+    // 按 openid 查找用户（不过滤 status，以便区分"未绑定"和"已禁用"）
+    const { data } = await db.collection('users').where({ openid }).limit(1).get()
 
     if (data.length === 0) {
       return { ok: false, error: { code: 'AUTH_NOT_BOUND', message: '当前微信未绑定账号，请联系管理员' } }
@@ -22,7 +22,7 @@ exports.main = async (event, context) => {
     const user = data[0]
 
     if (user.status === 'disabled') {
-      return { ok: false, error: { code: 'USER_DISABLED', message: '账号已禁用' } }
+      return { ok: false, error: { code: 'USER_DISABLED', message: '您的账号已被管理员禁用，如有疑问请联系管理员' } }
     }
 
     return {
@@ -37,6 +37,6 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('getMe error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '获取用户失败: ' + (err.message || String(err)) } }
   }
 }

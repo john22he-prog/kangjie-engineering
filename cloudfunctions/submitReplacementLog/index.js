@@ -4,10 +4,29 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+// 确保集合存在（首次调用时初始化）
+const REQUIRED_COLLECTIONS = [
+  'users', 'assets', 'parts', 'replacement_logs', 'monthly_part_usage',
+  'asset_locations', 'location_part_map', 'asset_part_thresholds',
+  'alerts', 'inventory', 'inventory_outbound_logs', 'inventory_alerts'
+]
+let _ensured = false
+async function ensureCollections() {
+  if (_ensured) return
+  for (const name of REQUIRED_COLLECTIONS) {
+    try { await db.createCollection(name) } catch (e) {}
+  }
+  _ensured = true
+}
+
 exports.main = async (event, context) => {
+  await ensureCollections()
   try {
     const wxContext = cloud.getWXContext()
     const openid = wxContext.OPENID
+    if (!openid) {
+      return { ok: false, error: { code: 'AUTH_FAILED', message: '无法获取用户身份' } }
+    }
     const now = Date.now()
 
     // ========== 1) 权限校验 ==========
@@ -16,8 +35,8 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'PERMISSION_DENIED', message: '未绑定或账号已禁用' } }
     }
     const user = users[0]
-    if (user.role !== 'Engineer') {
-      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅工程人员可提交' } }
+    if (!['Engineer', 'Supervisor', 'Admin'].includes(user.role)) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅工程人员/主管/管理员可提交' } }
     }
 
     // ========== 2) 入参校验 ==========
@@ -298,7 +317,7 @@ exports.main = async (event, context) => {
     }
   } catch (err) {
     console.error('submitReplacementLog error:', err)
-    return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误' } }
+    return { ok: false, error: { code: 'SERVER_ERROR', message: '提交失败: ' + (err.message || String(err)) } }
   }
 }
 

@@ -6,7 +6,12 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
 // 简单 JWT 生成（无第三方依赖），payload: { userId, role, exp }
-const JWT_SECRET = process.env.JWT_SECRET || 'kangjie-pc-admin-secret-change-in-production'
+// 优先从环境变量读取 JWT 密钥，生产环境必须配置 JWT_SECRET 环境变量
+const JWT_SECRET = process.env.JWT_SECRET
+if (!JWT_SECRET) {
+  console.warn('[adminPcLogin] 警告：未设置 JWT_SECRET 环境变量，使用默认密钥，请尽快在云函数环境变量中配置！')
+}
+const JWT_SECRET_FINAL = JWT_SECRET || 'kangjie-pc-admin-' + (process.env.TCB_ENV || 'dev') + '-secret'
 const TOKEN_EXP_DAYS = 7
 
 function base64UrlEncode(str) {
@@ -23,7 +28,7 @@ function createToken(payload) {
   payload.exp = Math.floor(Date.now() / 1000) + TOKEN_EXP_DAYS * 86400
   const headerB64 = base64UrlEncode(JSON.stringify(header))
   const payloadB64 = base64UrlEncode(JSON.stringify(payload))
-  const signature = signHMAC(headerB64 + '.' + payloadB64, JWT_SECRET)
+  const signature = signHMAC(headerB64 + '.' + payloadB64, JWT_SECRET_FINAL)
   return headerB64 + '.' + payloadB64 + '.' + signature
 }
 
@@ -52,9 +57,23 @@ exports.main = async (event, context) => {
     }
 
     const user = users[0]
-    const pcPassword = user.pcPassword || user.passwordHash || ''
-    if (pcPassword !== password) {
+    const storedPassword = user.pcPassword || user.passwordHash || ''
+    // 支持两种比较方式：SHA256 哈希比较（新）和明文比较（旧，兼容过渡）
+    const crypto = require('crypto')
+    const hashedInput = crypto.createHash('sha256').update(password).digest('hex')
+    const isMatch = (storedPassword === hashedInput) || (storedPassword === password)
+    if (!isMatch) {
       return { ok: false, error: { code: 'AUTH_FAILED', message: '用户名或密码错误' } }
+    }
+    // 如果仍是明文密码，自动升级为哈希存储
+    if (storedPassword === password && storedPassword !== hashedInput) {
+      try {
+        await db.collection('users').where({ username }).update({
+          data: { pcPassword: hashedInput, updatedAt: Date.now() }
+        })
+      } catch (e) {
+        console.warn('自动升级密码哈希失败', e)
+      }
     }
 
     // 检查角色
