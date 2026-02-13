@@ -6,11 +6,13 @@ Page({
   data: {
     alert: {},
     ackNote: '',
-    submitting: false
+    submitting: false,
+    canAck: false
   },
 
   onLoad(options) {
     this.alertId = options.alertId
+    this.setData({ canAck: auth.canAck() })
     this.loadAlert()
   },
 

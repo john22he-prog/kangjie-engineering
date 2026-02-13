@@ -270,3 +270,104 @@
 .alert-stat.clickable:active {
   opacity: 0.7;
 }
+
+/* M7 配件使用金额 */
+.cost-card {
+  background: linear-gradient(135deg, #fff 0%, #f0f9ff 100%);
+}
+
+.cost-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+  margin-bottom: 8rpx;
+}
+
+.cost-total-label {
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+}
+
+.cost-total-value {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #07C160;
+}
+
+.dash-card-subtitle {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+}
+
+.cost-rank-list {
+  padding: 8rpx 0;
+}
+
+.cost-rank-item {
+  padding: 12rpx 0;
+}
+
+.cost-rank-header {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.cost-rank-no {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 8rpx;
+  background: var(--weui-BG-1);
+  color: var(--weui-FG-1);
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cost-rank-item:nth-child(1) .cost-rank-no,
+.cost-rank-item:nth-child(2) .cost-rank-no,
+.cost-rank-item:nth-child(3) .cost-rank-no {
+  background: #07C160;
+  color: #fff;
+}
+
+.cost-rank-name {
+  flex: 1;
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+}
+
+.cost-rank-amount {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+  flex-shrink: 0;
+}
+
+.cost-rank-bar-wrap {
+  height: 12rpx;
+  background: var(--weui-BG-1);
+  border-radius: 6rpx;
+  margin-left: 52rpx;
+  overflow: hidden;
+}
+
+.cost-rank-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #07C160, #38d976);
+  border-radius: 6rpx;
+  transition: width 0.4s ease;
+}
+
+.cost-rank-item.clickable:active {
+  background: #f5f5f5;
+  margin: 0 -24rpx;
+  padding: 12rpx 24rpx;
+  border-radius: 8rpx;
+}

@@ -86,13 +86,13 @@ kangjie-engineering/
 
 ## ⚠️ 上线前必做清单
 - [ ] 配置真实云环境 ID（替换 `app.js` 中的 `YOUR_CLOUD_ENV_ID`）
-- [ ] `api.js` 中 `USE_MOCK` 改为 `false`
+- [x] `api.js` 中 `USE_MOCK` 改为 `false`（v1.0.0 已改）
 - [ ] 部署所有云函数
 - [ ] 初始化数据库集合和索引
-- [ ] 导入真实设备/配件/阈值数据
+- [ ] 导入真实设备/配件/阈值数据（或清空测试数据后重导）
 - [ ] 配置真实用户角色
-- [ ] 删除扫码页的开发模式快速跳转按钮
-- [ ] 删除"我的"页面的角色切换器
+- [x] 扫码页开发模式快速跳转已通过 `IS_DEV=false` 隐藏（v1.0.0）
+- [x] 「我的」页面角色切换器已通过 `IS_DEV=false` 隐藏（v1.0.0）
 
 ## PC 管理端待开发功能
 参见规格文档: `kangjie_engineering_specs_v1/02_cloudbase_backend_pcadmin_spec.md`

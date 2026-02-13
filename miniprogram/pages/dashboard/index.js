@@ -1,11 +1,13 @@
 // pages/dashboard/index.js
 const api = require('../../utils/api')
+const auth = require('../../utils/auth')
 const { getCurrentYearMonth } = require('../../utils/util')
 
 Page({
   data: {
     yearMonth: '',
     isCurrentMonth: true,
+    canViewCost: false,
     stats: {
       totalLogs: 0,
       totalPartsQty: 0,
@@ -16,15 +18,24 @@ Page({
       topEngineers: [],
       dailyTrend: [],
       alertsByAsset: []
-    }
+    },
+    costRanking: {
+      totalMonthlyUsageCost: 0,
+      costByAsset: []
+    },
+    inventoryOpenCount: 0
   },
 
   onLoad() {
-    this.setData({ yearMonth: getCurrentYearMonth() })
+    this.setData({
+      yearMonth: getCurrentYearMonth(),
+      canViewCost: auth.canViewCost()
+    })
     this.loadDashboard()
   },
 
   onShow() {
+    this.setData({ canViewCost: auth.canViewCost() })
     this.loadDashboard()
   },
 
@@ -49,9 +60,46 @@ Page({
         }
         this.setData({ stats: data })
       }
+
+      // 加载配件使用金额排名（仅主管及以上可见）
+      if (this.data.canViewCost) {
+        this.loadCostRanking()
+      }
+
+      // 加载低库存报警数量
+      this.loadInventoryAlertCount()
     } catch (e) {
       console.error(e)
     }
+  },
+
+  async loadCostRanking() {
+    try {
+      const result = await api.getMonthlyCostRanking({ yearMonth: this.data.yearMonth })
+      if (result.ok) {
+        const data = result.data
+        // 格式化总金额（兼容模拟器不支持 toLocaleString）
+        data.totalMonthlyUsageCostStr = this._formatMoney(data.totalMonthlyUsageCost || 0)
+        // 计算柱状图宽度比例
+        if (data.costByAsset && data.costByAsset.length > 0) {
+          const maxCost = data.costByAsset[0].totalCost || 1
+          data.costByAsset = data.costByAsset.map(item => ({
+            ...item,
+            barWidth: Math.max(Math.round((item.totalCost / maxCost) * 100), 5),
+            totalCostStr: this._formatMoney(item.totalCost)
+          }))
+        }
+        this.setData({ costRanking: data })
+      }
+    } catch (e) {
+      console.error('loadCostRanking error:', e)
+    }
+  },
+
+  // 金额格式化（兼容模拟器）
+  _formatMoney(num) {
+    if (!num && num !== 0) return '0'
+    return Number(num).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   },
 
   // ========== 月份切换 ==========
@@ -103,6 +151,36 @@ Page({
     const item = e.currentTarget.dataset.item
     wx.navigateTo({
       url: `/pages/dashboard/asset-alerts?assetId=${item.assetId}&yearMonth=${this.data.yearMonth}&assetName=${encodeURIComponent(item.assetName)}`
+    })
+  },
+
+  // ========== 低库存报警数量 ==========
+  async loadInventoryAlertCount() {
+    try {
+      const result = await api.listInventoryAlerts()
+      if (result.ok) {
+        const openCount = (result.data.list || []).filter(a => a.status === 'OPEN').length
+        this.setData({ inventoryOpenCount: openCount })
+      }
+    } catch (e) {
+      console.error('loadInventoryAlertCount error:', e)
+    }
+  },
+
+  // ========== 报警联动（低库存） ==========
+  onInventoryAlertsTap() {
+    const app = getApp()
+    app.globalData = app.globalData || {}
+    app.globalData.alertFilterType = 'inventory'
+    app.globalData.alertFilterStatus = 'OPEN'
+    wx.switchTab({ url: '/pages/alerts/index' })
+  },
+
+  // ========== 配件使用金额 → 设备配件金额明细 ==========
+  onCostAssetTap(e) {
+    const item = e.currentTarget.dataset.item
+    wx.navigateTo({
+      url: `/pages/dashboard/asset-cost-detail?assetId=${item.assetId}&yearMonth=${this.data.yearMonth}&assetName=${encodeURIComponent(item.assetName)}`
     })
   },
 

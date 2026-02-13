@@ -6,12 +6,13 @@
     "pages/alerts/detail",
     "pages/dashboard/index",
     "pages/me/index",
+    "pages/ai-report/index",
     "pages/asset/detail",
     "pages/replace/form",
     "pages/dashboard/part-detail",
     "pages/dashboard/asset-detail",
     "pages/dashboard/asset-alerts",
-    "pages/data-manage/index"
+    "pages/dashboard/asset-cost-detail"
   ],
   "window": {
     "backgroundTextStyle": "light",
@@ -25,42 +26,15 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "black",
     "list": [
-      {
-        "pagePath": "pages/record/index",
-        "text": "记录",
-        "iconPath": "images/tab/record.png",
-        "selectedIconPath": "images/tab/record-active.png"
-      },
-      {
-        "pagePath": "pages/alerts/index",
-        "text": "报警",
-        "iconPath": "images/tab/alerts.png",
-        "selectedIconPath": "images/tab/alerts-active.png"
-      },
-      {
-        "pagePath": "pages/scan/index",
-        "text": "扫码录入",
-        "iconPath": "images/tab/scan.png",
-        "selectedIconPath": "images/tab/scan-active.png"
-      },
-      {
-        "pagePath": "pages/dashboard/index",
-        "text": "看板",
-        "iconPath": "images/tab/dashboard.png",
-        "selectedIconPath": "images/tab/dashboard-active.png"
-      },
-      {
-        "pagePath": "pages/me/index",
-        "text": "我的",
-        "iconPath": "images/tab/me.png",
-        "selectedIconPath": "images/tab/me-active.png"
-      }
+      {"pagePath": "pages/record/index", "text": "记录", "iconPath": "images/tab/record.png", "selectedIconPath": "images/tab/record-active.png"},
+      {"pagePath": "pages/alerts/index", "text": "阈值报警", "iconPath": "images/tab/alerts.png", "selectedIconPath": "images/tab/alerts-active.png"},
+      {"pagePath": "pages/scan/index", "text": "扫码录入", "iconPath": "images/tab/scan.png", "selectedIconPath": "images/tab/scan-active.png"},
+      {"pagePath": "pages/dashboard/index", "text": "看板", "iconPath": "images/tab/dashboard.png", "selectedIconPath": "images/tab/dashboard-active.png"},
+      {"pagePath": "pages/me/index", "text": "我的", "iconPath": "images/tab/me.png", "selectedIconPath": "images/tab/me-active.png"}
     ]
   },
   "sitemapLocation": "sitemap.json",
-  "useExtendedLib": {
-    "weui": true
-  },
+  "useExtendedLib": {"weui": true},
   "cloud": true,
   "style": "v2"
 }

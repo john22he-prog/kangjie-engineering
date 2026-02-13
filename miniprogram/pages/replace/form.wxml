@@ -78,8 +78,9 @@
     />
   </view>
 
-  <!-- 提交按钮 -->
+  <!-- 放弃 / 提交 -->
   <view class="submit-bar">
+    <view class="abandon-link" bindtap="onAbandonTap">放弃并返回</view>
     <button
       class="btn-primary submit-btn"
       disabled="{{!canSubmit || submitting}}"

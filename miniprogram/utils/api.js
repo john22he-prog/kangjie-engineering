@@ -1,8 +1,8 @@
 // utils/api.js — 统一 API 调用入口（mock / 云函数切换）
 const mockApi = require('./mock')
 
-// ========== 开关：true=使用mock数据，false=调用云函数 ==========
-const USE_MOCK = true
+// ========== 开关：true=使用mock数据，false=调用云函数（正式上线为 false） ==========
+const USE_MOCK = false
 
 // 云函数通用调用封装
 function callCloud(name, data) {
@@ -144,6 +144,49 @@ function listAssets() {
   return callCloud('listAssets', {})
 }
 
+/**
+ * 获取设备配件金额明细（下钻）
+ * @param {Object} params { assetId, yearMonth }
+ */
+function getAssetCostDetail(params) {
+  if (USE_MOCK) return mockApi.getAssetCostDetail(params)
+  return callCloud('adminDashboard', { action: 'assetCostDetail', data: params })
+}
+
+/**
+ * 获取当月配件使用金额排名
+ * @param {Object} params { yearMonth, factoryId }
+ */
+function getMonthlyCostRanking(params) {
+  if (USE_MOCK) return mockApi.getMonthlyCostRanking(params)
+  return callCloud('adminDashboard', { action: 'monthlyCostRanking', data: params })
+}
+
+/**
+ * 获取低库存报警列表
+ */
+function listInventoryAlerts() {
+  if (USE_MOCK) return mockApi.listInventoryAlerts()
+  return callCloud('adminInventoryManage', { action: 'listInventoryAlerts' })
+}
+
+/**
+ * 获取当前用户可访问的工厂列表
+ */
+function getFactories() {
+  if (USE_MOCK) return mockApi.getFactories()
+  return callCloud('getFactories', {})
+}
+
+/**
+ * AI 分析报告（规则+模板）
+ * @param {Object} params { yearMonth, workshop?, scope: 'workshop'|'summary' }
+ */
+function getAIReport(params) {
+  if (USE_MOCK) return mockApi.getAIReport(params)
+  return callCloud('adminDashboard', { action: 'getAIReport', data: params })
+}
+
 module.exports = {
   getMe,
   getAssetByQr,
@@ -159,5 +202,10 @@ module.exports = {
   exportData,
   importData,
   getAssetAlerts,
-  listAssets
+  listAssets,
+  getAssetCostDetail,
+  getMonthlyCostRanking,
+  listInventoryAlerts,
+  getFactories,
+  getAIReport
 }

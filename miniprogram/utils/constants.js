@@ -8,6 +8,7 @@ const ROLES = {
   ENGINEER: 'Engineer',
   VIEWER: 'Viewer',
   SUPERVISOR: 'Supervisor',
+  MANAGEMENT: 'Management',
   ADMIN: 'Admin'
 }
 

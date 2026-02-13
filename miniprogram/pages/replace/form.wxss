@@ -62,6 +62,19 @@
 .submit-bar {
   padding: 24rpx;
   padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.abandon-link {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+.abandon-link:active {
+  color: var(--weui-FG-1);
 }
 
 .submit-btn {

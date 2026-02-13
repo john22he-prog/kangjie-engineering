@@ -35,8 +35,8 @@
     </view>
   </view>
 
-  <!-- 确认区域：OPEN 状态时所有人可见 -->
-  <view class="card ack-section" wx:if="{{alert.status === 'OPEN'}}">
+  <!-- 确认区域：仅主管及以上可操作 -->
+  <view class="card ack-section" wx:if="{{canAck && alert.status === 'OPEN'}}">
     <view class="ack-title">确认处理</view>
     <textarea
       class="ack-textarea"
@@ -51,6 +51,11 @@
       loading="{{submitting}}"
       bindtap="onAck"
     >已知晓</button>
+  </view>
+
+  <!-- 工程师只读提示 -->
+  <view class="card readonly-section" wx:if="{{!canAck && alert.status === 'OPEN'}}">
+    <view class="readonly-text">该报警需由主管确认处理</view>
   </view>
 
   <!-- 已确认提示 -->

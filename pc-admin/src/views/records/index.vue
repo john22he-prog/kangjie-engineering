@@ -1,0 +1,282 @@
+<template>
+  <div class="page-container">
+    <div class="page-header">
+      <h2>更换记录</h2>
+      <div class="header-actions">
+        <el-button @click="handleExport" :loading="exporting">
+          <el-icon><Download /></el-icon>导出 Excel
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 筛选 -->
+    <div class="filter-bar">
+      <el-date-picker
+        v-model="filterMonth"
+        type="month"
+        placeholder="选择月份"
+        format="YYYY-MM"
+        value-format="YYYY-MM"
+        style="width: 160px"
+        @change="loadList"
+      />
+      <el-select v-model="filterAssetId" placeholder="设备筛选" clearable filterable style="width: 200px" @change="loadList">
+        <el-option v-for="a in assets" :key="a.assetId" :label="`${a.assetName}`" :value="a.assetId" />
+      </el-select>
+      <el-select v-model="filterUserId" placeholder="工程师筛选" clearable filterable style="width: 160px" @change="loadList">
+        <el-option v-for="u in engineers" :key="u.userId" :label="u.displayName" :value="u.userId" />
+      </el-select>
+      <el-select v-model="filterType" placeholder="类型" clearable style="width: 120px" @change="loadList">
+        <el-option label="维修" value="维修" />
+        <el-option label="预防" value="预防" />
+        <el-option label="紧急" value="紧急" />
+      </el-select>
+    </div>
+
+    <!-- 记录表格 -->
+    <el-table :data="list" v-loading="loading" stripe>
+      <el-table-column label="日期时间" width="160">
+        <template #default="{ row }">
+          {{ formatTime(row.ts) }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="assetNameSnapshot" label="设备" width="130" />
+      <el-table-column prop="locationNameSnapshot" label="部位" width="100" />
+      <el-table-column prop="type" label="类型" width="70">
+        <template #default="{ row }">
+          <el-tag :type="typeTagType(row.type)" size="small">{{ row.type }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="配件明细" min-width="200">
+        <template #default="{ row }">
+          <div v-for="item in row.items" :key="item.partSkuId" class="item-line">
+            <span>{{ item.partNameSnapshot }}</span>
+            <el-tag size="small" type="info" class="qty-tag">x{{ item.qty }}</el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="reporterNameSnapshot" label="填报人" width="90" />
+      <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+      <el-table-column label="图片" width="80">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.images?.length"
+            size="small"
+            text
+            type="primary"
+            @click="showImages(row)"
+          >
+            {{ row.images.length }}张
+          </el-button>
+          <span v-else class="no-img">-</span>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <!-- 分页 -->
+    <div class="pagination-wrap">
+      <el-pagination
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="loadList"
+      />
+    </div>
+
+    <!-- 图片预览弹窗 -->
+    <el-dialog v-model="imageDialogVisible" title="照片查看" width="600px">
+      <div class="image-grid">
+        <div v-for="(img, idx) in currentImages" :key="idx" class="image-item">
+          <div class="image-placeholder">
+            <el-icon :size="32" color="#c0c4cc"><Picture /></el-icon>
+            <span>{{ img }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="imageDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { api } from '@/utils/api'
+import { useAppStore } from '@/stores/app'
+import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
+import dayjs from 'dayjs'
+
+const appStore = useAppStore()
+const loading = ref(false)
+const exporting = ref(false)
+const list = ref([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = 20
+const filterMonth = ref(dayjs().format('YYYY-MM'))
+const filterAssetId = ref('')
+const filterUserId = ref('')
+const filterType = ref('')
+const assets = ref([])
+const engineers = ref([])
+const imageDialogVisible = ref(false)
+const currentImages = ref([])
+
+function formatTime(ts) {
+  return ts ? dayjs(ts).format('YYYY-MM-DD HH:mm') : '-'
+}
+
+function typeTagType(type) {
+  return { '维修': '', '预防': 'success', '紧急': 'danger' }[type] || 'info'
+}
+
+function showImages(row) {
+  currentImages.value = row.images || []
+  imageDialogVisible.value = true
+}
+
+async function handleExport() {
+  exporting.value = true
+  try {
+    // Fetch all logs for the selected month (up to 5000)
+    const params = { yearMonth: filterMonth.value, page: 1, pageSize: 5000 }
+    if (appStore.currentFactoryId) params.factoryId = appStore.currentFactoryId
+    if (filterAssetId.value) params.assetId = filterAssetId.value
+    if (filterUserId.value) params.userId = filterUserId.value
+
+    const res = await api.listReplacementLogs(params)
+    if (!res.ok || !res.data.list.length) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+
+    let logs = res.data.list
+    if (filterType.value) {
+      logs = logs.filter(l => l.type === filterType.value)
+    }
+
+    // Build export rows - one row per item
+    const exportRows = []
+    logs.forEach(log => {
+      (log.items || []).forEach(item => {
+        exportRows.push({
+          '日期时间': dayjs(log.ts).format('YYYY-MM-DD HH:mm'),
+          '月份': log.yearMonth,
+          '设备名称': log.assetNameSnapshot,
+          '设备编号': log.assetNoSnapshot,
+          '部位': log.locationNameSnapshot,
+          '更换类型': log.type,
+          '配件名称': item.partNameSnapshot,
+          '配件编号': item.partCodeSnapshot,
+          '数量': item.qty,
+          '填报人': log.reporterNameSnapshot,
+          '备注': log.remark || '',
+        })
+      })
+    })
+
+    const ws = XLSX.utils.json_to_sheet(exportRows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '更换记录')
+    XLSX.writeFile(wb, `更换记录_${filterMonth.value}.xlsx`)
+    ElMessage.success('导出成功')
+  } catch (err) {
+    ElMessage.error('导出失败：' + (err.message || '未知错误'))
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function loadList() {
+  loading.value = true
+  try {
+    let filteredData = { yearMonth: filterMonth.value, page: currentPage.value, pageSize }
+    if (appStore.currentFactoryId) filteredData.factoryId = appStore.currentFactoryId
+    if (filterAssetId.value) filteredData.assetId = filterAssetId.value
+    if (filterUserId.value) filteredData.userId = filterUserId.value
+
+    const res = await api.listReplacementLogs(filteredData)
+    if (res.ok) {
+      let logs = res.data.list
+      // 客户端过滤类型（API 暂不支持类型筛选）
+      if (filterType.value) {
+        logs = logs.filter(l => l.type === filterType.value)
+      }
+      list.value = logs
+      total.value = res.data.total
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadBasicData() {
+  const [aRes, uRes] = await Promise.all([api.listAssets(appStore.currentFactoryId), api.listUsers()])
+  if (aRes.ok) assets.value = aRes.data.list
+  if (uRes.ok) engineers.value = uRes.data.list.filter(u => u.role === 'Engineer')
+}
+
+onMounted(async () => {
+  await loadBasicData()
+  await loadList()
+})
+</script>
+
+<style lang="scss" scoped>
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.item-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.8;
+
+  .qty-tag {
+    font-size: 11px;
+  }
+}
+
+.no-img {
+  color: #c0c4cc;
+}
+
+.pagination-wrap {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+
+  .image-item {
+    .image-placeholder {
+      width: 100%;
+      height: 120px;
+      background: #f5f7fa;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+
+      span {
+        font-size: 11px;
+        color: #c0c4cc;
+        word-break: break-all;
+        text-align: center;
+        padding: 0 8px;
+      }
+    }
+  }
+}
+</style>

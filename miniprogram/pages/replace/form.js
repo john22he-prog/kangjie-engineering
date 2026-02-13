@@ -113,6 +113,30 @@ Page({
     this.checkCanSubmit()
   },
 
+  // 是否有未保存的填写内容
+  hasUnsavedChanges() {
+    const { selectedSkus, images, remark } = this.data
+    return (selectedSkus && selectedSkus.length > 0) ||
+      (images && images.length > 0) ||
+      (remark && String(remark).trim() !== '')
+  },
+
+  onAbandonTap() {
+    if (!this.hasUnsavedChanges()) {
+      wx.navigateBack()
+      return
+    }
+    wx.showModal({
+      title: '放弃填写',
+      content: '当前已填写内容将丢失，确定放弃吗？',
+      confirmText: '放弃',
+      confirmColor: '#FA5151',
+      success: (res) => {
+        if (res.confirm) wx.navigateBack()
+      }
+    })
+  },
+
   checkCanSubmit() {
     const { type, locationId, selectedSkus, images } = this.data
     const hasType = !!type

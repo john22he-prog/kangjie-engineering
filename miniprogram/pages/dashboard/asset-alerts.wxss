@@ -239,3 +239,16 @@
   color: var(--weui-FG-2);
   font-size: 26rpx;
 }
+
+/* 只读提示 */
+.readonly-hint {
+  margin-top: 16rpx;
+  border-top: 1rpx solid var(--weui-BG-1);
+  padding-top: 16rpx;
+  text-align: center;
+}
+
+.readonly-hint-text {
+  font-size: 26rpx;
+  color: var(--weui-FG-1);
+}

@@ -79,3 +79,17 @@
   font-size: 28rpx;
   color: var(--weui-FG-1);
 }
+
+/* 只读提示 */
+.readonly-section {
+  margin-top: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx 24rpx;
+}
+
+.readonly-text {
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+}

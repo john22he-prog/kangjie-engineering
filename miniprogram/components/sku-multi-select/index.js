@@ -1,4 +1,6 @@
 // components/sku-multi-select/index.js
+const MAX_QTY = 999  // 单次更换数量上限
+
 Component({
   properties: {
     availableSkus: {
@@ -78,6 +80,7 @@ Component({
       const idx = e.currentTarget.dataset.index
       let qty = parseInt(e.detail.value)
       if (isNaN(qty) || qty < 1) qty = 1
+      if (qty > MAX_QTY) qty = MAX_QTY
       const newValue = this.data.innerValue.map((v, i) => ({
         partSkuId: v.partSkuId,
         qty: i === idx ? qty : v.qty
@@ -87,6 +90,8 @@ Component({
 
     onPlus(e) {
       const idx = e.currentTarget.dataset.index
+      const current = this.data.innerValue[idx].qty
+      if (current >= MAX_QTY) return
       const newValue = this.data.innerValue.map((v, i) => ({
         partSkuId: v.partSkuId,
         qty: i === idx ? v.qty + 1 : v.qty

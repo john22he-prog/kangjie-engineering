@@ -2,8 +2,8 @@
 const api = require('../../utils/api')
 const { getCurrentYearMonth } = require('../../utils/util')
 
-// 是否使用 Mock（与 api.js 保持一致）
-const USE_MOCK = true
+// 是否使用 Mock（与 api.js 保持一致，正式上线为 false）
+const USE_MOCK = false
 
 // 模板表头定义
 const TEMPLATES = {

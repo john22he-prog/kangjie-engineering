@@ -1,5 +1,5 @@
 {
   "usingComponents": {},
-  "navigationBarTitleText": "超阈值报警",
+  "navigationBarTitleText": "阈值报警",
   "enablePullDownRefresh": true
 }

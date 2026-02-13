@@ -1,0 +1,163 @@
+/* pages/dashboard/asset-cost-detail.wxss */
+
+.info-card {
+  background: linear-gradient(135deg, #07C160 0%, #06AD56 100%);
+  color: #fff;
+}
+
+.info-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.info-meta {
+  font-size: 24rpx;
+  opacity: 0.85;
+  margin-bottom: 20rpx;
+}
+
+.info-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16rpx;
+  border-top: 1rpx solid rgba(255,255,255,0.3);
+}
+
+.total-label {
+  font-size: 28rpx;
+  opacity: 0.9;
+}
+
+.total-value {
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.list-card {
+  margin-top: 4rpx;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.list-title {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--weui-FG-0);
+}
+
+.list-count {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.part-list {
+  padding: 0;
+}
+
+.part-item {
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.part-item:last-child {
+  border-bottom: none;
+}
+
+.part-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 10rpx;
+}
+
+.part-no {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 8rpx;
+  background: var(--weui-BG-1);
+  color: var(--weui-FG-1);
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.part-item:nth-child(1) .part-no,
+.part-item:nth-child(2) .part-no,
+.part-item:nth-child(3) .part-no {
+  background: #07C160;
+  color: #fff;
+}
+
+.part-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.part-name {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  display: block;
+}
+
+.part-spec {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  display: block;
+  margin-top: 4rpx;
+}
+
+.part-cost-info {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.part-cost {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+  display: block;
+}
+
+.part-qty {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  display: block;
+  margin-top: 4rpx;
+}
+
+.part-bar-wrap {
+  height: 10rpx;
+  background: var(--weui-BG-1);
+  border-radius: 5rpx;
+  margin-left: 52rpx;
+  overflow: hidden;
+}
+
+.part-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #07C160, #38d976);
+  border-radius: 5rpx;
+  transition: width 0.4s ease;
+}
+
+.empty-card {
+  text-align: center;
+  padding: 60rpx 0;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 60rpx 0;
+  color: var(--weui-FG-2);
+  font-size: 28rpx;
+}

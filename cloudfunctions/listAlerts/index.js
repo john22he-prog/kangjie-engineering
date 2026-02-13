@@ -5,9 +5,10 @@ const db = cloud.database()
 
 exports.main = async (event, context) => {
   try {
-    const { status, yearMonth, assetId, page = 1, pageSize = 20 } = event
+    const { factoryId, status, yearMonth, assetId, page = 1, pageSize = 20 } = event
 
     const where = {}
+    if (factoryId) where.factoryId = factoryId
     if (status) where.status = status
     if (yearMonth) where.yearMonth = yearMonth
     if (assetId) where.assetId = assetId

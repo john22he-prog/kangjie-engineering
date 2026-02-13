@@ -382,6 +382,150 @@ const mockApi = {
     })
   },
 
+  // AI 分析报告（规则+模板）。params: { yearMonth, workshop?, scope: 'workshop'|'summary' }
+  getAIReport(params) {
+    const ym = params.yearMonth || getCurrentYearMonth()
+    // 小程序端：主管按 factoryId 看全厂，这里 mock 简单处理（所有设备属于 F-001）
+    // factoryId 参数保留用于将来真正的后端过滤
+    const factoryId = params.factoryId
+
+    // --- 聚合指定月份数据 ---
+    function aggregateMonth(targetYm) {
+      const ymLogs = replacementLogs.filter(l => l.yearMonth === targetYm)
+      const ymAlerts = alerts.filter(a => a.yearMonth === targetYm)
+      const openAlertsList = ymAlerts.filter(a => a.status === 'OPEN')
+
+      const totalLogs = ymLogs.length
+      let totalPartsQty = 0
+      const typeCount = { '维修': 0, '预防': 0, '紧急': 0 }
+      const partUsage = {}
+      const assetCount = {}
+      const engineerMap = {}
+
+      ymLogs.forEach(l => {
+        typeCount[l.type] = (typeCount[l.type] || 0) + 1
+        ;(l.items || []).forEach(item => {
+          totalPartsQty += item.qty
+          if (!partUsage[item.partSkuId]) partUsage[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot, partCode: item.partCodeSnapshot, totalQty: 0 }
+          partUsage[item.partSkuId].totalQty += item.qty
+        })
+        if (!assetCount[l.assetId]) assetCount[l.assetId] = { assetId: l.assetId, assetName: l.assetNameSnapshot, assetNo: l.assetNoSnapshot || '', logCount: 0, urgentCount: 0 }
+        assetCount[l.assetId].logCount++
+        if (l.type === '紧急') assetCount[l.assetId].urgentCount++
+        if (!engineerMap[l.reporterUserIdSnapshot]) engineerMap[l.reporterUserIdSnapshot] = { userId: l.reporterUserIdSnapshot, name: l.reporterNameSnapshot, logCount: 0 }
+        engineerMap[l.reporterUserIdSnapshot].logCount++
+      })
+      const topParts = Object.values(partUsage).sort((a, b) => b.totalQty - a.totalQty).slice(0, 5)
+      const topAssets = Object.values(assetCount).sort((a, b) => b.logCount - a.logCount).slice(0, 5)
+      const engineerWorkload = Object.values(engineerMap).sort((a, b) => b.logCount - a.logCount)
+
+      const alertAssetMap = {}
+      openAlertsList.forEach(a => {
+        if (!alertAssetMap[a.assetId]) alertAssetMap[a.assetId] = { assetId: a.assetId, assetName: a.assetName || a.assetId, openCount: 0 }
+        alertAssetMap[a.assetId].openCount++
+      })
+      const alertsByAsset = Object.values(alertAssetMap).sort((a, b) => b.openCount - a.openCount)
+
+      return {
+        yearMonth: targetYm, totalLogs, totalPartsQty,
+        openAlerts: openAlertsList.length, totalAlerts: ymAlerts.length,
+        typeCount, topParts, topAssets, engineerWorkload, alertsByAsset,
+        totalUsageCost: totalPartsQty * 25, // mock 成本
+        lowStockCount: 0
+      }
+    }
+
+    // 计算上月
+    const ymParts = ym.split('-')
+    const d = new Date(parseInt(ymParts[0]), parseInt(ymParts[1]) - 2, 1)
+    const prevYm = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+
+    const current = aggregateMonth(ym)
+    const prev = aggregateMonth(prevYm)
+
+    // --- 8 维度报告生成 ---
+    const sections = []
+    const urgentRate = current.totalLogs > 0 ? Math.round((current.typeCount['紧急'] || 0) / current.totalLogs * 100) : 0
+    const prevRate = prev.totalLogs > 0 ? Math.round((prev.typeCount['紧急'] || 0) / prev.totalLogs * 100) : 0
+
+    // 1. 运维健康总览
+    const healthItems = []
+    healthItems.push({ text: '本月更换 ' + current.totalLogs + ' 次，配件消耗 ' + current.totalPartsQty + ' 件，待处理报警 ' + current.openAlerts + ' 条。' })
+    healthItems.push({ text: '更换类型：维修 ' + (current.typeCount['维修'] || 0) + ' 次、预防 ' + (current.typeCount['预防'] || 0) + ' 次、紧急 ' + (current.typeCount['紧急'] || 0) + ' 次（紧急占比 ' + urgentRate + '%）。' })
+    if (urgentRate > 30) healthItems.push({ text: '⚠ 紧急维修占比偏高，建议加强预防性维保。' })
+    sections.push({ title: '运维健康总览', items: healthItems })
+
+    // 2. 历史对比与趋势
+    const logsDiff = current.totalLogs - prev.totalLogs
+    const logsPct = prev.totalLogs > 0 ? Math.round(logsDiff / prev.totalLogs * 100) : (current.totalLogs > 0 ? 100 : 0)
+    const partsDiff = current.totalPartsQty - prev.totalPartsQty
+    const partsPct = prev.totalPartsQty > 0 ? Math.round(partsDiff / prev.totalPartsQty * 100) : 0
+    const histItems = []
+    histItems.push({ text: '更换次数：本月 ' + current.totalLogs + ' vs 上月 ' + prev.totalLogs + '（' + (logsDiff >= 0 ? '+' : '') + logsDiff + '，' + (logsPct >= 0 ? '+' : '') + logsPct + '%）。' })
+    histItems.push({ text: '配件消耗：本月 ' + current.totalPartsQty + ' vs 上月 ' + prev.totalPartsQty + '（' + (partsDiff >= 0 ? '+' : '') + partsDiff + '，' + (partsPct >= 0 ? '+' : '') + partsPct + '%）。' })
+    histItems.push({ text: 'OPEN 报警：本月 ' + current.openAlerts + ' vs 上月 ' + prev.openAlerts + '。' })
+    if (logsPct > 50) histItems.push({ text: '⚠ 更换次数环比上升 ' + logsPct + '%，建议排查原因。' })
+    if (logsPct < -30 && prev.totalLogs > 3) histItems.push({ text: '✓ 更换次数环比下降 ' + Math.abs(logsPct) + '%，设备趋稳。' })
+    sections.push({ title: '历史对比与趋势', items: histItems })
+
+    // 3. 设备风险
+    if (current.topAssets.length) {
+      sections.push({
+        title: '设备风险分析',
+        items: current.topAssets.map(function(a, i) {
+          var t = 'TOP' + (i + 1) + '：' + a.assetName + '（' + a.assetNo + '）本月 ' + a.logCount + ' 次更换'
+          if (a.urgentCount > 0) t += '，其中紧急 ' + a.urgentCount + ' 次'
+          t += '。'
+          return { text: t }
+        })
+      })
+    }
+    // 4. 配件消耗
+    if (current.topParts.length) {
+      sections.push({
+        title: '配件消耗分析',
+        items: current.topParts.map(function(p, i) { return { text: 'TOP' + (i + 1) + '：' + p.partName + '（' + p.partCode + '）本月消耗 ' + p.totalQty + ' 件。' } })
+      })
+    }
+    // 5. 成本
+    sections.push({
+      title: '成本分析',
+      items: [{ text: '本月配件使用成本约 ¥' + current.totalUsageCost + '。' }]
+    })
+    // 6. 人员
+    if (current.engineerWorkload.length) {
+      var topEng = current.engineerWorkload[0]
+      sections.push({
+        title: '人员与负荷',
+        items: [{ text: '本月活跃工程师 ' + current.engineerWorkload.length + ' 人，' + topEng.name + ' 记录最多（' + topEng.logCount + ' 条）。' }]
+      })
+    }
+    // 7. 报警闭环
+    if (current.openAlerts > 0 && current.alertsByAsset.length) {
+      sections.push({
+        title: '报警与响应闭环',
+        items: current.alertsByAsset.slice(0, 5).map(function(a) { return { text: a.assetName + ' 有 ' + a.openCount + ' 条待处理报警，建议尽快排查。' } })
+      })
+    }
+
+    // 文字摘要
+    var factoryLabel = '当前工厂'
+    var summaryText = factoryLabel + ' 本月更换 ' + current.totalLogs + ' 次，配件消耗 ' + current.totalPartsQty + ' 件，紧急占比 ' + urgentRate + '%，待处理报警 ' + current.openAlerts + ' 条。'
+    if (logsPct > 0 && prev.totalLogs > 0) summaryText += ' 较上月增长 ' + logsPct + '%。'
+    else if (logsPct < 0 && prev.totalLogs > 0) summaryText += ' 较上月下降 ' + Math.abs(logsPct) + '%。'
+    if (current.openAlerts > 0) summaryText += ' 存在未处理报警，建议优先处理。'
+
+    return delay({
+      ok: true,
+      data: {
+        summaryText, sections,
+        stats: current,
+        prevStats: prev,
+        history: { current: current, prev: prev, logsPct: logsPct, partsPct: partsPct }
+      }
+    })
+  },
+
   // 配件详情：某配件在各设备上的用量分布
   getPartUsageDetail(params) {
     const { partSkuId, yearMonth } = params
@@ -581,6 +725,96 @@ const mockApi = {
       status: a.status
     }))
     return delay({ ok: true, data: { list } })
+  },
+
+  // ========== 当月配件使用金额排名 ==========
+  getMonthlyCostRanking(params) {
+    const ym = params.yearMonth || getCurrentYearMonth()
+    // Mock cost data based on existing outbound data
+    const mockCostData = [
+      { assetId: 'ZB-001', assetName: '隧道式洗衣龙1号', totalCost: 3200.00, percentage: 40.5 },
+      { assetId: 'ZB-003', assetName: '烘干机1号', totalCost: 2150.00, percentage: 27.2 },
+      { assetId: 'ZB-002', assetName: '隧道式洗衣龙2号', totalCost: 1800.00, percentage: 22.8 },
+    ]
+    const total = mockCostData.reduce((s, d) => s + d.totalCost, 0)
+    return delay({
+      ok: true,
+      data: {
+        yearMonth: ym,
+        totalMonthlyUsageCost: Math.round(total * 100) / 100,
+        costByAsset: mockCostData
+      }
+    })
+  },
+
+  // ========== 低库存报警 ==========
+  listInventoryAlerts() {
+    const mockInvAlerts = [
+      { alertId: 'ia_001', partSkuId: 'sku_003', partNameSnapshot: '密封圈', currentQty: 3, threshold: 10, status: 'OPEN', ackByUserId: null, ackTs: null, ackNote: null, createdAt: Date.now() - 86400000 },
+      { alertId: 'ia_002', partSkuId: 'sku_005', partNameSnapshot: '轴承', currentQty: 5, threshold: 10, status: 'OPEN', ackByUserId: null, ackTs: null, ackNote: null, createdAt: Date.now() - 86400000 * 2 },
+    ]
+    return delay({ ok: true, data: { list: mockInvAlerts } })
+  },
+
+  // ========== 设备配件金额明细（下钻） ==========
+  getAssetCostDetail(params) {
+    const { assetId } = params
+    // 根据不同设备返回不同配件数据
+    const mockPartCostMap = {
+      'ZB-001': [
+        { partSkuId: 'P-001', partName: '洗涤泵', specModel: 'WP-200A', qty: 3, unit: '个', totalCost: 1500.00 },
+        { partSkuId: 'P-003', partName: '密封圈', specModel: 'SL-50', qty: 8, unit: '个', totalCost: 800.00 },
+        { partSkuId: 'P-002', partName: '加热管', specModel: 'HT-100', qty: 2, unit: '根', totalCost: 600.00 },
+        { partSkuId: 'P-005', partName: '排水阀', specModel: 'DV-30', qty: 1, unit: '个', totalCost: 200.00 },
+        { partSkuId: 'P-006', partName: '滤网', specModel: 'FN-10', qty: 5, unit: '个', totalCost: 100.00 },
+      ],
+      'ZB-003': [
+        { partSkuId: 'P-010', partName: '烘干加热管', specModel: 'DH-300', qty: 2, unit: '根', totalCost: 1200.00 },
+        { partSkuId: 'P-011', partName: '风机轴承', specModel: 'FB-80', qty: 4, unit: '个', totalCost: 600.00 },
+        { partSkuId: 'P-012', partName: '温控传感器', specModel: 'TS-50', qty: 1, unit: '个', totalCost: 350.00 },
+      ],
+      'ZB-002': [
+        { partSkuId: 'P-001', partName: '洗涤泵', specModel: 'WP-200A', qty: 2, unit: '个', totalCost: 1000.00 },
+        { partSkuId: 'P-003', partName: '密封圈', specModel: 'SL-50', qty: 5, unit: '个', totalCost: 500.00 },
+        { partSkuId: 'P-007', partName: '传动皮带', specModel: 'BT-120', qty: 1, unit: '条', totalCost: 300.00 },
+      ]
+    }
+    const parts = mockPartCostMap[assetId] || [
+      { partSkuId: 'P-099', partName: '通用配件', specModel: '', qty: 1, unit: '个', totalCost: 100.00 },
+    ]
+    // 已按金额从高到低排序
+    parts.sort((a, b) => b.totalCost - a.totalCost)
+    const total = parts.reduce((s, p) => s + p.totalCost, 0)
+    return delay({
+      ok: true,
+      data: {
+        assetId,
+        totalCost: Math.round(total * 100) / 100,
+        partList: parts
+      }
+    })
+  },
+
+  // ========== 工厂列表 ==========
+  getFactories() {
+    const auth = require('./auth')
+    const user = auth.getUser()
+    const allFactories = [
+      { factoryId: 'F-001', factoryName: '上海工厂', factoryCode: 'SH', status: 'active' },
+      { factoryId: 'F-002', factoryName: '北京工厂', factoryCode: 'BJ', status: 'active' },
+      { factoryId: 'F-003', factoryName: '广州工厂', factoryCode: 'GZ', status: 'active' },
+      { factoryId: 'F-004', factoryName: '成都工厂', factoryCode: 'CD', status: 'active' }
+    ]
+    const canSwitch = auth.canSwitchFactory()
+    const factories = canSwitch ? allFactories : allFactories.filter(f => f.factoryId === 'F-001')
+    return delay({
+      ok: true,
+      data: {
+        factories,
+        userFactoryId: user.factoryId || 'F-001',
+        canSwitchFactory: canSwitch
+      }
+    })
   }
 }
 

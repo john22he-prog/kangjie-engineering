@@ -1,5 +1,6 @@
 // pages/dashboard/asset-alerts.js
 const api = require('../../utils/api')
+const auth = require('../../utils/auth')
 const { formatDate } = require('../../utils/util')
 
 Page({
@@ -8,14 +9,16 @@ Page({
     assetName: '',
     yearMonth: '',
     info: null,
-    loading: true
+    loading: true,
+    canAck: false
   },
 
   onLoad(options) {
     this.setData({
       assetId: options.assetId || '',
       assetName: decodeURIComponent(options.assetName || ''),
-      yearMonth: options.yearMonth || ''
+      yearMonth: options.yearMonth || '',
+      canAck: auth.canAck()
     })
     this.loadData()
   },

@@ -1,4 +1,69 @@
 /* pages/alerts/index.wxss */
+
+/* 报警类型切换 */
+.type-bar {
+  display: flex;
+  margin: 0 24rpx 16rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 8rpx;
+  gap: 8rpx;
+}
+
+.type-item {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 0;
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+  border-radius: 8rpx;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.type-active {
+  background: #07C160;
+  color: #fff;
+  font-weight: 600;
+}
+
+.type-badge {
+  background: #FA5151;
+  color: #fff;
+  font-size: 20rpx;
+  min-width: 32rpx;
+  height: 32rpx;
+  line-height: 32rpx;
+  border-radius: 16rpx;
+  text-align: center;
+  padding: 0 8rpx;
+}
+
+.type-active .type-badge {
+  background: #fff;
+  color: #FA5151;
+}
+
+/* 低库存标签 */
+.inv-alert-label {
+  color: #E6A23C !important;
+  font-weight: 500;
+}
+
+.alert-type-tag {
+  font-size: 22rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+}
+
+.alert-type-tag.inv {
+  background: #fdf6ec;
+  color: #E6A23C;
+}
+
 .filter-bar {
   display: flex;
 }

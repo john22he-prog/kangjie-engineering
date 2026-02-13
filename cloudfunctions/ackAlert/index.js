@@ -15,8 +15,8 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'PERMISSION_DENIED', message: '未绑定或账号已禁用' } }
     }
     const user = users[0]
-    if (!['Supervisor', 'Admin'].includes(user.role)) {
-      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅主管/管理员可确认报警' } }
+    if (!['Supervisor', 'Management', 'Admin'].includes(user.role)) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅主管及以上人员可确认报警' } }
     }
 
     const { alertId, ackNote } = event

@@ -3,10 +3,11 @@ const { ROLES } = require('./constants')
 
 // Mock 用户列表（开发测试用）
 const MOCK_USERS = [
-  { userId: 'user_001', displayName: '张工程', role: ROLES.ENGINEER, status: 'active' },
-  { userId: 'user_002', displayName: '李主管', role: ROLES.SUPERVISOR, status: 'active' },
-  { userId: 'user_003', displayName: '王工程', role: ROLES.ENGINEER, status: 'active' },
-  { userId: 'user_004', displayName: '管理员', role: ROLES.ADMIN, status: 'active' }
+  { userId: 'user_001', displayName: '张工程', role: ROLES.ENGINEER, status: 'active', factoryId: '' },
+  { userId: 'user_002', displayName: '李主管', role: ROLES.SUPERVISOR, status: 'active', factoryId: 'F-001' },
+  { userId: 'user_003', displayName: '王工程', role: ROLES.ENGINEER, status: 'active', factoryId: '' },
+  { userId: 'user_004', displayName: '管理员', role: ROLES.ADMIN, status: 'active', factoryId: '' },
+  { userId: 'user_005', displayName: '赵管理', role: ROLES.MANAGEMENT, status: 'active', factoryId: '' }
 ]
 
 // 当前用户（默认工程师）
@@ -65,6 +66,10 @@ function isAdmin() {
   return getRole() === ROLES.ADMIN
 }
 
+function isManagement() {
+  return getRole() === ROLES.MANAGEMENT
+}
+
 /**
  * 是否有写权限（Engineer）
  */
@@ -73,10 +78,31 @@ function canWrite() {
 }
 
 /**
- * 是否可以 ACK 报警（Supervisor / Admin）
+ * 是否可以 ACK 报警（Supervisor / Management / Admin）
  */
 function canAck() {
-  return isSupervisor() || isAdmin()
+  return isSupervisor() || isManagement() || isAdmin()
+}
+
+/**
+ * 是否可以管理数据（Supervisor / Management / Admin）
+ */
+function canManage() {
+  return isSupervisor() || isManagement() || isAdmin()
+}
+
+/**
+ * 是否可以查看成本看板（Supervisor / Management / Admin）
+ */
+function canViewCost() {
+  return isSupervisor() || isManagement() || isAdmin()
+}
+
+/**
+ * 是否可以切换工厂（Management / Admin）
+ */
+function canSwitchFactory() {
+  return isManagement() || isAdmin()
 }
 
 module.exports = {
@@ -89,6 +115,10 @@ module.exports = {
   isViewer,
   isSupervisor,
   isAdmin,
+  isManagement,
   canWrite,
-  canAck
+  canAck,
+  canManage,
+  canViewCost,
+  canSwitchFactory
 }

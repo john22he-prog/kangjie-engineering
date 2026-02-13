@@ -64,9 +64,13 @@
         </view>
       </view>
 
-      <!-- ACK 按钮 -->
-      <view class="ack-btn-wrap" wx:if="{{item.status === 'OPEN'}}">
+      <!-- ACK 按钮：仅主管及以上可操作 -->
+      <view class="ack-btn-wrap" wx:if="{{canAck && item.status === 'OPEN'}}">
         <view class="ack-btn" bindtap="onAck" data-alert="{{item}}" data-idx="{{index}}">已知晓</view>
+      </view>
+      <!-- 工程师只读提示 -->
+      <view class="readonly-hint" wx:if="{{!canAck && item.status === 'OPEN'}}">
+        <text class="readonly-hint-text">该报警需由主管确认处理</text>
       </view>
     </view>
   </block>

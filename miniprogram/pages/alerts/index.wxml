@@ -1,5 +1,17 @@
 <!-- pages/alerts/index.wxml -->
 <view class="page-container">
+  <!-- 报警类型切换 -->
+  <view class="type-bar">
+    <view class="type-item {{alertType === 'threshold' ? 'type-active' : ''}}" bindtap="switchType" data-type="threshold">
+      <text>超阈值报警</text>
+      <view class="type-badge" wx:if="{{thresholdOpenCount > 0}}">{{thresholdOpenCount}}</view>
+    </view>
+    <view class="type-item {{alertType === 'inventory' ? 'type-active' : ''}}" bindtap="switchType" data-type="inventory">
+      <text>低库存报警</text>
+      <view class="type-badge" wx:if="{{inventoryOpenCount > 0}}">{{inventoryOpenCount}}</view>
+    </view>
+  </view>
+
   <!-- 月份筛选 -->
   <view class="filter-bar card">
     <picker mode="date" fields="month" value="{{yearMonth}}" bindchange="onMonthChange">
@@ -20,25 +32,45 @@
     </view>
   </view>
 
-  <!-- 列表 -->
-  <view class="alert-list" wx:if="{{list.length > 0}}">
-    <view class="card alert-item" wx:for="{{list}}" wx:key="alertId" bindtap="onAlertTap" data-alert="{{item}}">
-      <view class="alert-header">
-        <text class="alert-asset">{{item.assetName || item.assetId}}</text>
-        <view class="tag {{item.status === 'OPEN' ? 'tag-open' : 'tag-ack'}}">{{item.status}}</view>
-      </view>
-      <view class="alert-body">
-        <text class="alert-part">配件：{{item.partName || item.partSkuId}}</text>
-        <text class="alert-usage">累计：{{item.currentQty}} / 阈值：{{item.thresholdValue}}</text>
-      </view>
-      <view class="alert-footer">
-        <text class="alert-month">{{item.yearMonth}}</text>
+  <!-- 超阈值报警列表 -->
+  <block wx:if="{{alertType === 'threshold'}}">
+    <view class="alert-list" wx:if="{{list.length > 0}}">
+      <view class="card alert-item" wx:for="{{list}}" wx:key="alertId" bindtap="onAlertTap" data-alert="{{item}}">
+        <view class="alert-header">
+          <text class="alert-asset">{{item.assetName || item.assetId}}</text>
+          <view class="tag {{item.status === 'OPEN' ? 'tag-open' : 'tag-ack'}}">{{item.status}}</view>
+        </view>
+        <view class="alert-body">
+          <text class="alert-part">配件：{{item.partName || item.partSkuId}}</text>
+          <text class="alert-usage">累计：{{item.currentQty}} / 阈值：{{item.thresholdValue}}</text>
+        </view>
+        <view class="alert-footer">
+          <text class="alert-month">{{item.yearMonth}}</text>
+        </view>
       </view>
     </view>
-  </view>
+    <view class="empty-state" wx:if="{{!loading && list.length === 0}}">本月暂无超阈值报警</view>
+  </block>
 
-  <!-- 空态 -->
-  <view class="empty-state" wx:if="{{!loading && list.length === 0}}">本月暂无超阈值报警</view>
+  <!-- 低库存报警列表 -->
+  <block wx:if="{{alertType === 'inventory'}}">
+    <view class="alert-list" wx:if="{{inventoryList.length > 0}}">
+      <view class="card alert-item" wx:for="{{inventoryList}}" wx:key="alertId" bindtap="onInventoryAlertTap" data-alert="{{item}}">
+        <view class="alert-header">
+          <text class="alert-asset">{{item.partNameSnapshot || item.partSkuId}}</text>
+          <view class="tag {{item.status === 'OPEN' ? 'tag-open' : 'tag-ack'}}">{{item.status}}</view>
+        </view>
+        <view class="alert-body">
+          <text class="alert-part inv-alert-label">低库存预警</text>
+          <text class="alert-usage">当前库存：{{item.currentQty}} / 阈值：{{item.threshold}}</text>
+        </view>
+        <view class="alert-footer">
+          <text class="alert-type-tag inv">库存</text>
+        </view>
+      </view>
+    </view>
+    <view class="empty-state" wx:if="{{!loading && inventoryList.length === 0}}">暂无低库存报警</view>
+  </block>
 
   <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
 </view>

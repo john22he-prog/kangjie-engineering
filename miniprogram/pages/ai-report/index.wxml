@@ -1,0 +1,70 @@
+<!--pages/ai-report/index.wxml-->
+<view class="page-container">
+  <view class="card header-card">
+    <view class="header-desc">基于更换与报警数据生成全厂分析报告，包含历史对比与 8 大分析维度。</view>
+    <view class="form-row">
+      <picker mode="date" fields="month" value="{{yearMonth}}" bindchange="onMonthChange">
+        <view class="picker-label">{{yearMonth || '选择月份'}}</view>
+      </picker>
+      <button class="btn-primary" loading="{{loading}}" disabled="{{loading}}" bindtap="onGenerate">生成报告</button>
+    </view>
+  </view>
+
+  <block wx:if="{{report}}">
+    <!-- 数字卡 -->
+    <view class="stat-row">
+      <view class="stat-card">
+        <text class="stat-value">{{report.stats.totalLogs}}</text>
+        <text class="stat-label">更换次数</text>
+      </view>
+      <view class="stat-card">
+        <text class="stat-value">{{report.stats.totalPartsQty}}</text>
+        <text class="stat-label">配件消耗</text>
+      </view>
+      <view class="stat-card {{report.stats.openAlerts > 0 ? 'stat-danger' : ''}}">
+        <text class="stat-value">{{report.stats.openAlerts}}</text>
+        <text class="stat-label">待处理报警</text>
+      </view>
+    </view>
+
+    <!-- 历史环比摘要卡 -->
+    <view class="card history-card" wx:if="{{report.history}}">
+      <view class="card-title">
+        <text>历史对比</text>
+        <text class="badge {{report.history.logsPct > 20 ? 'badge-danger' : report.history.logsPct < -20 ? 'badge-success' : 'badge-info'}}">
+          更换 {{report.history.logsPct >= 0 ? '+' : ''}}{{report.history.logsPct}}%
+        </text>
+      </view>
+      <view class="history-row">
+        <view class="history-item">
+          <text class="history-label">更换</text>
+          <text class="history-val">{{report.stats.totalLogs}} vs {{report.prevStats.totalLogs}}</text>
+        </view>
+        <view class="history-item">
+          <text class="history-label">配件</text>
+          <text class="history-val">{{report.stats.totalPartsQty}} vs {{report.prevStats.totalPartsQty}}</text>
+        </view>
+        <view class="history-item">
+          <text class="history-label">报警</text>
+          <text class="history-val">{{report.stats.openAlerts}} vs {{report.prevStats.openAlerts}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 摘要 -->
+    <view class="card">
+      <view class="card-title">报告摘要</view>
+      <text class="summary-text">{{report.summaryText}}</text>
+    </view>
+
+    <!-- 各维度分析 -->
+    <view class="card" wx:for="{{report.sections}}" wx:key="title">
+      <view class="card-title">{{item.title}}</view>
+      <view class="section-list">
+        <text class="section-item" wx:for="{{item.items}}" wx:for-item="line" wx:key="text">• {{line.text}}</text>
+      </view>
+    </view>
+  </block>
+
+  <view class="empty-hint" wx:elif="{{!loading}}">选择月份后点击「生成报告」</view>
+</view>

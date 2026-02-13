@@ -31,7 +31,8 @@ exports.main = async (event, context) => {
         userId: user.userId,
         displayName: user.displayName,
         role: user.role,
-        status: user.status
+        status: user.status,
+        factoryId: user.factoryId || null
       }
     }
   } catch (err) {

@@ -1,0 +1,46 @@
+<!-- pages/dashboard/asset-cost-detail.wxml -->
+<view class="page-container">
+  <!-- 设备信息 -->
+  <view class="card info-card">
+    <view class="info-title">{{assetName}}</view>
+    <view class="info-meta">{{yearMonth}} · 配件使用金额明细</view>
+    <view class="info-total">
+      <text class="total-label">总金额</text>
+      <text class="total-value">¥{{totalCostStr}}</text>
+    </view>
+  </view>
+
+  <!-- 配件列表（从高到低） -->
+  <view class="card list-card" wx:if="{{partList.length > 0}}">
+    <view class="list-header">
+      <text class="list-title">单类配件金额（从高到低）</text>
+      <text class="list-count">共 {{partList.length}} 种</text>
+    </view>
+    <view class="part-list">
+      <view class="part-item" wx:for="{{partList}}" wx:key="partSkuId">
+        <view class="part-row">
+          <text class="part-no">{{index + 1}}</text>
+          <view class="part-info">
+            <text class="part-name">{{item.partName}}</text>
+            <text class="part-spec" wx:if="{{item.specModel}}">{{item.specModel}}</text>
+          </view>
+          <view class="part-cost-info">
+            <text class="part-cost">¥{{item.totalCostStr}}</text>
+            <text class="part-qty">{{item.qty}} {{item.unit || '个'}}</text>
+          </view>
+        </view>
+        <view class="part-bar-wrap">
+          <view class="part-bar" style="width: {{item.barWidth || 0}}%;"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card empty-card" wx:if="{{!loading && partList.length === 0}}">
+    <view class="empty-state">暂无配件使用金额数据</view>
+  </view>
+
+  <view class="loading-state" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+</view>

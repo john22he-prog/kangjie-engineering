@@ -2,7 +2,7 @@
 const api = require('../../utils/api')
 const offlineQueue = require('../../utils/offline-queue')
 
-const IS_DEV = true  // 正式上线改为 false
+const IS_DEV = false  // 正式上线为 false，隐藏开发调试入口
 
 Page({
   data: {

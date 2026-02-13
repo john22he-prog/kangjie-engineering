@@ -114,7 +114,7 @@ Page({
 
   onMonthChange(e) {
     this.setData({ 'filters.yearMonth': e.detail.value })
-    this.loadList(true)
+    this._debouncedLoadList()
   },
 
   onAssetFilter(e) {
@@ -125,7 +125,16 @@ Page({
       'filters.assetId': asset ? asset.assetId : '',
       'filters.assetName': asset ? asset.assetName : '全部设备'
     })
-    this.loadList(true)
+    this._debouncedLoadList()
+  },
+
+  // 防抖：筛选切换后 300ms 再请求，避免快速切换多发请求
+  _debouncedLoadList() {
+    if (this._filterTimer) clearTimeout(this._filterTimer)
+    this._filterTimer = setTimeout(() => {
+      this._filterTimer = null
+      this.loadList(true)
+    }, 300)
   },
 
   onClearDateFilter() {

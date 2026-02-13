@@ -21,9 +21,37 @@
       </view>
       <view class="summary-divider"></view>
       <view class="summary-item clickable" bindtap="onOpenAlertsTap">
-        <view class="summary-num summary-alert">{{stats.openAlerts || 0}}</view>
+        <view class="summary-num summary-alert">{{(stats.openAlerts || 0) + inventoryOpenCount}}</view>
         <view class="summary-label">待处理报警 ›</view>
       </view>
+    </view>
+  </view>
+
+  <!-- M7 当月配件使用金额 TOP 10（仅主管及以上可见） -->
+  <view class="card dash-card cost-card" wx:if="{{canViewCost}}">
+    <view class="dash-card-header">
+      <text class="dash-card-title">当月配件使用金额</text>
+    </view>
+    <view class="cost-total">
+      <text class="cost-total-label">总金额</text>
+      <text class="cost-total-value">¥{{costRanking.totalMonthlyUsageCostStr || '0'}}</text>
+    </view>
+    <view class="dash-card-header" style="margin-top: 16rpx;">
+      <text class="dash-card-subtitle">按设备排名 TOP 10（从高到低）</text>
+    </view>
+    <view class="cost-rank-list">
+      <view class="cost-rank-item clickable" wx:for="{{costRanking.costByAsset}}" wx:key="assetId" bindtap="onCostAssetTap" data-item="{{item}}">
+        <view class="cost-rank-header">
+          <text class="cost-rank-no">{{index + 1}}</text>
+          <text class="cost-rank-name">{{item.assetName}}</text>
+          <text class="cost-rank-amount">¥{{item.totalCostStr || item.totalCost}}</text>
+          <text class="rank-arrow">›</text>
+        </view>
+        <view class="cost-rank-bar-wrap">
+          <view class="cost-rank-bar" style="width: {{item.barWidth || 0}}%;"></view>
+        </view>
+      </view>
+      <view class="empty-state" wx:if="{{!costRanking.costByAsset || costRanking.costByAsset.length === 0}}">暂无使用金额数据</view>
     </view>
   </view>
 
@@ -59,15 +87,19 @@
     </view>
   </view>
 
-  <!-- 报警统计（待处理/已确认） -->
+  <!-- 报警统计（超阈值 + 低库存） -->
   <view class="card dash-card">
     <view class="dash-card-header">
-      <text class="dash-card-title">报警统计：{{stats.totalAlerts}} 次</text>
+      <text class="dash-card-title">阈值报警统计</text>
     </view>
     <view class="alert-summary">
       <view class="alert-stat clickable" bindtap="onOpenAlertsTap">
         <view class="alert-stat-num open">{{stats.openAlerts}}</view>
-        <view class="alert-stat-label">待处理 ›</view>
+        <view class="alert-stat-label">超阈值待处理 ›</view>
+      </view>
+      <view class="alert-stat clickable" bindtap="onInventoryAlertsTap" wx:if="{{inventoryOpenCount > 0}}">
+        <view class="alert-stat-num open">{{inventoryOpenCount}}</view>
+        <view class="alert-stat-label">低库存预警 ›</view>
       </view>
       <view class="alert-stat clickable" bindtap="onAckAlertsTap">
         <view class="alert-stat-num ack">{{stats.totalAlerts - stats.openAlerts}}</view>

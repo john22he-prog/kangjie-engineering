@@ -8,17 +8,29 @@
     </view>
   </view>
 
+  <!-- 工厂信息 -->
+  <view class="card">
+    <view class="me-cell" bindtap="{{canSwitchFactory ? 'onSwitchFactory' : ''}}">
+      <view class="me-cell-left">
+        <view>
+          <text class="me-cell-title">当前工厂</text>
+          <text class="me-cell-desc">{{currentFactoryName}}</text>
+        </view>
+      </view>
+      <text class="me-cell-arrow" wx:if="{{canSwitchFactory}}">切换 ›</text>
+    </view>
+  </view>
+
   <!-- 离线队列 -->
   <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
 
-  <!-- 数据管理（仅主管/管理员可见） -->
+  <!-- AI 分析报告（主管及以上） -->
   <view class="card" wx:if="{{canManage}}">
-    <view class="me-cell" bindtap="onDataManage">
+    <view class="me-cell" bindtap="onAIAnalysis">
       <view class="me-cell-left">
-        <text class="me-cell-icon">📊</text>
         <view>
-          <text class="me-cell-title">数据管理</text>
-          <text class="me-cell-desc">导入配件/阈值/记录，导出报表</text>
+          <text class="me-cell-title">AI 分析报告</text>
+          <text class="me-cell-desc">查看数据摘要与风险建议</text>
         </view>
       </view>
       <text class="me-cell-arrow">›</text>

@@ -5,12 +5,13 @@ const db = cloud.database()
 
 exports.main = async (event, context) => {
   try {
-    const { yearMonth, assetId, userId, page = 1, pageSize = 20 } = event
+    const { factoryId, yearMonth, assetId, userId, page = 1, pageSize = 20 } = event
 
     let query = db.collection('replacement_logs')
 
     // 构建查询条件
     const where = {}
+    if (factoryId) where.factoryId = factoryId
     if (yearMonth) where.yearMonth = yearMonth
     if (assetId) where.assetId = assetId
     if (userId) where.reporterUserIdSnapshot = userId
