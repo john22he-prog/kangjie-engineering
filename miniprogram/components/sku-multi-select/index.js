@@ -21,7 +21,10 @@ Component({
     innerValue: [],   // [{ partSkuId, partName, partCode, unit, qty }]
     showPicker: false,
     pickerItems: [],
-    selectedCount: 0
+    filteredPickerItems: [],
+    selectedCount: 0,
+    selectedPickerCount: 0,
+    searchKeyword: ''
   },
 
   observers: {
@@ -52,11 +55,17 @@ Component({
         ...sku,
         selected: selectedIds.includes(sku.partSkuId)
       }))
-      this.setData({ showPicker: true, pickerItems })
+      this.setData({
+        showPicker: true,
+        pickerItems,
+        filteredPickerItems: pickerItems,
+        searchKeyword: '',
+        selectedPickerCount: pickerItems.filter(p => p.selected).length
+      })
     },
 
     closePicker() {
-      // 根据 picker 选择结果更新 value
+      // 根据 picker 选择结果更新 value（用完整 pickerItems，不是 filtered）
       const selected = this.data.pickerItems.filter(p => p.selected)
       const oldMap = {}
       this.data.innerValue.forEach(v => { oldMap[v.partSkuId] = v.qty })
@@ -66,14 +75,62 @@ Component({
         qty: oldMap[s.partSkuId] || 1
       }))
 
-      this.setData({ showPicker: false })
+      this.setData({ showPicker: false, searchKeyword: '' })
       this.triggerEvent('change', newValue)
     },
 
+    onSearchInput(e) {
+      const keyword = (e.detail.value || '').trim().toLowerCase()
+      this.setData({ searchKeyword: e.detail.value || '' })
+      this.applyFilter(keyword)
+    },
+
+    onClearSearch() {
+      this.setData({ searchKeyword: '' })
+      this.applyFilter('')
+    },
+
+    applyFilter(keyword) {
+      if (!keyword) {
+        this.setData({ filteredPickerItems: this.data.pickerItems })
+        return
+      }
+      const filtered = this.data.pickerItems.filter(item => {
+        const name = (item.partName || '').toLowerCase()
+        const code = (item.partCode || '').toLowerCase()
+        const spec = (item.specModel || '').toLowerCase()
+        return name.includes(keyword) || code.includes(keyword) || spec.includes(keyword)
+      })
+      this.setData({ filteredPickerItems: filtered })
+    },
+
     toggleItem(e) {
-      const idx = e.currentTarget.dataset.index
-      const key = `pickerItems[${idx}].selected`
-      this.setData({ [key]: !this.data.pickerItems[idx].selected })
+      const skuId = e.currentTarget.dataset.skuId
+      // 在完整列表中切换选中状态
+      const pickerItems = this.data.pickerItems.map(item => {
+        if (item.partSkuId === skuId) {
+          return { ...item, selected: !item.selected }
+        }
+        return item
+      })
+      // 同步更新过滤列表
+      const keyword = (this.data.searchKeyword || '').trim().toLowerCase()
+      let filteredPickerItems
+      if (!keyword) {
+        filteredPickerItems = pickerItems
+      } else {
+        filteredPickerItems = pickerItems.filter(item => {
+          const name = (item.partName || '').toLowerCase()
+          const code = (item.partCode || '').toLowerCase()
+          const spec = (item.specModel || '').toLowerCase()
+          return name.includes(keyword) || code.includes(keyword) || spec.includes(keyword)
+        })
+      }
+      this.setData({
+        pickerItems,
+        filteredPickerItems,
+        selectedPickerCount: pickerItems.filter(p => p.selected).length
+      })
     },
 
     onQtyInput(e) {

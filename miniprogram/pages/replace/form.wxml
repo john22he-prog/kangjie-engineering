@@ -34,17 +34,22 @@
       </view>
     </picker>
 
-    <!-- 部位选择 -->
-    <picker range="{{locations}}" range-key="locationName" value="{{locationIndex}}" bindchange="onLocationChange">
-      <view class="form-row">
-        <text class="form-label required">部位</text>
-        <text class="form-value {{locationId ? '' : 'placeholder'}}">{{locationName || '请选择部位'}}</text>
+    <!-- 部位选择（可选） -->
+    <view wx:if="{{hasLocations}}">
+      <picker range="{{locations}}" range-key="locationName" value="{{locationIndex}}" bindchange="onLocationChange">
+        <view class="form-row">
+          <text class="form-label">部位（选填）</text>
+          <text class="form-value {{locationId ? '' : 'placeholder'}}">{{locationName || '不选择则显示全部配件'}}</text>
+        </view>
+      </picker>
+      <view class="form-row" wx:if="{{locationId}}" bindtap="onClearLocation" style="justify-content:flex-end;">
+        <text style="font-size:24rpx;color:#576b95;">清除部位筛选</text>
       </view>
-    </picker>
+    </view>
   </view>
 
   <!-- SKU 多选 -->
-  <view class="card" wx:if="{{locationId}}">
+  <view class="card">
     <view class="form-section-title">选择配件</view>
     <sku-multi-select
       availableSkus="{{availableSkus}}"

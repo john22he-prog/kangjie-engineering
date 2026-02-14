@@ -31,17 +31,32 @@
         <el-option label="预防" value="预防" />
         <el-option label="紧急" value="紧急" />
       </el-select>
+      <el-select v-model="filterStatus" placeholder="状态" clearable style="width: 120px" @change="loadList">
+        <el-option label="启用" value="active" />
+        <el-option label="停用" value="disabled" />
+      </el-select>
     </div>
 
     <!-- 记录表格 -->
-    <el-table :data="list" v-loading="loading" stripe>
+    <el-table :data="list" v-loading="loading" stripe :row-class-name="rowClassName">
+      <el-table-column label="状态" width="80">
+        <template #default="{ row }">
+          <el-tag :type="row.disabled ? 'info' : 'success'" size="small" effect="plain">
+            {{ row.disabled ? '停用' : '启用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="日期时间" width="160">
         <template #default="{ row }">
           {{ formatTime(row.ts) }}
         </template>
       </el-table-column>
       <el-table-column prop="assetNameSnapshot" label="设备" width="130" />
-      <el-table-column prop="locationNameSnapshot" label="部位" width="100" />
+      <el-table-column label="部位" width="100">
+        <template #default="{ row }">
+          {{ row.locationNameSnapshot || '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="type" label="类型" width="70">
         <template #default="{ row }">
           <el-tag :type="typeTagType(row.type)" size="small">{{ row.type }}</el-tag>
@@ -56,8 +71,8 @@
         </template>
       </el-table-column>
       <el-table-column prop="reporterNameSnapshot" label="填报人" width="90" />
-      <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
-      <el-table-column label="图片" width="80">
+      <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
+      <el-table-column label="图片" width="70">
         <template #default="{ row }">
           <el-button
             v-if="row.images?.length"
@@ -69,6 +84,27 @@
             {{ row.images.length }}张
           </el-button>
           <span v-else class="no-img">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="canEdit" label="操作" width="90" fixed="right">
+        <template #default="{ row }">
+          <el-popconfirm
+            :title="row.disabled ? '确定启用该记录？启用后将恢复参与数据统计。' : '确定停用该记录？停用后将不参与数据统计。'"
+            :confirm-button-text="row.disabled ? '启用' : '停用'"
+            cancel-button-text="取消"
+            @confirm="handleToggleStatus(row)"
+          >
+            <template #reference>
+              <el-button
+                :type="row.disabled ? 'success' : 'warning'"
+                size="small"
+                text
+                :loading="row._toggling"
+              >
+                {{ row.disabled ? '启用' : '停用' }}
+              </el-button>
+            </template>
+          </el-popconfirm>
         </template>
       </el-table-column>
     </el-table>
@@ -85,13 +121,28 @@
     </div>
 
     <!-- 图片预览弹窗 -->
-    <el-dialog v-model="imageDialogVisible" title="照片查看" width="600px">
-      <div class="image-grid">
+    <el-dialog v-model="imageDialogVisible" title="照片查看" width="700px">
+      <div v-if="imageLoading" style="text-align:center;padding:40px 0">
+        <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+        <p style="color:#909399;margin-top:8px">加载图片中…</p>
+      </div>
+      <div v-else class="image-grid">
         <div v-for="(img, idx) in currentImages" :key="idx" class="image-item">
-          <div class="image-placeholder">
-            <el-icon :size="32" color="#c0c4cc"><Picture /></el-icon>
-            <span>{{ img }}</span>
-          </div>
+          <el-image
+            :src="img.url"
+            :preview-src-list="currentImages.map(i => i.url)"
+            :initial-index="idx"
+            fit="cover"
+            class="real-image"
+            :preview-teleported="true"
+          >
+            <template #error>
+              <div class="image-placeholder">
+                <el-icon :size="32" color="#c0c4cc"><Picture /></el-icon>
+                <span>加载失败</span>
+              </div>
+            </template>
+          </el-image>
         </div>
       </div>
       <template #footer>
@@ -102,14 +153,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.canEdit)
 const loading = ref(false)
 const exporting = ref(false)
 const list = ref([])
@@ -120,9 +174,11 @@ const filterMonth = ref(dayjs().format('YYYY-MM'))
 const filterAssetId = ref('')
 const filterUserId = ref('')
 const filterType = ref('')
+const filterStatus = ref('')
 const assets = ref([])
 const engineers = ref([])
 const imageDialogVisible = ref(false)
+const imageLoading = ref(false)
 const currentImages = ref([])
 
 function formatTime(ts) {
@@ -133,19 +189,58 @@ function typeTagType(type) {
   return { '维修': '', '预防': 'success', '紧急': 'danger' }[type] || 'info'
 }
 
-function showImages(row) {
-  currentImages.value = row.images || []
+function rowClassName({ row }) {
+  return row.disabled ? 'row-disabled' : ''
+}
+
+async function handleToggleStatus(row) {
+  const newDisabled = !row.disabled
+  row._toggling = true
+  try {
+    const res = await api.toggleLogStatus(row.logId, newDisabled)
+    if (res.ok) {
+      row.disabled = newDisabled
+      ElMessage.success(newDisabled ? '已停用，该记录不再参与数据统计' : '已启用，该记录恢复参与数据统计')
+    } else {
+      ElMessage.error(res.error?.message || '操作失败')
+    }
+  } catch (err) {
+    ElMessage.error('操作失败：' + (err.message || '未知错误'))
+  } finally {
+    row._toggling = false
+  }
+}
+
+async function showImages(row) {
+  const fileIds = row.images || []
+  if (!fileIds.length) return
   imageDialogVisible.value = true
+  imageLoading.value = true
+  currentImages.value = []
+  try {
+    const res = await api.getFileUrls(fileIds)
+    if (res.ok && res.data?.fileList) {
+      currentImages.value = res.data.fileList
+        .filter(f => f.tempFileURL)
+        .map(f => ({ fileID: f.fileID, url: f.tempFileURL }))
+    } else {
+      ElMessage.warning('获取图片地址失败')
+    }
+  } catch (err) {
+    ElMessage.error('获取图片失败：' + (err.message || '未知错误'))
+  } finally {
+    imageLoading.value = false
+  }
 }
 
 async function handleExport() {
   exporting.value = true
   try {
-    // Fetch all logs for the selected month (up to 5000)
     const params = { yearMonth: filterMonth.value, page: 1, pageSize: 5000 }
     if (appStore.currentFactoryId) params.factoryId = appStore.currentFactoryId
     if (filterAssetId.value) params.assetId = filterAssetId.value
     if (filterUserId.value) params.userId = filterUserId.value
+    if (filterStatus.value) params.status = filterStatus.value
 
     const res = await api.listReplacementLogs(params)
     if (!res.ok || !res.data.list.length) {
@@ -158,16 +253,16 @@ async function handleExport() {
       logs = logs.filter(l => l.type === filterType.value)
     }
 
-    // Build export rows - one row per item
     const exportRows = []
     logs.forEach(log => {
       (log.items || []).forEach(item => {
         exportRows.push({
+          '状态': log.disabled ? '停用' : '启用',
           '日期时间': dayjs(log.ts).format('YYYY-MM-DD HH:mm'),
           '月份': log.yearMonth,
           '设备名称': log.assetNameSnapshot,
           '设备编号': log.assetNoSnapshot,
-          '部位': log.locationNameSnapshot,
+          '部位': log.locationNameSnapshot || '',
           '更换类型': log.type,
           '配件名称': item.partNameSnapshot,
           '配件编号': item.partCodeSnapshot,
@@ -197,11 +292,11 @@ async function loadList() {
     if (appStore.currentFactoryId) filteredData.factoryId = appStore.currentFactoryId
     if (filterAssetId.value) filteredData.assetId = filterAssetId.value
     if (filterUserId.value) filteredData.userId = filterUserId.value
+    if (filterStatus.value) filteredData.status = filterStatus.value
 
     const res = await api.listReplacementLogs(filteredData)
     if (res.ok) {
       let logs = res.data.list
-      // 客户端过滤类型（API 暂不支持类型筛选）
       if (filterType.value) {
         logs = logs.filter(l => l.type === filterType.value)
       }
@@ -252,15 +347,34 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 
+// 停用行样式
+:deep(.row-disabled) {
+  td {
+    color: #c0c4cc !important;
+    background-color: #fafafa !important;
+  }
+  .el-tag {
+    opacity: 0.6;
+  }
+}
+
 .image-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 
   .image-item {
+    .real-image {
+      width: 100%;
+      height: 160px;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
     .image-placeholder {
       width: 100%;
-      height: 120px;
+      height: 160px;
       background: #f5f7fa;
       border-radius: 8px;
       display: flex;

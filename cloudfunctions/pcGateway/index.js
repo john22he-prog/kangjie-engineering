@@ -81,12 +81,15 @@ async function loadMe(db, userId) {
 }
 
 async function listReplacementLogs(db, data) {
-  const { factoryId, yearMonth, assetId, userId, page = 1, pageSize = 20 } = data
+  const { factoryId, yearMonth, assetId, userId, status, page = 1, pageSize = 20 } = data
   const where = {}
   if (factoryId) where.factoryId = factoryId
   if (yearMonth) where.yearMonth = yearMonth
   if (assetId) where.assetId = assetId
   if (userId) where.reporterUserIdSnapshot = userId
+  // 状态筛选：active/disabled，不传则显示全部
+  if (status === 'active') where.disabled = db.command.neq(true)
+  else if (status === 'disabled') where.disabled = true
 
   const countResult = await db.collection('replacement_logs').where(where).count()
   const total = countResult.total
@@ -99,6 +102,22 @@ async function listReplacementLogs(db, data) {
     .get()
 
   return { ok: true, data: { list, total, page, pageSize } }
+}
+
+// ====== 切换更换记录启用/停用状态 ======
+async function toggleLogStatus(db, data) {
+  const { logId, disabled } = data
+  if (!logId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 logId' } }
+
+  const { data: logs } = await db.collection('replacement_logs').where({ logId }).limit(1).get()
+  if (logs.length === 0) return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+
+  const newDisabled = disabled === true || disabled === 'true'
+  await db.collection('replacement_logs').doc(logs[0]._id).update({
+    data: { disabled: newDisabled, disabledAt: newDisabled ? Date.now() : null }
+  })
+
+  return { ok: true, data: { logId, disabled: newDisabled } }
 }
 
 async function listAlerts(db, data) {
@@ -159,7 +178,68 @@ async function listThresholds(db, data) {
   if (data.assetId) where.assetId = data.assetId
 
   const { data: list } = await db.collection('asset_part_thresholds').where(where).limit(1000).get()
-  return { ok: true, data: { list } }
+
+  if (list.length === 0) return { ok: true, data: { list: [] } }
+
+  // ====== 关联查询：设备名称、配件名称、配件编号 ======
+  const assetIds = [...new Set(list.map(t => t.assetId).filter(Boolean))]
+  const partSkuIds = [...new Set(list.map(t => t.partSkuId).filter(Boolean))]
+
+  // 查设备
+  const assetMap = {}
+  if (assetIds.length > 0) {
+    for (let i = 0; i < assetIds.length; i += 20) {
+      const batch = assetIds.slice(i, i + 20)
+      const { data: assets } = await db.collection('assets').where({ assetId: db.command.in(batch) }).limit(100).get()
+      assets.forEach(a => { assetMap[a.assetId] = a })
+    }
+  }
+
+  // 查配件
+  const partMap = {}
+  if (partSkuIds.length > 0) {
+    for (let i = 0; i < partSkuIds.length; i += 20) {
+      const batch = partSkuIds.slice(i, i + 20)
+      const { data: parts } = await db.collection('parts').where({ partSkuId: db.command.in(batch) }).limit(100).get()
+      parts.forEach(p => { partMap[p.partSkuId] = p })
+    }
+  }
+
+  // ====== 计算当月用量：从 replacement_logs 统计 ======
+  const now = new Date()
+  const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const usageMap = {} // key: "assetId|partSkuId" => qtySum
+
+  try {
+    const logWhere = { yearMonth: currentYM }
+    if (data.assetId) logWhere.assetId = data.assetId
+    const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+    for (const log of logs) {
+      if (!log.items || !Array.isArray(log.items)) continue
+      for (const item of log.items) {
+        const key = `${log.assetId}|${item.partSkuId}`
+        usageMap[key] = (usageMap[key] || 0) + (item.qty || 0)
+      }
+    }
+  } catch (e) {
+    console.warn('listThresholds: 查询当月用量失败', e.message)
+  }
+
+  // ====== 组装返回数据 ======
+  const enrichedList = list.map(t => {
+    const asset = assetMap[t.assetId] || {}
+    const part = partMap[t.partSkuId] || {}
+    const usageKey = `${t.assetId}|${t.partSkuId}`
+    return {
+      ...t,
+      assetName: asset.assetName || t.assetId || '',
+      partName: part.partName || '',
+      partCode: part.partCode || '',
+      currentMonthQty: usageMap[usageKey] || 0,
+    }
+  })
+
+  return { ok: true, data: { list: enrichedList } }
 }
 
 async function upsertThreshold(db, data) {
@@ -212,7 +292,7 @@ async function createUser(db, data) {
   await db.collection('users').add({
     data: {
       userId, username, displayName, role,
-      factoryId: role === 'Supervisor' ? (factoryId || '') : '',
+      factoryId: factoryId || '',
       pcPassword: hashedPassword,
       canPcLogin: canPcLogin || false,
       status: 'active', openid: '',
@@ -228,8 +308,7 @@ async function updateUser(db, data) {
   const updateData = { updatedAt: Date.now() }
   if (displayName !== undefined) updateData.displayName = displayName
   if (role !== undefined) updateData.role = role
-  if (role !== 'Supervisor') updateData.factoryId = ''
-  else if (factoryId !== undefined) updateData.factoryId = factoryId
+  if (factoryId !== undefined) updateData.factoryId = factoryId
   if (canPcLogin !== undefined) updateData.canPcLogin = canPcLogin
   await db.collection('users').where({ userId }).update({ data: updateData })
   return { ok: true, data: {} }
@@ -243,6 +322,19 @@ async function disableUser(db, data) {
   const newStatus = users[0].status === 'active' ? 'disabled' : 'active'
   await db.collection('users').where({ userId }).update({ data: { status: newStatus, updatedAt: Date.now() } })
   return { ok: true, data: { newStatus } }
+}
+
+async function deleteUser(db, data, meUser) {
+  const { userId } = data
+  if (!userId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 userId' } }
+  // 只有管理员可以删除
+  if (meUser.role !== 'Admin') return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除用户' } }
+  // 不能删除自己
+  if (userId === meUser.userId) return { ok: false, error: { code: 'FORBIDDEN', message: '不能删除自己的账号' } }
+  const { data: users } = await db.collection('users').where({ userId }).limit(1).get()
+  if (users.length === 0) return { ok: false, error: { code: 'NOT_FOUND', message: '用户不存在' } }
+  await db.collection('users').where({ userId }).remove()
+  return { ok: true, data: {} }
 }
 
 async function unbindOpenid(db, data) {
@@ -315,6 +407,7 @@ async function getDashboardStats(db, data, meUser) {
     alertWhere.factoryId = factoryId
   }
 
+  logWhere.disabled = _.neq(true)
   const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
   const { data: alerts } = await db.collection('alerts').where(alertWhere).limit(1000).get()
 
@@ -599,6 +692,21 @@ async function createPart(db, data) {
   return { ok: true, data: { partSkuId } }
 }
 
+// ====== 获取云存储文件临时URL ======
+async function getFileUrls(data) {
+  const { fileIds } = data
+  if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+    return { ok: true, data: { fileList: [] } }
+  }
+  try {
+    const result = await cloud.getTempFileURL({ fileList: fileIds })
+    return { ok: true, data: { fileList: result.fileList } }
+  } catch (err) {
+    console.error('getTempFileURL 失败:', err)
+    return { ok: false, error: { code: 'FILE_URL_ERROR', message: '获取文件URL失败: ' + err.message } }
+  }
+}
+
 // ====== 配件清理：重命名+去重 ======
 async function cleanupParts(db, data) {
   const { data: allParts } = await db.collection('parts').limit(2000).get()
@@ -802,27 +910,376 @@ async function deleteThreshold(db, data) {
 
 // ====== AI 配置 & 报告 ======
 
+const DEFAULT_AI_MODELS = [
+  'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-mini',
+  'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-flash', 'gemini-1.5-pro',
+  'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
+  'deepseek-chat', 'deepseek-reasoner',
+  'qwen-turbo', 'qwen-plus', 'qwen-max',
+  'glm-4-flash', 'glm-4-plus',
+  'moonshot-v1-8k', 'moonshot-v1-32k',
+  'ernie-4.0-turbo-8k',
+  'yi-lightning',
+  'doubao-1.5-pro-32k',
+  'spark-max',
+]
+
+const DEFAULT_AI_PROMPTS = {
+  monthly_summary: {
+    name: '月度总结',
+    content: `你是一名服务于洗涤行业的资深设备维保高级分析师，拥有15年工业设备全生命周期管理经验。现在需要你根据提供的数据，生成一份**月度设备维保综合分析报告**。
+
+这份报告将同时呈送给三个层级的管理者，请严格按照以下结构输出：
+
+---
+
+# 📊 月度设备维保分析报告
+
+## 一、管理层摘要（呈：总经理/老板）
+> 用3-5句话概括本月整体状况，重点突出：总投入成本、设备整体可用率评估、与上月的核心变化、是否存在需要管理层决策的重大事项。语言简洁有力，突出数字和结论。
+
+## 二、运营分析概览（呈：高管/运营总监）
+请包含以下小节：
+### 2.1 关键指标仪表盘
+用表格呈现：本月值、上月值、环比变化率（更换次数、配件消耗量、紧急维修占比、使用成本、待处理报警数）。对异常指标用 ⚠️ 标注。
+
+### 2.2 趋势判断与风险预警
+- 分析更换次数和配件消耗的变化趋势是上升/稳定/下降
+- 识别可能影响生产连续性的风险点
+- 评估当前维保策略（预防性 vs 被动性）的执行效果
+
+### 2.3 跨维度对比（如有多工厂数据）
+各工厂/车间的横向对比分析，识别管理水平差异
+
+## 三、详细技术分析（呈：工程部主管）
+### 3.1 设备故障热点分析
+- 列出 TOP 故障设备，分析故障模式（频发部位、故障类型）
+- 紧急维修占比分析，识别需要制定专项维保计划的设备
+- 给出每台重点设备的具体处置建议（加强巡检/安排大修/建议更换）
+
+### 3.2 配件消耗深度分析
+- TOP 消耗配件排名及用量变化
+- 识别异常消耗（某配件突然大幅增加的原因推测）
+- 配件库存预警与采购建议
+
+### 3.3 人员工作负荷分析
+- 工程师工作量分布是否均衡
+- 是否存在人员瓶颈或闲置
+
+### 3.4 下月工作建议
+- 列出3-5条**具体可执行**的改进措施，标明优先级（高/中/低）
+- 建议格式：措施内容 + 预期效果 + 负责人建议 + 完成时限
+
+---
+
+**输出要求：**
+- 全部使用中文
+- 使用 Markdown 格式，合理运用表格、加粗、列表、引用块
+- 数据分析必须引用实际数字，不要泛泛而谈
+- 对比分析要给出百分比变化
+- 建议要具体到可执行层面，避免空话套话
+- 如果数据量不足（如本月为0），请如实说明并给出数据积累建议`,
+  },
+  device_analysis: {
+    name: '设备分析',
+    content: `你是一名持有国际设备可靠性工程师（CRE）资质的设备健康管理专家，专注于洗涤行业工业设备的可靠性分析与预测性维护。请根据提供的数据，生成一份**设备健康状态深度分析报告**。
+
+报告面向三个层级管理者，请按以下结构输出：
+
+---
+
+# 🔧 设备健康状态分析报告
+
+## 一、设备总体健康评估（呈：总经理/老板）
+> 用交通灯模型（🟢正常/🟡关注/🔴警告）对设备群整体状态做一句话定性评估。说明：是否有设备面临停产风险？是否需要追加维修预算或设备更新投资？
+
+## 二、设备可靠性分析（呈：高管/运营总监）
+### 2.1 设备可用性指标
+用表格展示各设备本月故障次数、紧急维修次数、紧急维修占比。计算设备可靠性排名。
+
+### 2.2 设备分级管理建议
+根据故障频率和影响程度，将设备分为：
+- **A类（重点关注）**：故障频发或紧急维修占比>30%的设备
+- **B类（常规管理）**：运行基本正常的设备
+- **C类（状态良好）**：本月无故障或仅有预防性维护
+
+### 2.3 设备更新/大修投资建议
+如果有设备反复故障，评估继续维修 vs 更换设备的经济性
+
+## 三、技术诊断明细（呈：工程部主管）
+### 3.1 逐设备故障分析
+对 TOP 故障设备逐一分析：
+- 故障频次及趋势（与上月对比）
+- 主要消耗配件及更换部位
+- 故障根因推测（设备老化/操作不当/配件质量/维护不足）
+- 是否存在关联故障（一个部位坏导致连锁故障）
+
+### 3.2 预防性维护执行评估
+- 预防性维修 vs 紧急维修的比例分析
+- 评估当前巡检制度是否到位
+- 建议优化维保周期的具体设备
+
+### 3.3 报警响应分析
+- 待处理报警统计及分布
+- 报警设备是否与高故障设备重叠（说明维保前置不足）
+
+### 3.4 下月设备维保计划建议
+用表格输出：设备名称 | 建议措施 | 优先级 | 预计工时 | 所需配件
+
+---
+
+**输出要求：**
+- 全部使用中文，Markdown 格式
+- 必须基于实际数据分析，引用具体数字
+- 设备评估要客观，给出依据
+- 维保建议要可落地执行
+- 如果某设备数据不足以判断，请标注"数据不足，建议持续监控"`,
+  },
+  cost_analysis: {
+    name: '成本分析',
+    content: `你是一名拥有注册管理会计师（CMA）背景的工业维保成本控制专家，擅长从财务视角分析设备维护投入产出。请根据提供的数据，生成一份**维保成本深度分析报告**。
+
+报告面向三个层级管理者，请按以下结构输出：
+
+---
+
+# 💰 设备维保成本分析报告
+
+## 一、成本总览与决策建议（呈：总经理/老板）
+> 用2-3句话概括：本月维保总支出、环比变化、是否在合理区间。明确回答：钱花得值不值？哪里可以省？是否需要追加预算？
+
+### 关键财务指标
+用表格呈现：本月维保总成本、环比变化、配件成本占比、单设备平均维保成本、紧急维修成本占比。
+
+## 二、成本结构与效率分析（呈：高管/运营总监）
+### 2.1 成本构成分析
+- 按配件分类的成本占比（饼图描述）
+- 按设备分类的成本占比
+- 按维修类型的成本占比（维修/预防/紧急）
+
+### 2.2 成本趋势与异常识别
+- 与上月对比：哪些配件/设备的成本异常增长？增长原因推测
+- 紧急维修成本占比分析（紧急维修通常成本更高）
+- 是否存在"重复花钱"现象（同一设备同一部位反复维修）
+
+### 2.3 成本效率评估
+- 预防性维护投入 vs 被动维修支出的比值
+- 评估当前维保策略的经济性
+
+## 三、降本增效方案（呈：工程部主管 + 高管）
+### 3.1 TOP 成本配件分析
+列出成本最高的 5 种配件：
+| 配件名称 | 本月用量 | 本月成本 | 上月成本 | 变化率 | 主要消耗设备 |
+
+### 3.2 TOP 成本设备分析
+列出维保成本最高的 5 台设备：
+| 设备名称 | 维修次数 | 本月成本 | 上月成本 | 紧急维修占比 | 建议措施 |
+
+### 3.3 具体降本建议
+请给出 3-5 条**量化的降本措施**，每条包含：
+- 措施描述
+- 预估月度节省金额或百分比
+- 实施难度（易/中/难）
+- 实施步骤
+
+### 3.4 采购与库存优化建议
+- 高消耗配件是否可以批量采购降低单价？
+- 库存预警配件的补货建议
+- 是否存在过度备货的配件？
+
+---
+
+**输出要求：**
+- 全部使用中文，Markdown 格式
+- 所有分析必须有数据支撑，引用具体金额和百分比
+- 降本建议要量化，不要只说"降低成本"，要说"预计每月节省 ¥XX"
+- 对比分析要清晰标注上升↑或下降↓
+- 如果成本数据为0或不足，请如实说明，并建议完善数据采集`,
+  },
+}
+
+const API_BASE_HINTS = {
+  'OpenAI': 'https://api.openai.com/v1',
+  'Google Gemini': 'https://generativelanguage.googleapis.com/v1beta/openai',
+  'Anthropic Claude': 'https://api.anthropic.com/v1',
+  'DeepSeek': 'https://api.deepseek.com/v1',
+  '通义千问': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  '智谱 GLM': 'https://open.bigmodel.cn/api/paas/v4',
+  'Kimi（月之暗面）': 'https://api.moonshot.cn/v1',
+  '百度文心': 'https://qianfan.baidubce.com/v2',
+  '零一万物': 'https://api.lingyiwanwu.com/v1',
+  '字节豆包': 'https://ark.cn-beijing.volces.com/api/v3',
+  '讯飞星火': 'https://spark-api-open.xf-yun.com/v1',
+}
+
 async function getAIConfig(db) {
   const { data: list } = await db.collection('config').where({ key: 'ai_config' }).limit(1).get()
-  if (list.length === 0) {
-    return { ok: true, data: { apiKey: '', model: 'gpt-3.5-turbo', enabled: false } }
+  const stored = list.length > 0 ? (list[0].value || {}) : {}
+
+  let apiKeyMasked = ''
+  if (stored.apiKey) {
+    const k = stored.apiKey
+    apiKeyMasked = k.length > 8 ? k.slice(0, 4) + '****' + k.slice(-4) : '****'
   }
-  return { ok: true, data: list[0].value || {} }
+
+  return {
+    ok: true,
+    data: {
+      apiKeyMasked,
+      apiBase: stored.apiBase || '',
+      model: stored.model || 'gpt-4o-mini',
+      models: DEFAULT_AI_MODELS,
+      customModel: stored.customModel || '',
+      prompts: stored.prompts || DEFAULT_AI_PROMPTS,
+      defaultPrompts: DEFAULT_AI_PROMPTS,
+      apiBaseHints: API_BASE_HINTS,
+      enabled: !!stored.apiKey,
+    },
+  }
 }
 
 async function setAIConfig(db, data) {
   const { data: list } = await db.collection('config').where({ key: 'ai_config' }).limit(1).get()
+  const existing = list.length > 0 ? (list[0].value || {}) : {}
+
+  const newConfig = { ...existing }
+  if (data.apiKey !== undefined && data.apiKey !== '') newConfig.apiKey = data.apiKey
+  if (data.apiBase !== undefined) newConfig.apiBase = data.apiBase
+  if (data.model !== undefined) newConfig.model = data.model
+  if (data.customModel !== undefined) newConfig.customModel = data.customModel
+  if (data.prompts !== undefined) newConfig.prompts = data.prompts
+
   if (list.length > 0) {
-    await db.collection('config').where({ key: 'ai_config' }).update({ data: { value: data, updatedAt: Date.now() } })
+    await db.collection('config').where({ key: 'ai_config' }).update({ data: { value: newConfig, updatedAt: Date.now() } })
   } else {
-    await db.collection('config').add({ data: { key: 'ai_config', value: data, createdAt: Date.now(), updatedAt: Date.now() } })
+    await db.collection('config').add({ data: { key: 'ai_config', value: newConfig, createdAt: Date.now(), updatedAt: Date.now() } })
   }
   return { ok: true, data: {} }
 }
 
+// ====== LLM 调用 ======
+
+async function callLLM(apiBase, apiKey, model, messages, timeout) {
+  const https = require('https')
+  const http = require('http')
+  const tmout = timeout || 90000
+
+  const baseUrl = (apiBase || 'https://api.openai.com/v1').replace(/\/$/, '')
+  const endpoint = baseUrl + '/chat/completions'
+  const parsed = new (require('url').URL)(endpoint)
+
+  const postData = JSON.stringify({
+    model,
+    messages,
+    temperature: 0.7,
+    max_tokens: 4096,
+  })
+
+  const isHttps = parsed.protocol === 'https:'
+  const lib = isHttps ? https : http
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + (parsed.search || ''),
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Length': Buffer.byteLength(postData),
+      },
+      timeout: tmout,
+    }
+
+    const req = lib.request(options, (res) => {
+      let body = ''
+      res.on('data', chunk => { body += chunk })
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body)
+          if (json.choices && json.choices[0] && json.choices[0].message) {
+            resolve(json.choices[0].message.content)
+          } else if (json.error) {
+            reject(new Error('LLM API 错误: ' + (json.error.message || JSON.stringify(json.error))))
+          } else {
+            reject(new Error('LLM API 返回格式异常: ' + body.slice(0, 500)))
+          }
+        } catch (e) {
+          reject(new Error('LLM API 返回解析失败: ' + body.slice(0, 500)))
+        }
+      })
+    })
+
+    req.on('error', (e) => reject(new Error('LLM 请求网络错误: ' + e.message)))
+    req.on('timeout', () => { req.destroy(); reject(new Error('LLM 请求超时（' + tmout / 1000 + '秒）')) })
+    req.write(postData)
+    req.end()
+  })
+}
+
+function buildDataSummary(current, prev, factoryLabel, byFactory) {
+  let s = `## 数据概况（${factoryLabel} - ${current.yearMonth}）\n\n`
+
+  s += `### 基础统计\n`
+  s += `- 更换次数：${current.totalLogs} 次（上月：${prev.totalLogs} 次）\n`
+  s += `- 配件消耗：${current.totalPartsQty} 件（上月：${prev.totalPartsQty} 件）\n`
+  s += `- 待处理报警：${current.openAlerts} 条\n`
+  s += `- 使用成本：¥${(current.totalUsageCost || 0).toFixed(2)}（上月：¥${(prev.totalUsageCost || 0).toFixed(2)}）\n`
+  s += `- 低库存预警：${current.lowStockCount || 0} 种\n\n`
+
+  s += `### 更换类型分布\n`
+  s += `- 维修：${current.typeCount['维修'] || 0} 次\n`
+  s += `- 预防：${current.typeCount['预防'] || 0} 次\n`
+  s += `- 紧急：${current.typeCount['紧急'] || 0} 次\n\n`
+
+  if (current.topParts && current.topParts.length > 0) {
+    s += `### 配件消耗 TOP 5\n`
+    current.topParts.forEach((p, i) => {
+      s += `${i + 1}. ${p.partName}：${p.totalQty} 件\n`
+    })
+    s += '\n'
+  }
+
+  if (current.topAssets && current.topAssets.length > 0) {
+    s += `### 设备故障 TOP 5\n`
+    current.topAssets.forEach((a, i) => {
+      s += `${i + 1}. ${a.assetName}（${a.assetNo || ''}）：${a.logCount} 次${a.urgentCount > 0 ? `（紧急 ${a.urgentCount} 次）` : ''}\n`
+    })
+    s += '\n'
+  }
+
+  if (current.engineerWorkload && current.engineerWorkload.length > 0) {
+    s += `### 工程师工作量\n`
+    current.engineerWorkload.forEach(e => {
+      s += `- ${e.name}：${e.logCount} 条记录\n`
+    })
+    s += '\n'
+  }
+
+  if (current.alertsByAsset && current.alertsByAsset.length > 0) {
+    s += `### 报警设备分布\n`
+    current.alertsByAsset.forEach(a => {
+      s += `- ${a.assetName}：${a.openCount} 条待处理\n`
+    })
+    s += '\n'
+  }
+
+  if (byFactory && byFactory.length > 0) {
+    s += `### 各工厂对比\n`
+    byFactory.forEach(f => {
+      s += `- ${f.factoryName}：更换 ${f.totalLogs} 次，消耗 ${f.totalPartsQty} 件，成本 ¥${(f.totalUsageCost || 0).toFixed(2)}\n`
+    })
+    s += '\n'
+  }
+
+  s += `请根据以上数据进行深入分析，生成一份完整的分析报告。`
+  return s
+}
+
 // ====== AI 报告：聚合单月数据 ======
 async function aggregateMonthData(db, factoryId, yearMonth) {
-  const logWhere = { yearMonth }
+  const logWhere = { yearMonth, disabled: _.neq(true) }
   const alertWhere = { yearMonth }
   if (factoryId) {
     logWhere.factoryId = factoryId
@@ -985,6 +1442,7 @@ async function getAIReport(db, data, meUser) {
   const yearMonth = data.yearMonth || new Date().toISOString().slice(0, 7)
   const factoryId = data.factoryId || meUser.factoryId || null
   const scope = data.scope || 'factory'
+  const promptType = data.promptType || 'monthly_summary'
 
   // 计算上月
   const d = new Date(yearMonth + '-01')
@@ -995,10 +1453,8 @@ async function getAIReport(db, data, meUser) {
   let byFactory = []
 
   if (scope === 'summary') {
-    // 全部工厂汇总
     current = await aggregateMonthData(db, null, yearMonth)
     prev = await aggregateMonthData(db, null, prevYm)
-    // 各工厂分别统计
     try {
       const { data: factories } = await db.collection('factories').limit(100).get()
       for (const f of factories) {
@@ -1030,18 +1486,118 @@ async function getAIReport(db, data, meUser) {
     } catch (e) { /* ignore */ }
   }
 
-  const report = buildReport(current, prev, factoryLabel, scope, byFactory)
+  // 模板报告（始终生成作为兜底）
+  const templateReport = buildReport(current, prev, factoryLabel, scope, byFactory)
 
-  return {
-    ok: true,
-    data: {
-      ...report,
-      stats: current,
-      prevStats: prev,
-      byFactory: scope === 'summary' ? byFactory : undefined,
-      factoryLabel,
-    },
+  // 尝试 LLM 生成
+  let llmContent = null
+  let llmError = null
+  try {
+    const { data: configList } = await db.collection('config').where({ key: 'ai_config' }).limit(1).get()
+    const aiConfig = configList.length > 0 ? (configList[0].value || {}) : {}
+
+    if (aiConfig.apiKey) {
+      const model = aiConfig.model === 'custom' ? (aiConfig.customModel || 'gpt-4o-mini') : (aiConfig.model || 'gpt-4o-mini')
+      const apiBase = aiConfig.apiBase || 'https://api.openai.com/v1'
+      const prompts = aiConfig.prompts || DEFAULT_AI_PROMPTS
+      const promptConfig = prompts[promptType] || prompts.monthly_summary || DEFAULT_AI_PROMPTS.monthly_summary
+
+      const dataSummary = buildDataSummary(current, prev, factoryLabel, byFactory)
+
+      const messages = [
+        { role: 'system', content: promptConfig.content },
+        { role: 'user', content: dataSummary },
+      ]
+
+      llmContent = await callLLM(apiBase, aiConfig.apiKey, model, messages)
+    }
+  } catch (e) {
+    console.error('LLM 调用失败:', e.message)
+    llmError = e.message
   }
+
+  const reportData = {
+    ...templateReport,
+    stats: current,
+    prevStats: prev,
+    byFactory: scope === 'summary' ? byFactory : undefined,
+    factoryLabel,
+    llmContent,
+    llmError,
+    promptType,
+  }
+
+  // 自动保存报告到历史记录
+  try {
+    const reportId = 'rpt-' + Date.now()
+    await db.collection('ai_reports').add({
+      data: {
+        reportId,
+        yearMonth,
+        factoryId: factoryId || '',
+        factoryLabel,
+        scope,
+        promptType,
+        hasLLM: !!llmContent,
+        llmError: llmError || '',
+        reportData,
+        createdBy: meUser.userId,
+        createdByName: meUser.displayName || meUser.username || '',
+        createdAt: Date.now(),
+      },
+    })
+    reportData.reportId = reportId
+  } catch (e) {
+    console.error('保存报告历史失败:', e.message)
+  }
+
+  return { ok: true, data: reportData }
+}
+
+// ====== 报告历史管理 ======
+
+async function listAIReports(db, data, meUser) {
+  const { page = 1, pageSize = 20 } = data
+  const where = {}
+  // 主管只能看自己工厂的
+  if (meUser.role === 'Supervisor' && meUser.factoryId) {
+    where.factoryId = meUser.factoryId
+  }
+  if (data.yearMonth) where.yearMonth = data.yearMonth
+  if (data.promptType) where.promptType = data.promptType
+
+  const countRes = await db.collection('ai_reports').where(where).count()
+  const total = countRes.total || 0
+  const skip = (page - 1) * pageSize
+  const { data: list } = await db.collection('ai_reports')
+    .where(where)
+    .orderBy('createdAt', 'desc')
+    .skip(skip)
+    .limit(pageSize)
+    .field({
+      reportId: true, yearMonth: true, factoryId: true, factoryLabel: true,
+      scope: true, promptType: true, hasLLM: true, llmError: true,
+      createdBy: true, createdByName: true, createdAt: true,
+    })
+    .get()
+
+  return { ok: true, data: { list, total, page, pageSize } }
+}
+
+async function getAIReportDetail(db, data) {
+  const { reportId } = data
+  if (!reportId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 reportId' } }
+  const { data: list } = await db.collection('ai_reports').where({ reportId }).limit(1).get()
+  if (list.length === 0) return { ok: false, error: { code: 'NOT_FOUND', message: '报告不存在' } }
+  return { ok: true, data: list[0] }
+}
+
+async function deleteAIReport(db, data, meUser) {
+  const { reportId } = data
+  if (!reportId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 reportId' } }
+  if (meUser.role !== 'Admin') return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除报告' } }
+  await db.collection('ai_reports').where({ reportId }).remove()
+  return { ok: true, data: {} }
 }
 
 // ====== 看板下钻 ======
@@ -1050,7 +1606,7 @@ async function getDashboardPartDetail(db, data, meUser) {
   const { partSkuId, yearMonth } = data
   if (!partSkuId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 partSkuId' } }
   const ym = yearMonth || new Date().toISOString().slice(0, 7)
-  const where = { yearMonth: ym }
+  const where = { yearMonth: ym, disabled: _.neq(true) }
   const factoryId = meUser.factoryId || null
   if (factoryId) where.factoryId = factoryId
 
@@ -1159,7 +1715,7 @@ async function getDashboardAssetDetail(db, data, meUser) {
     thresholds.forEach(t => { thresholdMap[t.partSkuId] = t.thresholdMonthly || 0 })
   } catch (e) { /* ignore */ }
 
-  const { data: logs } = await db.collection('replacement_logs').where({ assetId, yearMonth: ym }).limit(1000).get()
+  const { data: logs } = await db.collection('replacement_logs').where({ assetId, yearMonth: ym, disabled: _.neq(true) }).limit(1000).get()
 
   // 按配件分组
   const partQtyMap = {}
@@ -1236,7 +1792,7 @@ async function getDashboardAssetAlerts(db, data, meUser) {
   // 查当月更换记录，用于关联消耗明细
   let logs = []
   try {
-    const logWhere = { assetId, yearMonth: ym }
+    const logWhere = { assetId, yearMonth: ym, disabled: _.neq(true) }
     const { data: logList } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
     logs = logList
   } catch (e) { /* ignore */ }
@@ -1506,7 +2062,7 @@ async function getInventorySummary(db, data) {
 async function getMonthlyCostRanking(db, data, meUser) {
   const ym = data.yearMonth || new Date().toISOString().slice(0, 7)
   const factoryId = data.factoryId || meUser.factoryId || null
-  const logWhere = { yearMonth: ym }
+  const logWhere = { yearMonth: ym, disabled: _.neq(true) }
   if (factoryId) logWhere.factoryId = factoryId
   const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
   const costMap = {}
@@ -1530,7 +2086,7 @@ async function getAssetCostDetail(db, data) {
   const { factoryId, assetId, yearMonth } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
   const ym = yearMonth || new Date().toISOString().slice(0, 7)
-  const where = { assetId, yearMonth: ym }
+  const where = { assetId, yearMonth: ym, disabled: _.neq(true) }
   if (factoryId) where.factoryId = factoryId
   const { data: logs } = await db.collection('replacement_logs').where(where).limit(1000).get()
   let totalCost = 0
@@ -1582,7 +2138,7 @@ async function getCostTrend(db, data, meUser) {
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const ym = d.toISOString().slice(0, 7)
-    const logWhere = { yearMonth: ym }
+    const logWhere = { yearMonth: ym, disabled: _.neq(true) }
     if (fid) logWhere.factoryId = fid
     const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
     let totalCost = 0
@@ -1627,7 +2183,7 @@ exports.main = async (event, context) => {
 
     // 需要管理员权限的 action
     const adminOnlyActions = [
-      'listUsers', 'createUser', 'updateUser', 'disableUser', 'unbindOpenid', 'bindOpenid',
+      'listUsers', 'createUser', 'updateUser', 'disableUser', 'deleteUser', 'unbindOpenid', 'bindOpenid',
       'createFactory', 'updateFactory',
       'createAsset', 'updateAsset', 'setAssetStatus',
       'createPart', 'updatePart', 'importPartsCommit',
@@ -1644,6 +2200,7 @@ exports.main = async (event, context) => {
       case 'createUser': return await createUser(db, data)
       case 'updateUser': return await updateUser(db, data)
       case 'disableUser': return await disableUser(db, data)
+      case 'deleteUser': return await deleteUser(db, data, meUser)
       case 'unbindOpenid': return await unbindOpenid(db, data)
       case 'bindOpenid': return await bindOpenid(db, data)
 
@@ -1671,6 +2228,7 @@ exports.main = async (event, context) => {
       case 'importPartsPreview': return await importPartsPreview(db, data)
       case 'importPartsCommit': return await importPartsCommit(db, data)
       case 'cleanupParts': return await cleanupParts(db, data)
+      case 'getFileUrls': return await getFileUrls(data)
 
       // 阈值管理
       case 'listThresholds': return await listThresholds(db, data)
@@ -1684,6 +2242,7 @@ exports.main = async (event, context) => {
 
       // 更换记录
       case 'listReplacementLogs': return await listReplacementLogs(db, data)
+      case 'toggleLogStatus': return await toggleLogStatus(db, data)
 
       // 看板 & 报告
       case 'getDashboardStats': return await getDashboardStats(db, data, meUser)
@@ -1691,6 +2250,9 @@ exports.main = async (event, context) => {
       case 'getDashboardAssetDetail': return await getDashboardAssetDetail(db, data, meUser)
       case 'getDashboardAssetAlerts': return await getDashboardAssetAlerts(db, data, meUser)
       case 'getAIReport': return await getAIReport(db, data, meUser)
+      case 'listAIReports': return await listAIReports(db, data, meUser)
+      case 'getAIReportDetail': return await getAIReportDetail(db, data)
+      case 'deleteAIReport': return await deleteAIReport(db, data, meUser)
       case 'getAIConfig': return await getAIConfig(db)
       case 'setAIConfig': return await setAIConfig(db, data)
       case 'getMonthlyCostRanking': return await getMonthlyCostRanking(db, data, meUser)

@@ -43,19 +43,41 @@
       <text class="picker-title">选择配件</text>
       <text class="picker-done" bindtap="closePicker">完成</text>
     </view>
+    <!-- 搜索栏 -->
+    <view class="picker-search">
+      <view class="search-box">
+        <text class="search-icon">🔍</text>
+        <input
+          class="search-input"
+          placeholder="搜索配件名称/编号/规格"
+          value="{{searchKeyword}}"
+          bindinput="onSearchInput"
+          confirm-type="search"
+          focus="{{showPicker}}"
+        />
+        <text class="search-clear" wx:if="{{searchKeyword}}" bindtap="onClearSearch">✕</text>
+      </view>
+      <view class="search-stats">
+        <text>共 {{filteredPickerItems.length}} 项</text>
+        <text wx:if="{{selectedPickerCount > 0}}" class="search-selected-count">已选 {{selectedPickerCount}} 项</text>
+      </view>
+    </view>
     <view class="picker-list">
       <view
         class="picker-item {{item.selected ? 'selected' : ''}}"
-        wx:for="{{pickerItems}}"
+        wx:for="{{filteredPickerItems}}"
         wx:key="partSkuId"
         bindtap="toggleItem"
-        data-index="{{index}}"
+        data-sku-id="{{item.partSkuId}}"
       >
         <view class="picker-check">{{item.selected ? '☑' : '☐'}}</view>
         <view class="picker-info">
           <text class="picker-name">{{item.partName}}</text>
-          <text class="picker-code">{{item.partCode}} · {{item.unit}}</text>
+          <text class="picker-code">{{item.partCode}}{{item.specModel ? ' · ' + item.specModel : ''}} · {{item.unit}}</text>
         </view>
+      </view>
+      <view class="picker-empty" wx:if="{{filteredPickerItems.length === 0}}">
+        <text>未找到匹配的配件</text>
       </view>
     </view>
   </view>

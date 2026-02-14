@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@cloudbase/cli": "^2.12.2"
+  }
+}

@@ -3,16 +3,16 @@
     <div class="page-header">
       <h2>配件字典</h2>
       <div class="header-actions">
-        <el-button type="danger" plain @click="handleCleanup" :loading="cleanupLoading">
+        <el-button v-if="canEdit" type="danger" plain @click="handleCleanup" :loading="cleanupLoading">
           <el-icon><Delete /></el-icon>清理重复
         </el-button>
         <el-button @click="handleExportParts" :loading="exportLoading">
           <el-icon><Download /></el-icon>导出 Excel
         </el-button>
-        <el-button @click="importDialogVisible = true">
+        <el-button v-if="canEdit" @click="importDialogVisible = true">
           <el-icon><Upload /></el-icon>Excel 导入
         </el-button>
-        <el-button type="primary" @click="openDialog()">
+        <el-button v-if="canEdit" type="primary" @click="openDialog()">
           <el-icon><Plus /></el-icon>新增配件
         </el-button>
       </div>
@@ -71,7 +71,7 @@
           <el-tag size="small" type="info">{{ row.source }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDialog(row)">编辑</el-button>
         </template>
@@ -207,9 +207,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.canEdit)
 const loading = ref(false)
 const submitLoading = ref(false)
 const cleanupLoading = ref(false)

@@ -96,6 +96,7 @@ export const realApi = {
   async createUser(data) { return call('createUser', data) },
   async updateUser(userId, data) { return call('updateUser', { userId, ...data }) },
   async disableUser(userId) { return call('disableUser', { userId }) },
+  async deleteUser(userId) { return call('deleteUser', { userId }) },
   async bindOpenid(userId, openid) { return call('bindOpenid', { userId, openid }) },
   async unbindOpenid(userId) { return call('unbindOpenid', { userId }) },
 
@@ -125,6 +126,9 @@ export const realApi = {
 
   // ===== AI 报告 & 看板下钻 =====
   async getAIReport(opts) { return call('getAIReport', opts) },
+  async listAIReports(opts) { return call('listAIReports', opts || {}) },
+  async getAIReportDetail(reportId) { return call('getAIReportDetail', { reportId }) },
+  async deleteAIReport(reportId) { return call('deleteAIReport', { reportId }) },
   async getAIConfig() { return call('getAIConfig', {}) },
   async setAIConfig(data) { return call('setAIConfig', data) },
   async getDashboardPartDetail(partSkuId, yearMonth) { return call('getDashboardPartDetail', { partSkuId, yearMonth }) },

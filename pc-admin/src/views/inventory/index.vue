@@ -4,7 +4,7 @@
       <h2>库存管理</h2>
       <div class="header-actions">
         <el-button @click="$router.push('/inventory/logs')">出入库记录</el-button>
-        <el-button type="primary" @click="$router.push('/inventory/inbound')">
+        <el-button v-if="canEdit" type="primary" @click="$router.push('/inventory/inbound')">
           <el-icon><Plus /></el-icon>配件入库
         </el-button>
       </div>
@@ -63,7 +63,7 @@
           {{ row.lowStockThreshold }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="editThreshold(row)">设置阈值</el-button>
         </template>
@@ -120,7 +120,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
+
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.canEdit)
 
 const appStore = useAppStore()
 const loading = ref(false)

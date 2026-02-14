@@ -29,8 +29,17 @@
           value-format="YYYY-MM"
           style="width: 150px; margin-left: 12px;"
         />
+        <!-- 报告类型 -->
+        <el-select v-model="promptType" placeholder="报告类型" style="width: 130px; margin-left: 8px;">
+          <el-option label="月度总结" value="monthly_summary" />
+          <el-option label="设备分析" value="device_analysis" />
+          <el-option label="成本分析" value="cost_analysis" />
+        </el-select>
         <el-button type="primary" :loading="loading" @click="loadReport" style="margin-left: 12px;">
           生成报告
+        </el-button>
+        <el-button v-if="report" type="success" plain @click="handleExportPDF" style="margin-left: 8px;">
+          导出 PDF
         </el-button>
       </div>
     </div>
@@ -76,11 +85,37 @@
         </el-row>
       </el-card>
 
-      <!-- 3. AI 文字摘要 -->
+      <!-- LLM AI 分析报告（如果有） -->
+      <el-card v-if="report.llmContent" class="llm-card" shadow="never">
+        <template #header>
+          <div class="card-header-flex">
+            <span>
+              <el-icon style="vertical-align: -2px; margin-right: 4px;"><MagicStick /></el-icon>
+              AI 智能分析
+            </span>
+            <el-tag type="success" size="small" effect="plain">{{ promptTypeLabel }}</el-tag>
+          </div>
+        </template>
+        <div class="llm-content markdown-body" v-html="renderedLLM"></div>
+      </el-card>
+
+      <!-- LLM 错误提示 -->
+      <el-alert
+        v-if="report.llmError"
+        :title="'AI 分析生成失败：' + report.llmError"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+        description="已回退到规则模板报告。请检查 AI 设置中的 API 地址、Key 和模型配置。"
+      />
+
+      <!-- 3. 模板文字摘要 -->
       <el-card class="summary-card" shadow="never">
         <template #header>
           <div class="card-header-flex">
             <span>{{ report.factoryLabel }} · {{ selectedMonth }} 报告摘要</span>
+            <el-tag v-if="!report.llmContent" type="info" size="small" effect="plain">规则模板</el-tag>
           </div>
         </template>
         <p class="summary-text">{{ report.summaryText }}</p>
@@ -142,7 +177,105 @@
       </el-card>
     </template>
 
-    <el-empty v-else-if="!loading" description="选择月份与范围后点击「生成报告」" :image-size="100" />
+    <!-- 错误提示 -->
+    <el-alert
+      v-if="loadError && !report"
+      :title="'报告生成失败'"
+      type="error"
+      show-icon
+      :closable="false"
+      style="margin-bottom: 16px;"
+    >
+      <template #default>
+        <p style="margin: 4px 0;">{{ loadError }}</p>
+        <p style="margin: 4px 0; color: #909399; font-size: 12px;">
+          常见原因：1) 云函数超时（LLM调用耗时较长）；2) API Key 或 API 地址配置错误；3) 网络问题。
+          请到「设置 > AI 分析设置」检查配置，或暂时清空 API Key 以使用纯模板报告。
+        </p>
+      </template>
+    </el-alert>
+    <el-empty v-else-if="!loading && !report" description="选择月份与范围后点击「生成报告」" :image-size="100" />
+
+    <!-- 历史报告记录 -->
+    <el-card class="history-reports-card" shadow="never" style="margin-top: 20px;">
+      <template #header>
+        <div class="card-header-flex">
+          <span>历史生成记录</span>
+          <el-button size="small" @click="loadHistory" :loading="historyLoading">
+            <el-icon><Refresh /></el-icon>刷新
+          </el-button>
+        </div>
+      </template>
+
+      <!-- 筛选栏 -->
+      <div class="history-filter" style="margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <el-date-picker
+          v-model="historyFilterMonth"
+          type="month"
+          placeholder="筛选月份"
+          format="YYYY年MM月"
+          value-format="YYYY-MM"
+          clearable
+          style="width: 150px;"
+          @change="loadHistory"
+        />
+        <el-select v-model="historyFilterType" placeholder="报告类型" clearable style="width: 130px;" @change="loadHistory">
+          <el-option label="月度总结" value="monthly_summary" />
+          <el-option label="设备分析" value="device_analysis" />
+          <el-option label="成本分析" value="cost_analysis" />
+        </el-select>
+      </div>
+
+      <el-table :data="historyList" v-loading="historyLoading" stripe size="small" style="width: 100%;">
+        <el-table-column label="生成时间" width="170">
+          <template #default="{ row }">
+            {{ formatTime(row.createdAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="yearMonth" label="报告月份" width="100" />
+        <el-table-column prop="factoryLabel" label="范围" width="120" />
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="promptTagType(row.promptType)">{{ promptTypeLabels[row.promptType] || row.promptType }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="AI分析" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="row.hasLLM" type="success" size="small" effect="plain">有</el-tag>
+            <el-tag v-else-if="row.llmError" type="warning" size="small" effect="plain">失败</el-tag>
+            <el-tag v-else type="info" size="small" effect="plain">无</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdByName" label="生成人" width="100" />
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" plain @click="viewHistoryReport(row)">查看</el-button>
+            <el-button size="small" type="success" plain @click="downloadHistoryReport(row)">下载PDF</el-button>
+            <el-button
+              v-if="isAdmin"
+              size="small"
+              type="danger"
+              plain
+              @click="deleteHistoryReport(row)"
+            >删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <div v-if="historyTotal > historyPageSize" style="margin-top: 12px; text-align: right;">
+        <el-pagination
+          v-model:current-page="historyPage"
+          :page-size="historyPageSize"
+          :total="historyTotal"
+          layout="prev, pager, next"
+          small
+          @current-change="loadHistory"
+        />
+      </div>
+
+      <el-empty v-if="!historyLoading && historyList.length === 0" description="暂无历史报告" :image-size="60" />
+    </el-card>
   </div>
 </template>
 
@@ -150,8 +283,16 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { MagicStick, Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { marked } from 'marked'
+
+// 配置 marked
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.user?.role === 'Admin')
@@ -163,6 +304,8 @@ const reportScope = ref('factory')
 const selectedFactoryId = ref('')
 const factoryOptions = ref([])
 const report = ref(null)
+const promptType = ref('monthly_summary')
+const loadError = ref('')
 
 const chartPartsRef = ref()
 const chartAssetsRef = ref()
@@ -170,6 +313,23 @@ const chartHistoryRef = ref()
 let chartParts = null
 let chartAssets = null
 let chartHistory = null
+
+const promptTypeLabels = {
+  monthly_summary: '月度总结',
+  device_analysis: '设备分析',
+  cost_analysis: '成本分析',
+}
+const promptTypeLabel = computed(() => promptTypeLabels[report.value?.promptType] || '月度总结')
+
+// LLM Markdown 渲染
+const renderedLLM = computed(() => {
+  if (!report.value?.llmContent) return ''
+  try {
+    return marked(report.value.llmContent)
+  } catch {
+    return report.value.llmContent
+  }
+})
 
 // 当前工厂名称（主管显示用）
 const currentFactoryName = computed(() => {
@@ -186,7 +346,13 @@ const otherSections = computed(() => report.value?.sections?.filter(s => s.title
 
 async function loadFactoryOptions() {
   const res = await api.listFactories()
-  if (res.ok && res.data?.list) factoryOptions.value = res.data.list
+  if (res.ok && res.data?.list) {
+    factoryOptions.value = res.data.list
+    // 如果只有一个工厂，自动选中
+    if (factoryOptions.value.length === 1 && !selectedFactoryId.value) {
+      selectedFactoryId.value = factoryOptions.value[0].factoryId
+    }
+  }
 }
 
 function onScopeChange() {
@@ -199,24 +365,43 @@ async function loadReport() {
     : currentFactoryId.value
 
   if (reportScope.value === 'factory' && !fid && isAdmin.value) {
-    ElMessage.warning('请先选择工厂')
-    return
+    // 没选工厂时，自动切换为全部汇总
+    if (factoryOptions.value.length > 0) {
+      ElMessage.info('未选择工厂，已自动切换为「全部汇总」模式')
+      reportScope.value = 'summary'
+    } else {
+      ElMessage.info('尚无工厂数据，将生成全局报告')
+    }
   }
   loading.value = true
   report.value = null
+  loadError.value = ''
   try {
+    const actualScope = isAdmin.value ? reportScope.value : 'factory'
+    const actualFid = actualScope === 'summary' ? undefined : (fid || undefined)
     const res = await api.getAIReport({
       yearMonth: selectedMonth.value,
-      factoryId: reportScope.value === 'summary' ? undefined : fid,
-      scope: isAdmin.value ? reportScope.value : 'factory',
+      factoryId: actualFid,
+      scope: actualScope,
+      promptType: promptType.value,
     })
+    console.log('[AI Report] response:', res)
     if (res.ok && res.data) {
       report.value = res.data
+      loadError.value = ''
       await nextTick()
       renderCharts()
+      // 刷新历史列表（新报告已自动保存）
+      loadHistory()
     } else {
-      ElMessage.error(res.error?.message || '生成报告失败')
+      const errMsg = res.error?.message || (typeof res === 'string' ? res.slice(0, 200) : '生成报告失败，请检查网络或稍后重试')
+      loadError.value = errMsg
+      ElMessage.error({ message: errMsg, duration: 8000 })
     }
+  } catch (e) {
+    console.error('[AI Report] error:', e)
+    loadError.value = '请求异常: ' + (e.message || String(e))
+    ElMessage.error({ message: loadError.value, duration: 8000 })
   } finally {
     loading.value = false
   }
@@ -293,8 +478,258 @@ function renderCharts() {
   }
 }
 
+// ====== 导出 PDF ======
+function handleExportPDF() {
+  if (!report.value) return
+
+  const stats = report.value.stats
+  const prev = report.value.prevStats || {}
+  const ptLabel = promptTypeLabels[report.value.promptType] || '月度总结'
+
+  // 获取图表图片
+  let historyChartImg = ''
+  let partsChartImg = ''
+  let assetsChartImg = ''
+  try { if (chartHistory) historyChartImg = chartHistory.getDataURL({ type: 'png', pixelRatio: 2 }) } catch (e) { /* ignore */ }
+  try { if (chartParts) partsChartImg = chartParts.getDataURL({ type: 'png', pixelRatio: 2 }) } catch (e) { /* ignore */ }
+  try { if (chartAssets) assetsChartImg = chartAssets.getDataURL({ type: 'png', pixelRatio: 2 }) } catch (e) { /* ignore */ }
+
+  // 构建统计卡片 HTML
+  const statCards = [
+    { label: '更换次数', value: stats.totalLogs },
+    { label: '配件消耗', value: stats.totalPartsQty },
+    { label: '待处理报警', value: stats.openAlerts, danger: stats.openAlerts > 0 },
+    { label: '使用成本', value: '¥' + (stats.totalUsageCost || 0).toLocaleString() },
+    { label: '低库存预警', value: stats.lowStockCount || 0, warn: (stats.lowStockCount || 0) > 0 },
+    { label: '活跃工程师', value: stats.engineerWorkload?.length || 0 },
+  ]
+
+  const statCardsHtml = statCards.map(c => {
+    const color = c.danger ? '#F56C6C' : c.warn ? '#E6A23C' : '#303133'
+    return `<div style="flex:1;text-align:center;padding:12px 8px;background:#f5f7fa;border-radius:6px;">
+      <div style="font-size:20px;font-weight:600;color:${color};">${c.value}</div>
+      <div style="font-size:12px;color:#909399;margin-top:4px;">${c.label}</div>
+    </div>`
+  }).join('')
+
+  // 构建模板分析 sections
+  const sectionsHtml = (report.value.sections || []).map(sec => {
+    const items = (sec.items || []).map(i => `<li>${escapeHtml(i.text)}</li>`).join('')
+    return `<div style="margin-bottom:16px;"><h3 style="margin:0 0 6px;font-size:15px;color:#303133;">${escapeHtml(sec.title)}</h3><ul style="margin:0;padding-left:20px;color:#606266;font-size:13px;line-height:1.8;">${items}</ul></div>`
+  }).join('')
+
+  // 构建各工厂对比表
+  let factoryTableHtml = ''
+  if (report.value.byFactory?.length) {
+    const rows = report.value.byFactory.map(f =>
+      `<tr><td>${escapeHtml(f.factoryName)}</td><td>${f.totalLogs}</td><td>${f.totalPartsQty}</td><td>${f.openAlerts}</td><td>¥${(f.totalUsageCost || 0).toLocaleString()}</td><td>${f.lowStockCount || 0}</td></tr>`
+    ).join('')
+    factoryTableHtml = `
+      <h2 style="font-size:16px;margin:20px 0 8px;">各工厂横向对比</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f5f7fa;">
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;text-align:left;">工厂</th>
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;">更换次数</th>
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;">配件消耗</th>
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;">OPEN报警</th>
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;">使用成本</th>
+          <th style="border:1px solid #dcdfe6;padding:6px 10px;">低库存</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
+  }
+
+  // 历史环比
+  const logsPct = report.value.history?.logsPct || 0
+  const partsPct = report.value.history?.partsPct || 0
+
+  // 完整 HTML
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${escapeHtml(report.value.factoryLabel)} - ${selectedMonth.value} ${ptLabel}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; color: #303133; padding: 30px 40px; font-size: 14px; line-height: 1.6; }
+  h1 { font-size: 22px; text-align: center; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: #909399; font-size: 13px; margin-bottom: 20px; }
+  .stat-row { display: flex; gap: 10px; margin-bottom: 20px; }
+  .section-title { font-size: 16px; font-weight: 600; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #ebeef5; }
+  .chart-row { display: flex; gap: 16px; margin: 16px 0; }
+  .chart-row img { width: 48%; max-height: 220px; object-fit: contain; }
+  .summary-box { background: #f5f7fa; border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 14px; line-height: 1.7; }
+  .llm-section { margin: 16px 0; padding: 16px; border-left: 3px solid #67C23A; background: #fafafa; border-radius: 0 6px 6px 0; }
+  .llm-section h1 { font-size: 18px; text-align: left; margin: 14px 0 6px; border-bottom: 1px solid #ebeef5; padding-bottom: 4px; }
+  .llm-section h2 { font-size: 16px; margin: 12px 0 4px; }
+  .llm-section h3 { font-size: 14px; margin: 10px 0 4px; }
+  .llm-section ul, .llm-section ol { padding-left: 20px; margin: 4px 0; }
+  .llm-section li { margin: 2px 0; }
+  .llm-section table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
+  .llm-section table th, .llm-section table td { border: 1px solid #dcdfe6; padding: 5px 8px; text-align: left; }
+  .llm-section table th { background: #f5f7fa; }
+  .llm-section blockquote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid #409EFF; background: #f0f5ff; color: #606266; }
+  .llm-section p { margin: 4px 0; }
+  .footer { margin-top: 30px; text-align: center; color: #c0c4cc; font-size: 11px; border-top: 1px solid #ebeef5; padding-top: 10px; }
+  @media print {
+    body { padding: 15px 20px; }
+    .llm-section { break-inside: avoid; }
+  }
+</style>
+</head><body>
+
+<h1>${escapeHtml(report.value.factoryLabel)} · ${selectedMonth.value} ${ptLabel}</h1>
+<div class="subtitle">生成时间：${new Date().toLocaleString('zh-CN')} &nbsp;|&nbsp; 更换环比 ${logsPct >= 0 ? '+' : ''}${logsPct}% &nbsp;|&nbsp; 配件环比 ${partsPct >= 0 ? '+' : ''}${partsPct}%</div>
+
+<div class="stat-row">${statCardsHtml}</div>
+
+${historyChartImg ? `<div class="section-title">历史对比与趋势</div><div style="text-align:center;"><img src="${historyChartImg}" style="max-width:100%;max-height:240px;"></div>` : ''}
+
+${report.value.llmContent ? `
+<div class="section-title">AI 智能分析（${ptLabel}）</div>
+<div class="llm-section">${renderedLLM.value}</div>
+` : ''}
+
+<div class="section-title">报告摘要</div>
+<div class="summary-box">${escapeHtml(report.value.summaryText)}</div>
+
+<div class="section-title">详细分析</div>
+${sectionsHtml}
+
+${(partsChartImg || assetsChartImg) ? `
+<div class="section-title">配件与设备 TOP 5</div>
+<div class="chart-row">
+  ${partsChartImg ? `<img src="${partsChartImg}">` : ''}
+  ${assetsChartImg ? `<img src="${assetsChartImg}">` : ''}
+</div>
+` : ''}
+
+${factoryTableHtml}
+
+<div class="footer">本报告由康洁工程部智能维保系统自动生成</div>
+
+<script>window.onload = function() { setTimeout(function() { window.print(); }, 300); }<\/script>
+</body></html>`
+
+  const win = window.open('', '_blank')
+  if (win) {
+    win.document.write(html)
+    win.document.close()
+  } else {
+    ElMessage.error('无法打开新窗口，请允许弹出窗口后重试')
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return ''
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// ====== 历史报告记录 ======
+const historyList = ref([])
+const historyLoading = ref(false)
+const historyPage = ref(1)
+const historyPageSize = 10
+const historyTotal = ref(0)
+const historyFilterMonth = ref('')
+const historyFilterType = ref('')
+
+function promptTagType(type) {
+  return { monthly_summary: '', device_analysis: 'warning', cost_analysis: 'danger' }[type] || 'info'
+}
+
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    const opts = { page: historyPage.value, pageSize: historyPageSize }
+    if (historyFilterMonth.value) opts.yearMonth = historyFilterMonth.value
+    if (historyFilterType.value) opts.promptType = historyFilterType.value
+    const res = await api.listAIReports(opts)
+    if (res.ok && res.data) {
+      historyList.value = res.data.list || []
+      historyTotal.value = res.data.total || 0
+    }
+  } catch (e) {
+    console.error('加载历史报告失败:', e)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function viewHistoryReport(row) {
+  loading.value = true
+  report.value = null
+  loadError.value = ''
+  try {
+    const res = await api.getAIReportDetail(row.reportId)
+    if (res.ok && res.data?.reportData) {
+      report.value = res.data.reportData
+      // 更新当前选择器状态以匹配历史报告
+      selectedMonth.value = row.yearMonth
+      promptType.value = row.promptType
+      if (row.scope === 'summary') {
+        reportScope.value = 'summary'
+      } else {
+        reportScope.value = 'factory'
+        selectedFactoryId.value = row.factoryId || ''
+      }
+      await nextTick()
+      renderCharts()
+      // 滚动到页面顶部
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      ElMessage.success('已加载历史报告：' + formatTime(row.createdAt))
+    } else {
+      ElMessage.error(res.error?.message || '加载报告失败')
+    }
+  } catch (e) {
+    ElMessage.error('加载失败：' + (e.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+function downloadHistoryReport(row) {
+  // 先加载报告详情再导出PDF
+  api.getAIReportDetail(row.reportId).then(res => {
+    if (res.ok && res.data?.reportData) {
+      const savedReport = report.value
+      report.value = res.data.reportData
+      nextTick(() => {
+        handleExportPDF()
+        // 恢复之前的报告
+        report.value = savedReport
+      })
+    } else {
+      ElMessage.error('加载报告详情失败')
+    }
+  })
+}
+
+async function deleteHistoryReport(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除这份报告吗？\n${row.factoryLabel} · ${row.yearMonth} · ${promptTypeLabels[row.promptType] || row.promptType}`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+    const res = await api.deleteAIReport(row.reportId)
+    if (res.ok) {
+      ElMessage.success('报告已删除')
+      loadHistory()
+    } else {
+      ElMessage.error(res.error?.message || '删除失败')
+    }
+  } catch {}
+}
+
 onMounted(() => {
   loadFactoryOptions()
+  loadHistory()
   if (!isAdmin.value && currentFactoryId.value) loadReport()
 })
 </script>
@@ -340,6 +775,51 @@ onMounted(() => {
   justify-content: space-between;
 }
 
+// LLM AI 分析卡片
+.llm-card {
+  margin-bottom: 16px;
+  border-left: 3px solid #67C23A;
+
+  .llm-content {
+    line-height: 1.8;
+    color: #303133;
+    font-size: 14px;
+
+    :deep(h1) { font-size: 20px; margin: 16px 0 8px; border-bottom: 1px solid #ebeef5; padding-bottom: 6px; }
+    :deep(h2) { font-size: 17px; margin: 14px 0 6px; }
+    :deep(h3) { font-size: 15px; margin: 12px 0 4px; }
+    :deep(ul), :deep(ol) { padding-left: 20px; margin: 6px 0; }
+    :deep(li) { margin: 2px 0; }
+    :deep(strong) { color: #303133; }
+    :deep(table) {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+      font-size: 13px;
+      th, td {
+        border: 1px solid #dcdfe6;
+        padding: 6px 10px;
+        text-align: left;
+      }
+      th { background: #f5f7fa; font-weight: 600; }
+    }
+    :deep(blockquote) {
+      margin: 8px 0;
+      padding: 8px 16px;
+      border-left: 3px solid #409EFF;
+      background: #f5f7fa;
+      color: #606266;
+    }
+    :deep(code) {
+      background: #f5f7fa;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 13px;
+    }
+    :deep(p) { margin: 6px 0; }
+  }
+}
+
 .summary-card {
   margin-bottom: 16px;
   .summary-text { margin: 0; line-height: 1.7; color: #303133; }
@@ -363,6 +843,10 @@ onMounted(() => {
 }
 
 .by-factory-card {
+  margin-bottom: 16px;
+}
+
+.history-reports-card {
   margin-bottom: 16px;
 }
 </style>

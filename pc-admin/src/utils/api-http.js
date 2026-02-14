@@ -100,6 +100,7 @@ export const httpApi = {
   async createUser(data) { return call('createUser', data) },
   async updateUser(userId, data) { return call('updateUser', { userId, ...data }) },
   async disableUser(userId) { return call('disableUser', { userId }) },
+  async deleteUser(userId) { return call('deleteUser', { userId }) },
   async bindOpenid(userId, openid) { return call('bindOpenid', { userId, openid }) },
   async unbindOpenid(userId) { return call('unbindOpenid', { userId }) },
 
@@ -123,6 +124,8 @@ export const httpApi = {
   async importPartsPreview(rows) { return call('importPartsPreview', { rows }) },
   async importPartsCommit(rows) { return call('importPartsCommit', { rows }) },
   async cleanupParts() { return call('cleanupParts', {}) },
+  async getFileUrls(fileIds) { return call('getFileUrls', { fileIds }) },
+  async toggleLogStatus(logId, disabled) { return call('toggleLogStatus', { logId, disabled }) },
 
   // ===== 阈值管理 =====
   async batchUpsertThresholds(items) { return call('batchUpsertThresholds', { items }) },
@@ -130,6 +133,9 @@ export const httpApi = {
 
   // ===== AI 报告 & 看板下钻 =====
   async getAIReport(opts) { return call('getAIReport', opts) },
+  async listAIReports(opts) { return call('listAIReports', opts || {}) },
+  async getAIReportDetail(reportId) { return call('getAIReportDetail', { reportId }) },
+  async deleteAIReport(reportId) { return call('deleteAIReport', { reportId }) },
   async getAIConfig() { return call('getAIConfig', {}) },
   async setAIConfig(data) { return call('setAIConfig', data) },
   async getDashboardPartDetail(partSkuId, yearMonth) { return call('getDashboardPartDetail', { partSkuId, yearMonth }) },

@@ -29,7 +29,7 @@ const routes = [
       { path: 'users', name: 'Users', component: () => import('@/views/users/index.vue'), meta: { title: '用户管理', icon: User, roles: ['Admin'] } },
       { path: 'factories', name: 'Factories', component: () => import('@/views/factories/index.vue'), meta: { title: '工厂管理', icon: OfficeBuilding, roles: ['Admin'] } },
       { path: 'inventory', name: 'Inventory', component: () => import('@/views/inventory/index.vue'), meta: { title: '库存管理', icon: Box } },
-      { path: 'inventory/inbound', name: 'InventoryInbound', component: () => import('@/views/inventory/inbound.vue'), meta: { title: '入库登记', hidden: true } },
+      { path: 'inventory/inbound', name: 'InventoryInbound', component: () => import('@/views/inventory/inbound.vue'), meta: { title: '入库登记', hidden: true, roles: ['Admin', 'Supervisor', 'Management'] } },
       { path: 'inventory/logs', name: 'InventoryLogs', component: () => import('@/views/inventory/logs.vue'), meta: { title: '出入库记录', hidden: true } },
       { path: 'settings/ai', name: 'AISettings', component: () => import('@/views/settings/ai.vue'), meta: { title: 'AI 设置', icon: Setting, roles: ['Admin'] } },
     ],

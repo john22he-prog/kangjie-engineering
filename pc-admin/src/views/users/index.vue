@@ -31,10 +31,10 @@
           <el-tag :type="roleTagType(row.role)" size="small">{{ roleLabel(row.role) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="factoryId" label="管辖工厂" width="120">
+      <el-table-column prop="factoryId" label="所属工厂" width="120">
         <template #default="{ row }">
-          <span v-if="row.role === 'Supervisor'">{{ factoryNameMap[row.factoryId] || row.factoryId || '—' }}</span>
-          <span v-else>—</span>
+          <span v-if="row.factoryId">{{ factoryNameMap[row.factoryId] || row.factoryId }}</span>
+          <el-tag v-else type="warning" size="small" effect="plain">未分配</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="status" label="状态" width="80">
@@ -56,7 +56,7 @@
           <el-tag v-else type="info" size="small">否</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="340" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDialog(row)">编辑</el-button>
           <el-button
@@ -74,6 +74,14 @@
             @click="handleUnbind(row)"
           >
             解绑微信
+          </el-button>
+          <el-button
+            v-if="authStore.isAdmin && row.userId !== authStore.user?.userId"
+            size="small"
+            type="danger"
+            @click="handleDelete(row)"
+          >
+            删除
           </el-button>
         </template>
       </el-table-column>
@@ -112,10 +120,11 @@
             />
           </div>
         </el-form-item>
-        <el-form-item v-if="form.role === 'Supervisor'" label="管辖工厂" prop="factoryId">
-          <el-select v-model="form.factoryId" placeholder="主管仅看该工厂全厂数据" clearable style="width: 100%">
+        <el-form-item label="所属工厂" prop="factoryId">
+          <el-select v-model="form.factoryId" placeholder="选择该用户所属的工厂" clearable style="width: 100%">
             <el-option v-for="f in factoryOptions" :key="f.factoryId" :label="f.factoryName" :value="f.factoryId" />
           </el-select>
+          <div v-if="form.role === 'Supervisor'" class="field-hint">主管只能查看和管理所属工厂的数据</div>
         </el-form-item>
         <el-form-item v-if="!isEdit" label="密码" prop="password">
           <el-input v-model="form.password" type="password" placeholder="留空则无PC端登录权限" show-password />
@@ -136,6 +145,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -185,7 +197,7 @@ const roleDescriptions = {
   },
   Viewer: {
     title: '查看员 — 只读查看',
-    desc: '仅可查看数据，不可进行编辑、新增、删除等操作。无法登录PC端管理后台。',
+    desc: '可登录PC端查看所有数据（看板、记录、报表、库存等），可生成AI报告。但不能进行编辑、新增、删除等操作。',
   },
 }
 
@@ -231,7 +243,7 @@ async function handleSubmit() {
       res = await api.updateUser(editUserId.value, {
         displayName: form.displayName,
         role: form.role,
-        factoryId: form.role === 'Supervisor' ? form.factoryId : undefined,
+        factoryId: form.factoryId || '',
         canPcLogin: form.canPcLogin,
       })
     } else {
@@ -259,6 +271,23 @@ async function toggleStatus(row) {
     if (res.ok) {
       ElMessage.success('操作成功')
       loadList()
+    }
+  } catch {}
+}
+
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要永久删除用户 "${row.displayName}（${row.username}）" 吗？此操作不可恢复！`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+    const res = await api.deleteUser(row.userId)
+    if (res.ok) {
+      ElMessage.success('用户已删除')
+      loadList()
+    } else {
+      ElMessage.error(res.error?.message || '删除失败')
     }
   } catch {}
 }
@@ -294,3 +323,12 @@ onMounted(() => {
   loadFactoryOptions()
 })
 </script>
+
+<style scoped>
+.field-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+</style>

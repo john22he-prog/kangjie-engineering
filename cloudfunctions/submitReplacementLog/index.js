@@ -45,8 +45,8 @@ exports.main = async (event, context) => {
     if (!clientOfflineId) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 clientOfflineId' } }
     }
-    if (!assetId || !type || !locationId) {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段' } }
+    if (!assetId || !type) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段（设备ID和更换类型）' } }
     }
     if (!['维修', '预防', '紧急'].includes(type)) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '更换类型无效' } }
@@ -77,28 +77,21 @@ exports.main = async (event, context) => {
       return { ok: true, data: { logId: existingLogs[0].logId, yearMonth: existingLogs[0].yearMonth, duplicate: true } }
     }
 
-    // ========== 4) 数据校验：设备、部位、映射 ==========
+    // ========== 4) 数据校验：设备必须存在，部位为可选 ==========
     const { data: assets } = await db.collection('assets').where({ assetId, status: 'active' }).limit(1).get()
     if (assets.length === 0) {
       return { ok: false, error: { code: 'ASSET_NOT_FOUND', message: '设备不存在或已停用' } }
     }
     const asset = assets[0]
 
-    const { data: locs } = await db.collection('asset_locations').where({ locationId, assetId, active: true }).limit(1).get()
-    if (locs.length === 0) {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '部位不存在或不属于该设备' } }
-    }
-    const location = locs[0]
-
-    // 映射校验
-    const { data: validMappings } = await db.collection('location_part_map')
-      .where({ assetId, locationId, active: true })
-      .get()
-    const validSkuIds = new Set(validMappings.map(m => m.partSkuId))
-    for (const skuId of selectedPartSkuIds) {
-      if (!validSkuIds.has(skuId)) {
-        return { ok: false, error: { code: 'MAPPING_INVALID', message: `配件 ${skuId} 不在该部位的可用列表中` } }
+    // 部位为可选：如果提供了 locationId 则校验，否则跳过
+    let location = null
+    if (locationId) {
+      const { data: locs } = await db.collection('asset_locations').where({ locationId, assetId, active: true }).limit(1).get()
+      if (locs.length > 0) {
+        location = locs[0]
       }
+      // 部位不存在也不阻断，只是不记录部位快照
     }
 
     // 查配件快照
@@ -137,8 +130,8 @@ exports.main = async (event, context) => {
       ts: now,
       yearMonth,
       type,
-      locationIdSnapshot: locationId,
-      locationNameSnapshot: location.locationName,
+      locationIdSnapshot: locationId || '',
+      locationNameSnapshot: location ? location.locationName : '',
       items,
       remark: remark || '',
       images,

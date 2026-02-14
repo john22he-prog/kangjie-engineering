@@ -373,7 +373,7 @@
         <div v-else class="drill-logs empty">暂无相关更换记录</div>
 
         <!-- ACK 按钮 -->
-        <div class="ack-area">
+        <div v-if="canEdit" class="ack-area">
           <el-input
             v-model="alert._ackNote"
             type="textarea"
@@ -443,6 +443,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const canViewCost = computed(() => authStore.canViewCost)
+const canEdit = computed(() => authStore.canEdit)
 
 // ===== 全局月份 =====
 const selectedMonth = ref(dayjs().format('YYYY-MM'))

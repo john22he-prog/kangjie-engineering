@@ -28,7 +28,8 @@ Page({
     // 控制
     submitting: false,
     canSubmit: false,
-    offlineCount: 0
+    offlineCount: 0,
+    hasLocations: false
   },
 
   onLoad(options) {
@@ -57,8 +58,15 @@ Page({
       // 获取部位和配件映射
       const locResult = await api.getLocationsAndParts(this.assetId)
       if (locResult.ok) {
-        this.setData({ locations: locResult.data.locations || [] })
+        const locations = locResult.data.locations || []
+        const allParts = locResult.data.allParts || []
+        this.setData({
+          locations,
+          availableSkus: allParts,  // 默认显示全部配件
+          hasLocations: locations.length > 0
+        })
         this.locationPartMap = locResult.data.map || {}
+        this.allParts = allParts
       }
     } catch (e) {
       console.error(e)
@@ -81,20 +89,25 @@ Page({
     if (!loc) return
 
     const skus = (this.locationPartMap && this.locationPartMap[loc.locationId]) || []
-    if (skus.length === 0) {
-      wx.showModal({
-        title: '提示',
-        content: ERRORS.NO_PARTS_FOR_LOCATION,
-        showCancel: false
-      })
-    }
 
     this.setData({
       locationIndex: idx,
       locationId: loc.locationId,
       locationName: loc.locationName,
-      availableSkus: skus,
+      availableSkus: skus.length > 0 ? skus : (this.allParts || []),
       selectedSkus: [] // 切换部位清空已选
+    })
+    this.checkCanSubmit()
+  },
+
+  onClearLocation() {
+    // 清除部位选择，恢复显示全部配件
+    this.setData({
+      locationIndex: -1,
+      locationId: '',
+      locationName: '',
+      availableSkus: this.allParts || [],
+      selectedSkus: []
     })
     this.checkCanSubmit()
   },
@@ -138,19 +151,18 @@ Page({
   },
 
   checkCanSubmit() {
-    const { type, locationId, selectedSkus, images } = this.data
+    const { type, selectedSkus, images } = this.data
     const hasType = !!type
-    const hasLocation = !!locationId
     const hasSkus = selectedSkus.length > 0 && selectedSkus.every(s => s.qty > 0)
     const hasImages = images.length >= 1
-    this.setData({ canSubmit: hasType && hasLocation && hasSkus && hasImages })
+    this.setData({ canSubmit: hasType && hasSkus && hasImages })
   },
 
   // 校验
   validate() {
-    const { type, locationId, selectedSkus, images } = this.data
+    const { type, selectedSkus, images } = this.data
     if (!type) return ERRORS.TYPE_REQUIRED
-    if (!locationId) return ERRORS.LOCATION_REQUIRED
+    // 部位为可选，不再强制校验
     if (selectedSkus.length === 0) return ERRORS.SKU_REQUIRED
     for (const s of selectedSkus) {
       if (!s.qty || s.qty < 1 || !Number.isInteger(s.qty)) return ERRORS.QTY_INVALID

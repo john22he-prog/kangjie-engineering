@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <h2>阈值配置</h2>
-      <el-button type="primary" @click="openDialog()">
+      <el-button v-if="canEdit" type="primary" @click="openDialog()">
         <el-icon><Plus /></el-icon>新增阈值
       </el-button>
     </div>
@@ -27,8 +27,8 @@
       </el-table-column>
       <el-table-column label="当月用量" width="100">
         <template #default="{ row }">
-          <span :class="{ 'over-threshold': row.currentMonthQty > row.thresholdMonthly }">
-            {{ row.currentMonthQty }}
+          <span :class="{ 'over-threshold': (row.currentMonthQty || 0) > row.thresholdMonthly }">
+            {{ row.currentMonthQty || 0 }}
           </span>
         </template>
       </el-table-column>
@@ -41,7 +41,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column v-if="canEdit" label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDialog(row)">编辑</el-button>
           <el-popconfirm title="确定删除该阈值配置？" @confirm="deleteThreshold(row.thresholdId)">
@@ -87,8 +87,11 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.canEdit)
 const loading = ref(false)
 const submitLoading = ref(false)
 const list = ref([])
@@ -127,8 +130,10 @@ const filteredList = computed(() => {
 })
 
 function getUsagePercent(row) {
-  if (!row.thresholdMonthly) return 0
-  return Math.min(100, Math.round((row.currentMonthQty / row.thresholdMonthly) * 100))
+  if (!row.thresholdMonthly || row.thresholdMonthly <= 0) return 0
+  const qty = row.currentMonthQty || 0
+  const pct = Math.round((qty / row.thresholdMonthly) * 100)
+  return Math.min(100, isNaN(pct) ? 0 : pct)
 }
 
 function getProgressColor(row) {

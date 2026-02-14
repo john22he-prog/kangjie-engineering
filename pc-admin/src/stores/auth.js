@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { api } from '@/utils/api'
 
 // PC端允许登录的角色
-const PC_ALLOWED_ROLES = ['Supervisor', 'Management', 'Admin']
+const PC_ALLOWED_ROLES = ['Supervisor', 'Management', 'Admin', 'Viewer']
 
 // 解析 JWT payload（不验证签名，仅读取过期时间）
 function parseJwtPayload(token) {
@@ -46,17 +46,19 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => user.value?.role === 'Admin')
   const isSupervisor = computed(() => user.value?.role === 'Supervisor')
   const isManagement = computed(() => user.value?.role === 'Management')
+  const isViewer = computed(() => user.value?.role === 'Viewer')
+  const canEdit = computed(() => !isViewer.value) // 查看员不能编辑
   const canManage = computed(() => isAdmin.value || isSupervisor.value || isManagement.value)
-  const canViewCost = computed(() => isAdmin.value || isSupervisor.value || isManagement.value)
+  const canViewCost = computed(() => isAdmin.value || isSupervisor.value || isManagement.value || isViewer.value)
   const canSwitchFactory = computed(() => isAdmin.value || isManagement.value)
 
   async function login(username, password) {
     const res = await api.adminLogin({ username, password })
     if (res.ok) {
       const role = res.data.user.role
-      // PC端仅允许主管及以上角色登录
+      // PC端允许的角色
       if (!PC_ALLOWED_ROLES.includes(role)) {
-        return { ok: false, error: { message: '仅主管及以上人员可登录PC端' } }
+        return { ok: false, error: { message: '该角色无PC端登录权限' } }
       }
       user.value = res.data.user
       token.value = res.data.token
@@ -80,6 +82,8 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isSupervisor,
     isManagement,
+    isViewer,
+    canEdit,
     canManage,
     canViewCost,
     canSwitchFactory,

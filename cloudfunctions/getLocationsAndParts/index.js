@@ -65,9 +65,41 @@ exports.main = async (event, context) => {
         .filter(Boolean)
     })
 
+    // 返回该设备可用的全部配件（去重合并所有部位的配件）
+    // 如果有映射数据，从映射中取；否则返回系统中所有活跃配件
+    let allParts = []
+    if (Object.keys(partsMap).length > 0) {
+      // 从映射中取所有配件（去重）
+      const seen = new Set()
+      Object.values(map).forEach(parts => {
+        parts.forEach(p => {
+          if (!seen.has(p.partSkuId)) {
+            seen.add(p.partSkuId)
+            allParts.push(p)
+          }
+        })
+      })
+    }
+
+    // 如果没有映射数据（部位未配置），返回系统中所有配件
+    if (allParts.length === 0) {
+      try {
+        const { data: allPartsData } = await db.collection('parts')
+          .where({ active: true })
+          .limit(500)
+          .get()
+        allParts = allPartsData || []
+      } catch (e) {
+        console.warn('getLocationsAndParts allParts fallback:', e)
+      }
+    }
+
+    // 按名称排序
+    allParts.sort((a, b) => (a.partName || '').localeCompare(b.partName || '', 'zh'))
+
     return {
       ok: true,
-      data: { locations, map }
+      data: { locations, map, allParts }
     }
   } catch (err) {
     console.error('getLocationsAndParts error:', err)

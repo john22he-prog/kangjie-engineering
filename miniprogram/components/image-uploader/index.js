@@ -64,31 +64,25 @@ Component({
     },
 
     uploadFile(tempFilePath, idx) {
-      // Mock 模式：直接标记完成，用 tempFilePath 当 fileId
-      setTimeout(() => {
-        const key = `innerFiles[${idx}]`
-        this.setData({
-          [key + '.status']: 'done',
-          [key + '.fileId']: tempFilePath
-        })
-        this.emitChange()
-      }, 500)
-
-      // 真实上传（上线后启用）：
-      // wx.cloud.uploadFile({
-      //   cloudPath: `replacement_images/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`,
-      //   filePath: tempFilePath,
-      //   success: res => {
-      //     this.setData({
-      //       [`innerFiles[${idx}].status`]: 'done',
-      //       [`innerFiles[${idx}].fileId`]: res.fileID
-      //     })
-      //     this.emitChange()
-      //   },
-      //   fail: () => {
-      //     this.setData({ [`innerFiles[${idx}].status`]: 'error' })
-      //   }
-      // })
+      // 真实上传到微信云存储
+      const cloudPath = `replacement_images/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+      wx.cloud.uploadFile({
+        cloudPath,
+        filePath: tempFilePath,
+        success: res => {
+          this.setData({
+            [`innerFiles[${idx}].status`]: 'done',
+            [`innerFiles[${idx}].fileId`]: res.fileID,
+            [`innerFiles[${idx}].url`]: tempFilePath  // 本地预览仍用临时路径
+          })
+          this.emitChange()
+        },
+        fail: (err) => {
+          console.error('图片上传失败:', err)
+          this.setData({ [`innerFiles[${idx}].status`]: 'error' })
+          wx.showToast({ title: '图片上传失败', icon: 'none' })
+        }
+      })
     },
 
     onRemove(e) {

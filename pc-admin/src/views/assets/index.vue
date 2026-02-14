@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <h2>设备管理</h2>
-      <div class="header-actions">
+      <div class="header-actions" v-if="canEdit">
         <el-button type="success" plain @click="downloadTemplate">
           <el-icon><Download /></el-icon>下载模板
         </el-button>
@@ -77,9 +77,9 @@
           {{ formatDate(row.createdAt) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="320" fixed="right">
+      <el-table-column label="操作" :width="canEdit ? 320 : 180" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="openDialog(row)">编辑</el-button>
+          <el-button v-if="canEdit" size="small" @click="openDialog(row)">编辑</el-button>
           <el-button size="small" type="primary" plain @click="goLocations(row)">
             部位管理
           </el-button>
@@ -87,6 +87,7 @@
             <el-icon><View /></el-icon>QR码
           </el-button>
           <el-button
+            v-if="canEdit"
             size="small"
             :type="row.status === 'active' ? 'warning' : 'success'"
             plain
@@ -231,12 +232,15 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import QRCode from 'qrcode'
 import * as XLSX from 'xlsx'
 
 const router = useRouter()
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.canEdit)
 const loading = ref(false)
 const submitLoading = ref(false)
 const list = ref([])
@@ -390,10 +394,66 @@ async function showQrCode(row) {
 }
 
 function downloadQr() {
-  if (!qrCanvasRef.value) return
+  if (!qrCanvasRef.value || !qrAsset.value) return
+
+  const asset = qrAsset.value
+  const factory = qrFactoryName.value || ''
+  const name = asset.assetName || ''
+  const sub = `${asset.assetId} · ${asset.assetNo || ''}`
+
+  // 创建一个带完整信息的合成画布
+  const qrSize = 200
+  const padding = 24
+  const width = qrSize + padding * 2
+  const topSpace = 10
+  const factoryH = factory ? 24 : 0
+  const nameH = 28
+  const subH = 20
+  const bottomSpace = 12
+  const textBlockH = factoryH + nameH + subH + bottomSpace
+  const height = topSpace + qrSize + 12 + textBlockH + padding
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width * 2   // 2x 高清
+  canvas.height = height * 2
+  const ctx = canvas.getContext('2d')
+  ctx.scale(2, 2)
+
+  // 白色背景
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, width, height)
+
+  // 绘制二维码
+  ctx.drawImage(qrCanvasRef.value, padding, topSpace, qrSize, qrSize)
+
+  // 绘制文字
+  let y = topSpace + qrSize + 16
+  ctx.textAlign = 'center'
+  const cx = width / 2
+
+  // 工厂名
+  if (factory) {
+    ctx.fillStyle = '#07C160'
+    ctx.font = '500 13px "PingFang SC", "Microsoft YaHei", sans-serif'
+    ctx.fillText(factory, cx, y)
+    y += factoryH
+  }
+
+  // 设备名称
+  ctx.fillStyle = '#303133'
+  ctx.font = '600 16px "PingFang SC", "Microsoft YaHei", sans-serif'
+  ctx.fillText(name, cx, y)
+  y += nameH
+
+  // 设备ID和编号
+  ctx.fillStyle = '#909399'
+  ctx.font = '12px "PingFang SC", "Microsoft YaHei", sans-serif'
+  ctx.fillText(sub, cx, y)
+
+  // 下载
   const link = document.createElement('a')
-  link.download = `QR-${qrAsset.value.assetId}.png`
-  link.href = qrCanvasRef.value.toDataURL()
+  link.download = `${asset.assetNo || asset.assetId}-${name}.png`
+  link.href = canvas.toDataURL('image/png')
   link.click()
 }
 
