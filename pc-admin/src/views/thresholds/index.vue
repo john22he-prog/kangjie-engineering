@@ -84,14 +84,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
 const authStore = useAuthStore()
+const appStore = useAppStore()
 const canEdit = computed(() => authStore.canEdit)
+const currentFactoryId = computed(() => appStore.currentFactoryId)
 const loading = ref(false)
 const submitLoading = ref(false)
 const list = ref([])
@@ -180,20 +182,26 @@ async function deleteThreshold(thresholdId) {
 async function loadList() {
   loading.value = true
   try {
-    const res = await api.listThresholds(filterAssetId.value || undefined)
+    const res = await api.listThresholds(filterAssetId.value || undefined, currentFactoryId.value)
     if (res.ok) list.value = res.data.list
   } finally {
     loading.value = false
   }
 }
 
-const appStore = useAppStore()
-
 async function loadBasicData() {
-  const [aRes, pRes] = await Promise.all([api.listAssets(appStore.currentFactoryId), api.listParts()])
+  const [aRes, pRes] = await Promise.all([
+    api.listAssets(currentFactoryId.value),
+    api.listParts(currentFactoryId.value),
+  ])
   if (aRes.ok) assets.value = aRes.data.list
   if (pRes.ok) parts.value = pRes.data.list
 }
+
+watch(currentFactoryId, async () => {
+  await loadBasicData()
+  await loadList()
+})
 
 onMounted(async () => {
   await loadBasicData()

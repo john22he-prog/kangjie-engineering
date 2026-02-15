@@ -62,12 +62,20 @@
           <el-tag :type="typeTagType(row.type)" size="small">{{ row.type }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="配件明细" min-width="200">
+      <el-table-column label="配件明细" min-width="220">
         <template #default="{ row }">
           <div v-for="item in row.items" :key="item.partSkuId" class="item-line">
             <span>{{ item.partNameSnapshot }}</span>
+            <span v-if="item.specModelSnapshot" class="spec-text">{{ item.specModelSnapshot }}</span>
             <el-tag size="small" type="info" class="qty-tag">x{{ item.qty }}</el-tag>
+            <span v-if="item.unitCost" class="cost-text">¥{{ item.itemCost?.toFixed(2) }}</span>
           </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="配件金额" width="110">
+        <template #default="{ row }">
+          <span v-if="row.totalRepairCost > 0" class="cost-value">¥{{ row.totalRepairCost.toFixed(2) }}</span>
+          <span v-else class="no-cost">-</span>
         </template>
       </el-table-column>
       <el-table-column prop="reporterNameSnapshot" label="填报人" width="90" />
@@ -86,8 +94,16 @@
           <span v-else class="no-img">-</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="canEdit" label="操作" width="90" fixed="right">
+      <el-table-column v-if="canEdit" label="操作" width="140" fixed="right">
         <template #default="{ row }">
+          <el-button
+            type="primary"
+            size="small"
+            text
+            @click="openEditItems(row)"
+          >
+            编辑配件
+          </el-button>
           <el-popconfirm
             :title="row.disabled ? '确定启用该记录？启用后将恢复参与数据统计。' : '确定停用该记录？停用后将不参与数据统计。'"
             :confirm-button-text="row.disabled ? '启用' : '停用'"
@@ -147,6 +163,49 @@
       </div>
       <template #footer>
         <el-button @click="imageDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑配件弹窗 -->
+    <el-dialog v-model="editDialogVisible" title="编辑配件" width="640px" :close-on-click-modal="false">
+      <div class="edit-info">
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item label="设备">{{ editingLog?.assetNameSnapshot }}</el-descriptions-item>
+          <el-descriptions-item label="日期">{{ formatTime(editingLog?.ts) }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <div class="edit-items-title">
+        <span>配件列表</span>
+        <el-button type="primary" size="small" text @click="addEditItem">+ 添加配件</el-button>
+      </div>
+
+      <div v-for="(item, idx) in editItems" :key="idx" class="edit-item-row">
+        <el-select
+          v-model="item.partSkuId"
+          filterable
+          placeholder="选择配件"
+          style="flex: 1"
+          @change="(val) => onPartSelect(idx, val)"
+        >
+          <el-option
+            v-for="p in allParts"
+            :key="p.partSkuId"
+            :label="`${p.partName}${p.specModel ? ' (' + p.specModel + ')' : ''} [${p.partCode}]`"
+            :value="p.partSkuId"
+          />
+        </el-select>
+        <el-input-number v-model="item.qty" :min="1" :max="99" size="default" style="width: 110px" />
+        <el-button type="danger" text size="small" @click="editItems.splice(idx, 1)" :disabled="editItems.length <= 1">
+          删除
+        </el-button>
+      </div>
+
+      <template #footer>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveEditItems" :loading="editSaving">
+          保存修改
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -314,6 +373,67 @@ async function loadBasicData() {
   if (uRes.ok) engineers.value = uRes.data.list.filter(u => u.role === 'Engineer')
 }
 
+// ===== 编辑配件 =====
+const editDialogVisible = ref(false)
+const editingLog = ref(null)
+const editItems = ref([])
+const editSaving = ref(false)
+const allParts = ref([])
+
+function openEditItems(row) {
+  editingLog.value = row
+  editItems.value = (row.items || []).map(item => ({
+    partSkuId: item.partSkuId,
+    partNameSnapshot: item.partNameSnapshot,
+    partCodeSnapshot: item.partCodeSnapshot,
+    specModelSnapshot: item.specModelSnapshot || '',
+    qty: item.qty || 1
+  }))
+  editDialogVisible.value = true
+  // 加载配件列表
+  if (!allParts.value.length) {
+    api.listParts(appStore.currentFactoryId).then(res => {
+      if (res.ok) allParts.value = res.data.list || []
+    })
+  }
+}
+
+function addEditItem() {
+  editItems.value.push({ partSkuId: '', qty: 1, partNameSnapshot: '', partCodeSnapshot: '', specModelSnapshot: '' })
+}
+
+function onPartSelect(idx, partSkuId) {
+  const part = allParts.value.find(p => p.partSkuId === partSkuId)
+  if (part) {
+    editItems.value[idx].partNameSnapshot = part.partName
+    editItems.value[idx].partCodeSnapshot = part.partCode
+    editItems.value[idx].specModelSnapshot = part.specModel || ''
+  }
+}
+
+async function handleSaveEditItems() {
+  const validItems = editItems.value.filter(i => i.partSkuId)
+  if (!validItems.length) {
+    ElMessage.warning('请至少选择一个配件')
+    return
+  }
+  editSaving.value = true
+  try {
+    const res = await api.editReplacementLogItems(editingLog.value.logId, validItems)
+    if (res.ok) {
+      ElMessage.success('配件修改成功，库存和成本已自动更新')
+      editDialogVisible.value = false
+      await loadList()
+    } else {
+      ElMessage.error(res.error?.message || '修改失败')
+    }
+  } catch (err) {
+    ElMessage.error('操作失败：' + (err.message || '未知错误'))
+  } finally {
+    editSaving.value = false
+  }
+}
+
 onMounted(async () => {
   await loadBasicData()
   await loadList()
@@ -335,6 +455,23 @@ onMounted(async () => {
   .qty-tag {
     font-size: 11px;
   }
+  .spec-text {
+    color: #909399;
+    font-size: 12px;
+  }
+  .cost-text {
+    color: #e6a23c;
+    font-size: 12px;
+    margin-left: 2px;
+  }
+}
+
+.cost-value {
+  color: #e6a23c;
+  font-weight: 600;
+}
+.no-cost {
+  color: #c0c4cc;
 }
 
 .no-img {
@@ -358,7 +495,26 @@ onMounted(async () => {
   }
 }
 
-.image-grid {
+  .edit-info {
+    margin-bottom: 16px;
+  }
+  .edit-items-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-weight: 500;
+    font-size: 14px;
+    color: #303133;
+  }
+  .edit-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .image-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;

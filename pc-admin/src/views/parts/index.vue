@@ -3,6 +3,9 @@
     <div class="page-header">
       <h2>配件字典</h2>
       <div class="header-actions">
+        <el-button v-if="canEdit && hasUnassigned" type="warning" @click="handleMigrate" :loading="migrating">
+          迁移未分配配件到当前工厂
+        </el-button>
         <el-button v-if="canEdit" type="danger" plain @click="handleCleanup" :loading="cleanupLoading">
           <el-icon><Delete /></el-icon>清理重复
         </el-button>
@@ -205,14 +208,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { api } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const authStore = useAuthStore()
+const appStore = useAppStore()
 const canEdit = computed(() => authStore.canEdit)
+const currentFactoryId = computed(() => appStore.currentFactoryId)
 const loading = ref(false)
 const submitLoading = ref(false)
 const cleanupLoading = ref(false)
@@ -328,7 +334,7 @@ async function handleSubmit() {
         active: form.active,
       })
     } else {
-      res = await api.createPart(form)
+      res = await api.createPart({ ...form, factoryId: currentFactoryId.value })
     }
     if (res.ok) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
@@ -404,7 +410,7 @@ async function handlePreview() {
 async function handleImportCommit() {
   importLoading.value = true
   try {
-    const res = await api.importPartsCommit(importRows.value)
+    const res = await api.importPartsCommit(importRows.value, currentFactoryId.value)
     if (res.ok) {
       importResult.value = res.data
       importStep.value = 2
@@ -435,7 +441,7 @@ async function handleCleanup() {
 
   cleanupLoading.value = true
   try {
-    const res = await api.cleanupParts()
+    const res = await api.cleanupParts(currentFactoryId.value)
     if (res.ok) {
       const d = res.data
       let msg = `处理完成！\n重命名: ${d.renamed} 条\n停用重复: ${d.deleted} 条`
@@ -454,13 +460,47 @@ async function handleCleanup() {
 async function loadList() {
   loading.value = true
   try {
-    const res = await api.listParts()
+    const res = await api.listParts(currentFactoryId.value)
     if (res.ok) list.value = res.data.list
   } finally {
     loading.value = false
   }
 }
 
+// 迁移未分配工厂的配件
+const migrating = ref(false)
+const hasUnassigned = computed(() => list.value.some(p => !p.factoryId))
+
+async function handleMigrate() {
+  if (!currentFactoryId.value) {
+    ElMessage.warning('请先在顶部选择一个工厂')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将所有未分配工厂的配件迁移到当前工厂「${appStore.currentFactoryName}」？`,
+      '配件数据迁移',
+      { confirmButtonText: '确认迁移', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+
+  migrating.value = true
+  try {
+    const res = await api.migratePartsToFactory(currentFactoryId.value)
+    if (res.ok) {
+      ElMessage.success(res.data.message || '迁移完成')
+      loadList()
+    } else {
+      ElMessage.error(res.error?.message || '迁移失败')
+    }
+  } catch (e) {
+    ElMessage.error('迁移失败: ' + (e.message || ''))
+  } finally {
+    migrating.value = false
+  }
+}
+
+watch(currentFactoryId, () => loadList())
 onMounted(loadList)
 </script>
 

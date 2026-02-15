@@ -8,19 +8,22 @@
     <div class="inbound-form-card">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px" style="max-width: 600px">
         <el-form-item label="配件" prop="partSkuId">
-          <el-select
-            v-model="form.partSkuId"
-            filterable
-            placeholder="搜索并选择配件"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="p in parts"
-              :key="p.partSkuId"
-              :label="`${p.partName} (${p.partCode})`"
-              :value="p.partSkuId"
-            />
-          </el-select>
+          <div style="display: flex; gap: 8px; width: 100%">
+            <el-select
+              v-model="form.partSkuId"
+              filterable
+              placeholder="搜索并选择配件"
+              style="flex: 1"
+            >
+              <el-option
+                v-for="p in parts"
+                :key="p.partSkuId"
+                :label="`${p.partName} (${p.partCode})`"
+                :value="p.partSkuId"
+              />
+            </el-select>
+            <el-button @click="showNewPartDialog">+ 新增</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="入库数量" prop="qty">
           <el-input-number v-model="form.qty" :min="1" :max="99999" />
@@ -45,6 +48,30 @@
         </el-form-item>
       </el-form>
     </div>
+    <!-- 新增配件弹窗 -->
+    <el-dialog v-model="newPartVisible" title="快捷新增配件" width="480px" destroy-on-close>
+      <el-form ref="newPartFormRef" :model="newPartForm" :rules="newPartRules" label-width="90px">
+        <el-form-item label="配件编号" prop="partCode">
+          <el-input v-model="newPartForm.partCode" placeholder="如：HYD-SEAL-02" />
+        </el-form-item>
+        <el-form-item label="配件名称" prop="partName">
+          <el-input v-model="newPartForm.partName" placeholder="如：液压油封" />
+        </el-form-item>
+        <el-form-item label="规格型号">
+          <el-input v-model="newPartForm.specModel" placeholder="可选，如：φ80×50" />
+        </el-form-item>
+        <el-form-item label="单位">
+          <el-input v-model="newPartForm.unit" placeholder="默认：个" />
+        </el-form-item>
+        <el-form-item label="参考单价">
+          <el-input-number v-model="newPartForm.unitPrice" :min="0" :precision="2" :step="1" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="newPartVisible = false">取消</el-button>
+        <el-button type="primary" :loading="newPartSubmitting" @click="handleCreatePart">确认新增</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -76,6 +103,51 @@ const formRules = {
   unitPrice: [{ required: true, message: '请输入单价', trigger: 'change' }],
 }
 
+// ===== 新增配件快捷入口 =====
+const newPartVisible = ref(false)
+const newPartSubmitting = ref(false)
+const newPartFormRef = ref()
+const newPartForm = reactive({
+  partCode: '',
+  partName: '',
+  specModel: '',
+  unit: '个',
+  unitPrice: 0,
+})
+const newPartRules = {
+  partCode: [{ required: true, message: '请输入配件编号', trigger: 'blur' }],
+  partName: [{ required: true, message: '请输入配件名称', trigger: 'blur' }],
+}
+
+function showNewPartDialog() {
+  Object.assign(newPartForm, { partCode: '', partName: '', specModel: '', unit: '个', unitPrice: 0 })
+  newPartVisible.value = true
+}
+
+async function handleCreatePart() {
+  try { await newPartFormRef.value.validate() } catch { return }
+  newPartSubmitting.value = true
+  try {
+    const res = await api.createPart({
+      ...newPartForm,
+      factoryId: appStore.currentFactoryId,
+    })
+    if (res.ok) {
+      ElMessage.success(res.data?.updated ? '配件已更新' : '配件新增成功')
+      newPartVisible.value = false
+      // 刷新配件列表并自动选中新配件
+      await loadParts()
+      const newId = res.data?.partSkuId
+      if (newId) form.partSkuId = newId
+    } else {
+      ElMessage.error(res.error?.message || '新增失败')
+    }
+  } finally {
+    newPartSubmitting.value = false
+  }
+}
+
+// ===== 加载配件列表 =====
 async function loadParts() {
   const res = await api.listParts()
   if (res.ok) parts.value = res.data.list.filter(p => p.active)

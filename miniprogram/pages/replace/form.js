@@ -199,22 +199,71 @@ Page({
     // 先写入离线队列
     offlineQueue.enqueue({ ...payload, _status: 'PENDING' })
 
+    // 尝试提交（含自动重试）
+    const result = await this._trySubmit(payload, clientOfflineId)
+    this.setData({ submitting: false })
+
+    if (result && result.ok) {
+      offlineQueue.removeByClientOfflineId(clientOfflineId)
+      wx.showToast({ title: '提交成功', icon: 'success', duration: 1500 })
+      setTimeout(() => wx.navigateBack(), 1500)
+    }
+    // 失败情况已在 _trySubmit 中处理提示
+  },
+
+  /**
+   * 尝试提交，如果因会话问题失败则刷新后重试一次
+   */
+  async _trySubmit(payload, clientOfflineId) {
+    const app = getApp()
+
     try {
       const result = await api.submitReplacementLog(payload)
-      if (result.ok) {
-        // 成功：移除离线队列
-        offlineQueue.removeByClientOfflineId(clientOfflineId)
-        this.setData({ submitting: false })
-        wx.showToast({ title: '提交成功（本月累计已更新）', icon: 'success', duration: 1500 })
-        setTimeout(() => wx.navigateBack(), 1500)
-      } else {
-        this.setData({ submitting: false })
-        wx.showToast({ title: '提交失败，已保存待同步', icon: 'none', duration: 2000 })
+      if (result.ok) return result
+
+      // 云函数返回了错误
+      const errCode = result.error && result.error.code
+      const errMsg = result.error && result.error.message
+
+      // 如果是认证/权限失败，尝试刷新会话后重试
+      if (errCode === 'AUTH_FAILED' || errCode === 'PERMISSION_DENIED') {
+        console.log('认证失败，尝试刷新会话...')
+        const refreshOk = await app.refreshSession()
+        if (refreshOk) {
+          // 重试一次
+          const retryResult = await api.submitReplacementLog(payload)
+          if (retryResult.ok) return retryResult
+          // 重试仍然失败
+          const retryMsg = (retryResult.error && retryResult.error.message) || '提交失败'
+          wx.showToast({ title: retryMsg, icon: 'none', duration: 2500 })
+          return retryResult
+        } else {
+          wx.showModal({
+            title: '登录已过期',
+            content: '请关闭小程序后重新打开再试',
+            showCancel: false
+          })
+          return null
+        }
       }
+
+      // 其他错误，显示具体原因
+      wx.showToast({ title: errMsg || '提交失败，已保存待同步', icon: 'none', duration: 2500 })
+      return result
     } catch (e) {
-      console.error('提交失败', e)
-      this.setData({ submitting: false })
-      wx.showToast({ title: '提交失败，已保存待同步', icon: 'none', duration: 2000 })
+      console.error('提交异常', e)
+      // 网络超时等异常，尝试刷新会话重试
+      try {
+        const refreshOk = await app.refreshSession()
+        if (refreshOk) {
+          const retryResult = await api.submitReplacementLog(payload)
+          if (retryResult.ok) return retryResult
+        }
+      } catch (retryErr) {
+        console.error('重试也失败', retryErr)
+      }
+      wx.showToast({ title: '网络异常，已保存待同步', icon: 'none', duration: 2500 })
+      return null
     }
   }
 })

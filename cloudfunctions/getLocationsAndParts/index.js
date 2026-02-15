@@ -81,11 +81,17 @@ exports.main = async (event, context) => {
       })
     }
 
-    // 如果没有映射数据（部位未配置），返回系统中所有配件
+    // 如果没有映射数据（部位未配置），返回该设备所属工厂的配件
     if (allParts.length === 0) {
       try {
+        const partsWhere = { active: true }
+        // 获取设备的工厂ID，只返回同工厂的配件
+        const asset = assets[0]
+        if (asset && asset.factoryId) {
+          partsWhere.factoryId = asset.factoryId
+        }
         const { data: allPartsData } = await db.collection('parts')
-          .where({ active: true })
+          .where(partsWhere)
           .limit(500)
           .get()
         allParts = allPartsData || []

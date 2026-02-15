@@ -101,6 +101,100 @@ async function listReplacementLogs(db, data) {
     .limit(pageSize)
     .get()
 
+  // 为每条记录补充成本数据
+  const logIds = list.map(l => l.logId).filter(Boolean)
+  let obLogMap = {}
+  if (logIds.length > 0) {
+    // 查询这些记录关联的出库日志
+    for (let i = 0; i < logIds.length; i += 20) {
+      const batch = logIds.slice(i, i + 20)
+      const { data: obLogs } = await db.collection('inventory_outbound_logs')
+        .where({ replacementLogId: _.in(batch) })
+        .limit(500)
+        .get()
+      obLogs.forEach(ob => {
+        if (!obLogMap[ob.replacementLogId]) obLogMap[ob.replacementLogId] = []
+        obLogMap[ob.replacementLogId].push(ob)
+      })
+    }
+  }
+
+  // 一次性查询全部配件表、库存表、入库日志（避免分批 _.in 的潜在问题）
+  const partsMap = {}
+  const invMap = {}
+  const ibCostMap = {}
+  try {
+    const { data: allParts } = await db.collection('parts').limit(1000).get()
+    allParts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) { console.log('listReplacementLogs: parts query error', e.message) }
+  try {
+    const invWhere = {}
+    if (data.factoryId) invWhere.factoryId = data.factoryId
+    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
+    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) { console.log('listReplacementLogs: inventory query error', e.message) }
+  try {
+    const ibWhere = {}
+    if (data.factoryId) ibWhere.factoryId = data.factoryId
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
+    for (const log of ibAll) {
+      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+    }
+  } catch (e) { console.log('listReplacementLogs: inbound_logs query error', e.message) }
+
+  // 辅助函数：获取某配件最优单价（完整回退链）
+  function getBestPrice(partSkuId) {
+    // 1. 库存表 avgUnitCost（最可靠的加权均价）
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    // 2. 入库日志回算均价
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    // 3. 配件表参考单价
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
+  // 为每条记录的 items 补充成本、编号、型号
+  list.forEach(record => {
+    const obLogs = obLogMap[record.logId] || []
+    const obByPart = {}
+    obLogs.forEach(ob => { obByPart[ob.partSkuId] = ob })
+
+    let recordTotalCost = 0
+
+    ;(record.items || []).forEach(item => {
+      const part = partsMap[item.partSkuId] || {}
+      item.specModelSnapshot = item.specModelSnapshot || part.specModel || ''
+      item.unitSnapshot = item.unitSnapshot || part.unit || '个'
+      item.partCodeSnapshot = item.partCodeSnapshot || part.partCode || ''
+
+      // 补充成本：完整回退链
+      // 1. item 自身有有效成本
+      if (item.unitCost > 0 && item.itemCost > 0) {
+        // 已有有效成本，使用
+      } else {
+        // 2. 从出库记录获取
+        const ob = obByPart[item.partSkuId]
+        if (ob && ob.unitCostAtTime > 0) {
+          item.unitCost = ob.unitCostAtTime
+          item.itemCost = ob.totalCost || (ob.qty || 0) * ob.unitCostAtTime
+        } else {
+          // 3. 从库存 avgUnitCost 或配件表 unitPrice 回退
+          const bestPrice = getBestPrice(item.partSkuId)
+          item.unitCost = bestPrice
+          item.itemCost = Math.round((item.qty || 0) * bestPrice * 100) / 100
+        }
+      }
+      recordTotalCost += (item.itemCost || 0)
+    })
+
+    record.totalRepairCost = Math.round(recordTotalCost * 100) / 100
+  })
+
   return { ok: true, data: { list, total, page, pageSize } }
 }
 
@@ -118,6 +212,155 @@ async function toggleLogStatus(db, data) {
   })
 
   return { ok: true, data: { logId, disabled: newDisabled } }
+}
+
+// ====== 管理员编辑更换记录配件 ======
+async function editReplacementLogItems(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可编辑配件' } }
+  }
+  const { logId, items } = data
+  if (!logId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 logId' } }
+  if (!items || !items.length) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '至少需要一个配件' } }
+
+  // 1) 查找原记录
+  const { data: logs } = await db.collection('replacement_logs').where({ logId }).limit(1).get()
+  if (!logs.length) return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+  const log = logs[0]
+  const factoryId = log.factoryId
+  const yearMonth = log.yearMonth
+  const now = Date.now()
+
+  // 2) 撤销旧的库存扣减和出库日志
+  const { data: oldOutbounds } = await db.collection('inventory_outbound_logs')
+    .where({ replacementLogId: logId }).limit(100).get()
+  for (const ob of oldOutbounds) {
+    // 恢复库存数量
+    try {
+      const { data: invList } = await db.collection('inventory')
+        .where({ factoryId, partSkuId: ob.partSkuId }).limit(1).get()
+      if (invList.length > 0) {
+        const inv = invList[0]
+        const restoredQty = (inv.currentQty || 0) + (ob.qty || 0)
+        await db.collection('inventory').doc(inv._id).update({
+          data: {
+            currentQty: _.inc(ob.qty || 0),
+            totalCostValue: Math.round(restoredQty * (inv.avgUnitCost || 0) * 100) / 100,
+            updatedAt: now
+          }
+        })
+      }
+    } catch (e) { console.log('restore inventory error', e.message) }
+    // 删除旧出库日志
+    try {
+      await db.collection('inventory_outbound_logs').doc(ob._id).remove()
+    } catch (e) {}
+  }
+
+  // 3) 查询配件表和库存表
+  const partsMap = {}
+  try {
+    const { data: allParts } = await db.collection('parts').where({ factoryId }).limit(1000).get()
+    allParts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+  const invMap = {}
+  try {
+    const { data: allInv } = await db.collection('inventory').where({ factoryId }).limit(1000).get()
+    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) {}
+  // 入库日志回算均价
+  const ibCostMap = {}
+  try {
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where({ factoryId }).limit(2000).get()
+    for (const l of ibAll) {
+      if (!ibCostMap[l.partSkuId]) ibCostMap[l.partSkuId] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[l.partSkuId].totalCost += (l.totalPrice || (l.qty || 0) * (l.unitPrice || 0))
+      ibCostMap[l.partSkuId].totalQty += (l.qty || 0)
+    }
+  } catch (e) {}
+
+  function getBestPrice(partSkuId) {
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
+  // 4) 处理新配件列表：扣减库存 + 生成出库日志 + 计算成本
+  let totalRepairCost = 0
+  const newItems = []
+  for (const item of items) {
+    const part = partsMap[item.partSkuId] || {}
+    const unitCost = getBestPrice(item.partSkuId)
+    const itemCost = Math.round((item.qty || 0) * unitCost * 100) / 100
+
+    newItems.push({
+      partSkuId: item.partSkuId,
+      partNameSnapshot: part.partName || item.partNameSnapshot || '',
+      partCodeSnapshot: part.partCode || item.partCodeSnapshot || '',
+      specModelSnapshot: part.specModel || item.specModelSnapshot || '',
+      qty: item.qty || 1,
+      unitCost,
+      itemCost
+    })
+    totalRepairCost += itemCost
+
+    // 扣减库存
+    const inv = invMap[item.partSkuId]
+    if (inv) {
+      const newQty = (inv.currentQty || 0) - (item.qty || 0)
+      await db.collection('inventory').doc(inv._id).update({
+        data: {
+          currentQty: _.inc(-(item.qty || 0)),
+          totalCostValue: Math.round(Math.max(0, newQty) * (inv.avgUnitCost || 0) * 100) / 100,
+          lastOutboundAt: now,
+          updatedAt: now
+        }
+      })
+      // 更新 invMap 防止同一配件多次使用时数据不一致
+      inv.currentQty = newQty
+
+      // 写出库日志
+      const outboundId = `ob_edit_${now}_${item.partSkuId}`
+      await db.collection('inventory_outbound_logs').add({
+        data: {
+          outboundId,
+          factoryId,
+          partSkuId: item.partSkuId,
+          partNameSnapshot: part.partName || '',
+          partCodeSnapshot: part.partCode || '',
+          qty: item.qty || 0,
+          unitCostAtTime: unitCost,
+          totalCost: itemCost,
+          replacementLogId: logId,
+          assetId: log.assetId,
+          assetNameSnapshot: log.assetNameSnapshot || '',
+          reporterNameSnapshot: meUser.displayName || '',
+          ts: log.ts,
+          yearMonth,
+          createdAt: now,
+          editedBy: meUser.userId
+        }
+      })
+    }
+  }
+
+  // 5) 更新替换记录
+  totalRepairCost = Math.round(totalRepairCost * 100) / 100
+  await db.collection('replacement_logs').doc(log._id).update({
+    data: {
+      items: newItems,
+      totalRepairCost,
+      editedAt: now,
+      editedBy: meUser.userId,
+      editNote: `管理员 ${meUser.displayName} 于 ${new Date(now).toLocaleString('zh-CN')} 修改了配件`
+    }
+  })
+
+  return { ok: true, data: { logId, items: newItems, totalRepairCost } }
 }
 
 async function listAlerts(db, data) {
@@ -168,7 +411,19 @@ async function listAssets(db, data) {
   return { ok: true, data: { list } }
 }
 
-async function listParts(db) {
+async function listParts(db, data) {
+  const _ = db.command
+  if (data && data.factoryId) {
+    // 返回该工厂的配件 + 未分配工厂的配件（兼容迁移前数据）
+    const { data: list } = await db.collection('parts')
+      .where(_.or([
+        { factoryId: data.factoryId },
+        { factoryId: _.exists(false) },
+        { factoryId: '' },
+      ]))
+      .limit(1000).get()
+    return { ok: true, data: { list } }
+  }
   const { data: list } = await db.collection('parts').limit(1000).get()
   return { ok: true, data: { list } }
 }
@@ -176,6 +431,15 @@ async function listParts(db) {
 async function listThresholds(db, data) {
   const where = { active: true }
   if (data.assetId) where.assetId = data.assetId
+
+  // 如果传了 factoryId，先查该工厂的设备，再过滤阈值
+  let factoryAssetIds = null
+  if (data.factoryId && !data.assetId) {
+    const { data: factoryAssets } = await db.collection('assets').where({ factoryId: data.factoryId }).field({ assetId: true }).limit(500).get()
+    factoryAssetIds = factoryAssets.map(a => a.assetId)
+    if (factoryAssetIds.length === 0) return { ok: true, data: { list: [] } }
+    where.assetId = db.command.in(factoryAssetIds)
+  }
 
   const { data: list } = await db.collection('asset_part_thresholds').where(where).limit(1000).get()
 
@@ -663,14 +927,17 @@ async function deleteLocationPartMap(db, data) {
 // ====== 配件管理 ======
 
 async function createPart(db, data) {
-  const { partCode, partName, specModel, unit, unitPrice, category } = data
+  const { partCode, partName, specModel, unit, unitPrice, category, factoryId } = data
   if (!partCode || !partName) {
     return { ok: false, error: { code: 'VALIDATION_FAILED', message: '配件编号和名称为必填项' } }
   }
-  const { data: existing } = await db.collection('parts').where({ partCode }).limit(1).get()
+  // 同工厂下检查重复
+  const dupWhere = { partCode }
+  if (factoryId) dupWhere.factoryId = factoryId
+  const { data: existing } = await db.collection('parts').where(dupWhere).limit(1).get()
   if (existing.length > 0) {
     // 重复时自动覆盖更新
-    await db.collection('parts').where({ partCode }).update({
+    await db.collection('parts').where(dupWhere).update({
       data: {
         partName,
         specModel: specModel || '', unit: unit || '个',
@@ -684,6 +951,7 @@ async function createPart(db, data) {
   await db.collection('parts').add({
     data: {
       partSkuId, partCode, partName,
+      factoryId: factoryId || '',
       specModel: specModel || '', unit: unit || '个',
       unitPrice: unitPrice || 0, category: category || '',
       active: true, createdAt: Date.now(), updatedAt: Date.now(),
@@ -709,7 +977,9 @@ async function getFileUrls(data) {
 
 // ====== 配件清理：重命名+去重 ======
 async function cleanupParts(db, data) {
-  const { data: allParts } = await db.collection('parts').limit(2000).get()
+  const where = {}
+  if (data && data.factoryId) where.factoryId = data.factoryId
+  const { data: allParts } = await db.collection('parts').where(where).limit(2000).get()
   if (allParts.length === 0) return { ok: true, data: { message: '配件字典为空', renamed: 0, deleted: 0 } }
 
   // 按 partName 分组
@@ -863,19 +1133,23 @@ async function importPartsPreview(db, data) {
 }
 
 async function importPartsCommit(db, data) {
-  const { rows } = data
+  const { rows, factoryId } = data
   if (!rows || !Array.isArray(rows)) {
     return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数据格式错误' } }
   }
   let created = 0, skipped = 0
   for (const row of rows) {
     if (!row.partCode || !row.partName) { skipped++; continue }
-    const { data: existing } = await db.collection('parts').where({ partCode: row.partCode }).limit(1).get()
+    // 同工厂下检查重复
+    const dupWhere = { partCode: row.partCode }
+    if (factoryId) dupWhere.factoryId = factoryId
+    const { data: existing } = await db.collection('parts').where(dupWhere).limit(1).get()
     if (existing.length > 0) { skipped++; continue }
     const partSkuId = row.partSkuId || ('PSK-' + Date.now() + '-' + Math.random().toString(36).slice(2, 4))
     await db.collection('parts').add({
       data: {
         partSkuId, partCode: row.partCode, partName: row.partName,
+        factoryId: factoryId || '',
         specModel: row.specModel || '', unit: row.unit || '个',
         unitPrice: row.unitPrice || 0, category: row.category || '',
         active: true, createdAt: Date.now(), updatedAt: Date.now(),
@@ -884,6 +1158,52 @@ async function importPartsCommit(db, data) {
     created++
   }
   return { ok: true, data: { created, skipped } }
+}
+
+// ====== 配件工厂迁移 ======
+async function migratePartsToFactory(db, data) {
+  let { factoryId } = data
+  
+  // 如果没指定工厂ID，可以通过工厂名称查找
+  if (!factoryId && data.factoryName) {
+    const { data: factories } = await db.collection('factories').where({ factoryName: data.factoryName }).limit(1).get()
+    if (factories.length > 0) factoryId = factories[0].factoryId
+  }
+  
+  // 如果还没有，取第一个工厂
+  if (!factoryId) {
+    const { data: factories } = await db.collection('factories').limit(1).get()
+    if (factories.length > 0) factoryId = factories[0].factoryId
+  }
+  
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '找不到目标工厂' } }
+  
+  // 查找所有没有 factoryId 的配件
+  const _ = db.command
+  const { data: parts } = await db.collection('parts')
+    .where(_.or([
+      { factoryId: _.exists(false) },
+      { factoryId: '' },
+    ]))
+    .limit(2000)
+    .get()
+  
+  if (parts.length === 0) return { ok: true, data: { migrated: 0, factoryId, message: '没有需要迁移的配件' } }
+  
+  let migrated = 0
+  for (const p of parts) {
+    await db.collection('parts').doc(p._id).update({ data: { factoryId, updatedAt: Date.now() } })
+    migrated++
+  }
+  
+  // 查工厂名称
+  let factoryName = factoryId
+  try {
+    const { data: fList } = await db.collection('factories').where({ factoryId }).limit(1).get()
+    if (fList.length > 0) factoryName = fList[0].factoryName
+  } catch (e) { /* ignore */ }
+  
+  return { ok: true, data: { migrated, factoryId, factoryName, message: `已将 ${migrated} 个配件分配到「${factoryName}」` } }
 }
 
 // ====== 阈值管理扩展 ======
@@ -1918,6 +2238,59 @@ async function listInventory(db, data) {
   const where = {}
   if (data.factoryId) where.factoryId = data.factoryId
   const { data: list } = await db.collection('inventory').where(where).limit(1000).get()
+
+  // 补充配件快照字段 + 为历史缺失 avgUnitCost 的记录从入库记录回算
+  if (list.length > 0) {
+    // 查配件表补充快照
+    const skuIds = [...new Set(list.map(r => r.partSkuId).filter(Boolean))]
+    const partMap = {}
+    for (let i = 0; i < skuIds.length; i += 20) {
+      const batch = skuIds.slice(i, i + 20)
+      const { data: parts } = await db.collection('parts').where({ partSkuId: db.command.in(batch) }).limit(100).get()
+      parts.forEach(p => { partMap[p.partSkuId] = p })
+    }
+
+    // 找出缺少 avgUnitCost 的记录，从入库日志回算
+    const needCalcIds = list.filter(r => r.avgUnitCost === undefined || r.avgUnitCost === null).map(r => r.partSkuId)
+    const costMap = {} // partSkuId+factoryId => { totalCost, totalQty }
+    if (needCalcIds.length > 0) {
+      try {
+        const ibWhere = {}
+        if (data.factoryId) ibWhere.factoryId = data.factoryId
+        const { data: ibLogs } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
+        for (const log of ibLogs) {
+          const key = `${log.partSkuId}|${log.factoryId || ''}`
+          if (!costMap[key]) costMap[key] = { totalCost: 0, totalQty: 0 }
+          costMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+          costMap[key].totalQty += (log.qty || 0)
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    for (const inv of list) {
+      const part = partMap[inv.partSkuId] || {}
+      // 补充配件快照
+      if (!inv.specModelSnapshot) inv.specModelSnapshot = part.specModel || ''
+      if (!inv.unitSnapshot) inv.unitSnapshot = part.unit || '个'
+      // 统一低库存阈值字段名
+      if (inv.lowStockThreshold === undefined) inv.lowStockThreshold = inv.threshold || 0
+
+      // 补充 avgUnitCost / totalCostValue（历史数据兜底）
+      if (inv.avgUnitCost === undefined || inv.avgUnitCost === null) {
+        const key = `${inv.partSkuId}|${inv.factoryId || ''}`
+        const calc = costMap[key]
+        if (calc && calc.totalQty > 0) {
+          inv.avgUnitCost = Math.round((calc.totalCost / calc.totalQty) * 100) / 100
+        } else {
+          inv.avgUnitCost = part.unitPrice || 0
+        }
+      }
+      if (inv.totalCostValue === undefined || inv.totalCostValue === null) {
+        inv.totalCostValue = Math.round((inv.currentQty || 0) * (inv.avgUnitCost || 0) * 100) / 100
+      }
+    }
+  }
+
   return { ok: true, data: { list } }
 }
 
@@ -1944,7 +2317,7 @@ async function inventoryInbound(db, data) {
     const itemUnitCost = item.unitCost || item.unitPrice || 0
     const totalPrice = itemQty * itemUnitCost
 
-    // 写入入库记录到 inventory_inbound_logs（与 adminInventoryInbound 保持一致）
+    // 写入入库记录到 inventory_inbound_logs
     await db.collection('inventory_inbound_logs').add({
       data: {
         inboundId: 'ib-' + now + '-' + Math.random().toString(36).slice(2, 6),
@@ -1958,11 +2331,22 @@ async function inventoryInbound(db, data) {
         yearMonth, ts: now, createdAt: now,
       },
     })
-    // 更新库存
+    // 更新库存（含加权平均单价计算）
     const { data: inv } = await db.collection('inventory').where({ factoryId, partSkuId: item.partSkuId }).limit(1).get()
     if (inv.length > 0) {
+      const oldQty = inv[0].currentQty || 0
+      const oldAvgCost = inv[0].avgUnitCost || 0
+      const newQty = oldQty + itemQty
+      // 加权平均单价 = (旧库存金额 + 本次入库金额) / 新总数量
+      const newAvgCost = newQty > 0 ? ((oldAvgCost * oldQty + itemUnitCost * itemQty) / newQty) : itemUnitCost
+      const newTotalValue = newQty * newAvgCost
       await db.collection('inventory').where({ factoryId, partSkuId: item.partSkuId }).update({
-        data: { currentQty: _.inc(itemQty), updatedAt: now },
+        data: {
+          currentQty: _.inc(itemQty),
+          avgUnitCost: Math.round(newAvgCost * 100) / 100,
+          totalCostValue: Math.round(newTotalValue * 100) / 100,
+          updatedAt: now,
+        },
       })
     } else {
       await db.collection('inventory').add({
@@ -1971,7 +2355,10 @@ async function inventoryInbound(db, data) {
           factoryId, partSkuId: item.partSkuId,
           partNameSnapshot: partInfo.partName || '',
           partCodeSnapshot: partInfo.partCode || '',
-          currentQty: itemQty, threshold: 0,
+          currentQty: itemQty,
+          avgUnitCost: Math.round(itemUnitCost * 100) / 100,
+          totalCostValue: Math.round(totalPrice * 100) / 100,
+          threshold: 0,
           createdAt: now, updatedAt: now,
         },
       })
@@ -2019,16 +2406,48 @@ async function getInventorySummary(db, data) {
   const { data: invList } = await db.collection('inventory').where(where).limit(1000).get()
   const totalItems = invList.length
   const totalQty = invList.reduce((sum, inv) => sum + (inv.currentQty || 0), 0)
-  const lowStockCount = invList.filter(inv => inv.threshold > 0 && inv.currentQty <= inv.threshold).length
+  const lowStockCount = invList.filter(inv => (inv.threshold > 0 || inv.lowStockThreshold > 0) && inv.currentQty <= (inv.lowStockThreshold || inv.threshold || 0)).length
 
-  // 计算库存总价值（需要配件单价信息）
-  let totalInventoryValue = 0
+  // 查配件表 + 入库日志，与 listInventory 一致的成本逻辑
+  const partsMap = {}
   try {
     const { data: parts } = await db.collection('parts').limit(1000).get()
-    const priceMap = {}
-    parts.forEach(p => { priceMap[p.partSkuId] = p.unitPrice || 0 })
-    totalInventoryValue = invList.reduce((sum, inv) => sum + (inv.currentQty || 0) * (priceMap[inv.partSkuId] || 0), 0)
-  } catch (e) { /* ignore */ }
+    parts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+
+  // 从入库日志回算缺失的 avgUnitCost
+  const ibCostMap = {}
+  try {
+    const ibAllWhere = {}
+    if (data.factoryId) ibAllWhere.factoryId = data.factoryId
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibAllWhere).limit(2000).get()
+    for (const log of ibAll) {
+      const key = `${log.partSkuId}|${log.factoryId || ''}`
+      if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[key].totalQty += (log.qty || 0)
+    }
+  } catch (e) {}
+
+  // 计算每条库存的实际单价并累加总价值
+  let totalInventoryValue = 0
+  for (const inv of invList) {
+    let avgCost = inv.avgUnitCost || 0
+    // 如果库存记录没有 avgUnitCost，从入库日志回算
+    if (!avgCost) {
+      const key = `${inv.partSkuId}|${inv.factoryId || ''}`
+      const calc = ibCostMap[key]
+      if (calc && calc.totalQty > 0) {
+        avgCost = calc.totalCost / calc.totalQty
+      } else {
+        // 最终兜底：用配件表参考价
+        avgCost = (partsMap[inv.partSkuId] || {}).unitPrice || 0
+      }
+    }
+    const value = inv.totalCostValue || (inv.currentQty || 0) * avgCost
+    totalInventoryValue += value
+  }
+  totalInventoryValue = Math.round(totalInventoryValue * 100) / 100
 
   // 当月入库金额
   let totalInboundValue = 0
@@ -2039,13 +2458,47 @@ async function getInventorySummary(db, data) {
     totalInboundValue = ibLogs.reduce((s, l) => s + (l.totalPrice || 0), 0)
   } catch (e) { /* ignore */ }
 
-  // 当月出库金额
+  // 辅助函数：获取某配件的最优单价（完整回退链）
+  function getBestUnitPrice(partSkuId, factId) {
+    // 1. 库存表 avgUnitCost（最可靠的加权均价）
+    const inv = invList.find(i => i.partSkuId === partSkuId)
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    // 2. 入库日志回算均价
+    const key = `${partSkuId}|${factId || ''}`
+    const calc = ibCostMap[key]
+    if (calc && calc.totalQty > 0) return calc.totalCost / calc.totalQty
+    // 3. 配件表参考价
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
+  // 当月出库金额：先查出库日志，若无则从更换记录统计
   let totalOutboundValue = 0
   try {
     const obWhere = { yearMonth }
     if (data.factoryId) obWhere.factoryId = data.factoryId
     const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
-    totalOutboundValue = obLogs.reduce((s, l) => s + (l.totalCost || 0), 0)
+
+    if (obLogs.length > 0) {
+      for (const ob of obLogs) {
+        let cost = ob.totalCost || 0
+        if (!cost) cost = (ob.qty || 0) * getBestUnitPrice(ob.partSkuId, ob.factoryId)
+        totalOutboundValue += cost
+      }
+    } else {
+      // 无出库日志 → 从更换记录（replacement_logs）统计当月出库金额
+      const repWhere = { yearMonth, disabled: db.command.neq(true) }
+      if (data.factoryId) repWhere.factoryId = data.factoryId
+      const { data: repLogs } = await db.collection('replacement_logs').where(repWhere).limit(1000).get()
+      for (const log of repLogs) {
+        for (const item of (log.items || [])) {
+          let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+          if (!cost) cost = (item.qty || 0) * getBestUnitPrice(item.partSkuId, data.factoryId)
+          totalOutboundValue += cost
+        }
+      }
+    }
   } catch (e) { /* ignore */ }
 
   return {
@@ -2062,20 +2515,137 @@ async function getInventorySummary(db, data) {
 async function getMonthlyCostRanking(db, data, meUser) {
   const ym = data.yearMonth || new Date().toISOString().slice(0, 7)
   const factoryId = data.factoryId || meUser.factoryId || null
+
+  // 1) 查配件表（获取名称、编号、规格、单位、参考单价）
+  const partsMap = {}
+  try {
+    const { data: parts } = await db.collection('parts').limit(1000).get()
+    parts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+
+  // 2) 查库存表（获取当前 avgUnitCost 作为成本来源）
+  const invMap = {}
+  try {
+    const invWhere = {}
+    if (factoryId) invWhere.factoryId = factoryId
+    const { data: invList } = await db.collection('inventory').where(invWhere).limit(1000).get()
+    invList.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) {}
+
+  // 3) 从入库日志回算均价（兜底）
+  const ibCostMap = {}
+  try {
+    const ibWhere = {}
+    if (factoryId) ibWhere.factoryId = factoryId
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
+    for (const log of ibAll) {
+      const key = log.partSkuId
+      if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[key].totalQty += (log.qty || 0)
+    }
+  } catch (e) {}
+
+  // 辅助函数：获取某配件的最优单价
+  function getBestUnitPrice(partSkuId) {
+    // 优先：库存表 avgUnitCost
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    // 其次：入库日志回算均价
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    // 最后：配件表参考价
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
+  // 4) 从出库记录统计当月使用量和成本
+  const obWhere = { yearMonth: ym }
+  if (factoryId) obWhere.factoryId = factoryId
+  const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+
+  // 同时从 replacement_logs 补充（处理无出库记录但有更换记录的情况）
   const logWhere = { yearMonth: ym, disabled: _.neq(true) }
   if (factoryId) logWhere.factoryId = factoryId
-  const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+  const { data: repLogs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+
   const costMap = {}
-  logs.forEach(l => {
-    (l.items || []).forEach(item => {
-      const key = item.partSkuId
-      if (!costMap[key]) costMap[key] = { partSkuId: key, partName: item.partNameSnapshot, totalQty: 0, totalCost: 0 }
-      costMap[key].totalQty += item.qty || 0
-      costMap[key].totalCost += (item.qty || 0) * (item.unitPrice || 0)
+
+  if (obLogs.length > 0) {
+    // 有出库记录，以出库记录为准
+    obLogs.forEach(ob => {
+      const key = ob.partSkuId
+      if (!costMap[key]) costMap[key] = { partSkuId: key, totalQty: 0, totalCost: 0 }
+      const qty = ob.qty || 0
+      let cost = ob.totalCost || ((ob.qty || 0) * (ob.unitCostAtTime || 0))
+      // 如果出库记录成本为0，用最优单价回退
+      if (!cost && qty > 0) {
+        cost = qty * getBestUnitPrice(key)
+      }
+      costMap[key].totalQty += qty
+      costMap[key].totalCost += cost
+    })
+  } else {
+    // 无出库记录，从更换记录统计
+    repLogs.forEach(l => {
+      (l.items || []).forEach(item => {
+        const key = item.partSkuId
+        if (!costMap[key]) costMap[key] = { partSkuId: key, totalQty: 0, totalCost: 0 }
+        const qty = item.qty || 0
+        let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+        if (!cost && qty > 0) {
+          cost = qty * getBestUnitPrice(key)
+        }
+        costMap[key].totalQty += qty
+        costMap[key].totalCost += cost
+      })
+    })
+  }
+
+  // 5) 构建排行数据，补充配件信息（按配件分组 — 库存管理页面用）
+  const grandTotal = Object.values(costMap).reduce((s, c) => s + (c.totalCost || 0), 0)
+  const ranking = Object.values(costMap).map(c => {
+    const part = partsMap[c.partSkuId] || {}
+    return {
+      partSkuId: c.partSkuId,
+      partName: part.partName || '',
+      partCode: part.partCode || '',
+      specModel: part.specModel || '',
+      unit: part.unit || '个',
+      qty: c.totalQty,
+      totalCost: Math.round((c.totalCost || 0) * 100) / 100,
+      percentage: grandTotal > 0 ? Math.round((c.totalCost || 0) / grandTotal * 10000) / 100 : 0
+    }
+  }).sort((a, b) => b.totalCost - a.totalCost)
+
+  // 6) 按设备分组（数据看板 TOP 10 用）
+  const assetCostMap = {}
+  // 从更换记录按设备汇总
+  repLogs.forEach(l => {
+    const aid = l.assetId
+    if (!assetCostMap[aid]) assetCostMap[aid] = { assetId: aid, assetName: l.assetNameSnapshot || '', totalCost: 0 }
+    ;(l.items || []).forEach(item => {
+      let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+      if (!cost) cost = (item.qty || 0) * getBestUnitPrice(item.partSkuId)
+      assetCostMap[aid].totalCost += cost
     })
   })
-  const ranking = Object.values(costMap).sort((a, b) => b.totalCost - a.totalCost)
-  return { ok: true, data: { list: ranking } }
+  const costByAsset = Object.values(assetCostMap).map(a => ({
+    assetId: a.assetId,
+    assetName: a.assetName,
+    totalCost: Math.round((a.totalCost || 0) * 100) / 100
+  })).filter(a => a.totalCost > 0).sort((a, b) => b.totalCost - a.totalCost).slice(0, 10)
+
+  return {
+    ok: true,
+    data: {
+      list: ranking,
+      totalCost: Math.round(grandTotal * 100) / 100,
+      costByAsset,
+      totalMonthlyUsageCost: Math.round(grandTotal * 100) / 100
+    }
+  }
 }
 
 async function getPartUsageCostList(db, data, meUser) {
@@ -2086,30 +2656,139 @@ async function getAssetCostDetail(db, data) {
   const { factoryId, assetId, yearMonth } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
   const ym = yearMonth || new Date().toISOString().slice(0, 7)
-  const where = { assetId, yearMonth: ym, disabled: _.neq(true) }
-  if (factoryId) where.factoryId = factoryId
-  const { data: logs } = await db.collection('replacement_logs').where(where).limit(1000).get()
+
+  // 预加载配件表、库存表、入库日志
+  const partsMap = {}, invMap = {}, ibCostMap = {}
+  try {
+    const { data: allParts } = await db.collection('parts').limit(1000).get()
+    allParts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+  try {
+    const invWhere = {}
+    if (factoryId) invWhere.factoryId = factoryId
+    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
+    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) {}
+  try {
+    const ibWhere = {}
+    if (factoryId) ibWhere.factoryId = factoryId
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
+    for (const log of ibAll) {
+      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+    }
+  } catch (e) {}
+  function getBestPrice(partSkuId) {
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
+  // 优先从出库记录统计
+  const obWhere = { assetId, yearMonth: ym }
+  if (factoryId) obWhere.factoryId = factoryId
+  const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+
   let totalCost = 0
   const parts = {}
-  logs.forEach(l => {
-    (l.items || []).forEach(item => {
-      const cost = (item.qty || 0) * (item.unitPrice || 0)
+
+  if (obLogs.length > 0) {
+    for (const ob of obLogs) {
+      let cost = ob.totalCost || 0
+      if (!cost) cost = (ob.qty || 0) * getBestPrice(ob.partSkuId)
       totalCost += cost
-      if (!parts[item.partSkuId]) parts[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot, totalQty: 0, totalCost: 0 }
-      parts[item.partSkuId].totalQty += item.qty || 0
-      parts[item.partSkuId].totalCost += cost
+      const key = ob.partSkuId
+      if (!parts[key]) parts[key] = { partSkuId: key, partName: ob.partNameSnapshot || (partsMap[key] || {}).partName || '', totalQty: 0, totalCost: 0 }
+      parts[key].totalQty += ob.qty || 0
+      parts[key].totalCost += cost
+    }
+  } else {
+    // 回退到更换记录
+    const where = { assetId, yearMonth: ym, disabled: _.neq(true) }
+    if (factoryId) where.factoryId = factoryId
+    const { data: logs } = await db.collection('replacement_logs').where(where).limit(1000).get()
+    logs.forEach(l => {
+      (l.items || []).forEach(item => {
+        let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+        if (!cost) cost = (item.qty || 0) * getBestPrice(item.partSkuId)
+        totalCost += cost
+        if (!parts[item.partSkuId]) parts[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot, totalQty: 0, totalCost: 0 }
+        parts[item.partSkuId].totalQty += item.qty || 0
+        parts[item.partSkuId].totalCost += cost
+      })
     })
-  })
-  return { ok: true, data: { totalCost, parts: Object.values(parts), logCount: logs.length } }
+  }
+  // 查设备名称
+  let assetName = ''
+  try {
+    const { data: assetList } = await db.collection('assets').where({ assetId }).limit(1).get()
+    if (assetList.length > 0) assetName = assetList[0].assetName || ''
+  } catch (e) {}
+
+  return {
+    ok: true,
+    data: {
+      assetName,
+      yearMonth: ym,
+      totalCost: Math.round(totalCost * 100) / 100,
+      partList: Object.values(parts),
+      logCount: obLogs.length
+    }
+  }
 }
 
 async function getInventoryTrend(db, data) {
   const { factoryId, months = 6 } = data
+
+  // 预加载配件表、库存表、入库日志（用于出库成本回退）
+  const partsMap = {}, invMap = {}, ibCostMap = {}
+  try {
+    const { data: allParts } = await db.collection('parts').limit(1000).get()
+    allParts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+  try {
+    const invWhere = {}
+    if (factoryId) invWhere.factoryId = factoryId
+    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
+    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) {}
+  try {
+    const ibWhere2 = {}
+    if (factoryId) ibWhere2.factoryId = factoryId
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere2).limit(2000).get()
+    for (const log of ibAll) {
+      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+    }
+  } catch (e) {}
+  function getBestPrice(partSkuId) {
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
   const now = new Date()
-  const trend = []
+  const monthsList = []
+  const inventoryByMonth = []
+  const inboundByMonth = []
+  const outboundByMonth = []
+  let cumulativeInbound = 0, cumulativeOutbound = 0
+
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const ym = d.toISOString().slice(0, 7)
+    monthsList.push(ym)
+
     // 查询入库
     const ibWhere = { yearMonth: ym }
     if (factoryId) ibWhere.factoryId = factoryId
@@ -2118,36 +2797,116 @@ async function getInventoryTrend(db, data) {
       const { data: ibLogs } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(1000).get()
       inboundValue = ibLogs.reduce((s, l) => s + (l.totalPrice || 0), 0)
     } catch (e) { /* ignore */ }
-    // 查询出库
+
+    // 查询出库：先查出库日志，无则从更换记录统计
     const obWhere = { yearMonth: ym }
     if (factoryId) obWhere.factoryId = factoryId
     try {
       const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
-      outboundValue = obLogs.reduce((s, l) => s + (l.totalCost || 0), 0)
+      if (obLogs.length > 0) {
+        for (const ob of obLogs) {
+          let cost = ob.totalCost || 0
+          if (!cost) cost = (ob.qty || 0) * getBestPrice(ob.partSkuId)
+          outboundValue += cost
+        }
+      } else {
+        // 无出库日志 → 从更换记录统计
+        const repWhere = { yearMonth: ym, disabled: db.command.neq(true) }
+        if (factoryId) repWhere.factoryId = factoryId
+        const { data: repLogs } = await db.collection('replacement_logs').where(repWhere).limit(1000).get()
+        for (const log of repLogs) {
+          for (const item of (log.items || [])) {
+            let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+            if (!cost) cost = (item.qty || 0) * getBestPrice(item.partSkuId)
+            outboundValue += cost
+          }
+        }
+      }
     } catch (e) { /* ignore */ }
-    trend.push({ yearMonth: ym, inboundValue, outboundValue })
+
+    cumulativeInbound += inboundValue
+    cumulativeOutbound += outboundValue
+    const inventoryValue = Math.round((cumulativeInbound - cumulativeOutbound) * 100) / 100
+
+    inboundByMonth.push(Math.round(inboundValue * 100) / 100)
+    outboundByMonth.push(Math.round(outboundValue * 100) / 100)
+    inventoryByMonth.push(Math.max(0, inventoryValue))
   }
-  return { ok: true, data: { trend } }
+  return { ok: true, data: { months: monthsList, inventoryByMonth, inboundByMonth, outboundByMonth } }
 }
 
 async function getCostTrend(db, data, meUser) {
   const { factoryId, months = 6 } = data
   const fid = factoryId || meUser.factoryId || null
+
+  // 预加载：配件表 + 库存表 + 入库日志（用于成本回退）
+  const partsMap = {}
+  const invMap = {}
+  const ibCostMap = {}
+  try {
+    const { data: allParts } = await db.collection('parts').limit(1000).get()
+    allParts.forEach(p => { partsMap[p.partSkuId] = p })
+  } catch (e) {}
+  try {
+    const invWhere = {}
+    if (fid) invWhere.factoryId = fid
+    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
+    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
+  } catch (e) {}
+  try {
+    const ibWhere = {}
+    if (fid) ibWhere.factoryId = fid
+    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
+    for (const log of ibAll) {
+      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+    }
+  } catch (e) {}
+
+  function getBestPrice(partSkuId) {
+    const inv = invMap[partSkuId]
+    if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
+    const ibc = ibCostMap[partSkuId]
+    if (ibc && ibc.totalQty > 0) return ibc.totalCost / ibc.totalQty
+    const part = partsMap[partSkuId]
+    if (part && part.unitPrice > 0) return part.unitPrice
+    return 0
+  }
+
   const now = new Date()
   const trend = []
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const ym = d.toISOString().slice(0, 7)
-    const logWhere = { yearMonth: ym, disabled: _.neq(true) }
-    if (fid) logWhere.factoryId = fid
-    const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+
+    // 优先从出库记录统计（有准确成本），无数据则从更换记录统计
     let totalCost = 0
-    logs.forEach(l => {
-      (l.items || []).forEach(item => {
-        totalCost += (item.qty || 0) * (item.unitPrice || 0)
+    const obWhere = { yearMonth: ym }
+    if (fid) obWhere.factoryId = fid
+    const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+
+    if (obLogs.length > 0) {
+      for (const ob of obLogs) {
+        let cost = ob.totalCost || 0
+        if (!cost) cost = (ob.qty || 0) * getBestPrice(ob.partSkuId)
+        totalCost += cost
+      }
+    } else {
+      // 回退到更换记录
+      const logWhere = { yearMonth: ym, disabled: _.neq(true) }
+      if (fid) logWhere.factoryId = fid
+      const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+      logs.forEach(l => {
+        (l.items || []).forEach(item => {
+          let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
+          if (!cost) cost = (item.qty || 0) * getBestPrice(item.partSkuId)
+          totalCost += cost
+        })
       })
-    })
-    trend.push({ yearMonth: ym, totalCost })
+    }
+
+    trend.push({ yearMonth: ym, totalCost: Math.round(totalCost * 100) / 100 })
   }
   return { ok: true, data: { trend } }
 }
@@ -2222,12 +2981,13 @@ exports.main = async (event, context) => {
       case 'deleteLocationPartMap': return await deleteLocationPartMap(db, data)
 
       // 配件管理
-      case 'listParts': return await listParts(db)
+      case 'listParts': return await listParts(db, data)
       case 'createPart': return await createPart(db, data)
       case 'updatePart': return await updatePart(db, data)
       case 'importPartsPreview': return await importPartsPreview(db, data)
       case 'importPartsCommit': return await importPartsCommit(db, data)
       case 'cleanupParts': return await cleanupParts(db, data)
+      case 'migratePartsToFactory': return await migratePartsToFactory(db, data)
       case 'getFileUrls': return await getFileUrls(data)
 
       // 阈值管理
@@ -2243,6 +3003,7 @@ exports.main = async (event, context) => {
       // 更换记录
       case 'listReplacementLogs': return await listReplacementLogs(db, data)
       case 'toggleLogStatus': return await toggleLogStatus(db, data)
+      case 'editReplacementLogItems': return await editReplacementLogItems(db, data, meUser)
 
       // 看板 & 报告
       case 'getDashboardStats': return await getDashboardStats(db, data, meUser)

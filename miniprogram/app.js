@@ -1,5 +1,6 @@
 // app.js
 const auth = require('./utils/auth')
+const offlineQueue = require('./utils/offline-queue')
 
 App({
   onLaunch() {
@@ -27,6 +28,11 @@ App({
 
     // 启动登录流程
     this.initLogin()
+  },
+
+  onShow() {
+    // 每次从后台回到前台时，自动同步离线队列中的待提交记录
+    this._syncOfflineQueue()
   },
 
   /**
@@ -119,6 +125,40 @@ App({
     if (saved && saved.factoryId) {
       this.globalData.currentFactoryId = saved.factoryId
       this.globalData.currentFactoryName = saved.factoryName
+    }
+  },
+
+  /**
+   * 刷新会话（提交前调用，确保 OPENID 有效）
+   * @returns {Promise<boolean>} 是否刷新成功
+   */
+  async refreshSession() {
+    try {
+      const res = await wx.cloud.callFunction({ name: 'getMe', data: {} })
+      const result = res.result
+      if (result.ok) {
+        auth.setUser(result.data)
+        this.globalData.userInfo = result.data
+        return true
+      }
+      return false
+    } catch (e) {
+      console.error('refreshSession error:', e)
+      return false
+    }
+  },
+
+  /**
+   * 自动同步离线队列
+   */
+  async _syncOfflineQueue() {
+    const count = offlineQueue.getCount()
+    if (count === 0) return
+    try {
+      await offlineQueue.syncAll()
+      wx.showToast({ title: `${count}条离线记录已同步`, icon: 'success' })
+    } catch (e) {
+      console.warn('离线队列同步部分失败:', e.message)
     }
   },
 

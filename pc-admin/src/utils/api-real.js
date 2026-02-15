@@ -59,12 +59,12 @@ export const realApi = {
     return call('listAssets', { factoryId: factoryId || undefined })
   },
 
-  async listParts() {
-    return call('listParts', {})
+  async listParts(factoryId) {
+    return call('listParts', { factoryId: factoryId || undefined })
   },
 
-  async listThresholds(assetId) {
-    return call('listThresholds', { assetId: assetId || undefined })
+  async listThresholds(assetId, factoryId) {
+    return call('listThresholds', { assetId: assetId || undefined, factoryId: factoryId || undefined })
   },
 
   async upsertThreshold(data) {
@@ -118,7 +118,9 @@ export const realApi = {
   async createPart(data) { return call('createPart', data) },
   async updatePart(partSkuId, data) { return call('updatePart', { partSkuId, ...data }) },
   async importPartsPreview(rows) { return call('importPartsPreview', { rows }) },
-  async importPartsCommit(rows) { return call('importPartsCommit', { rows }) },
+  async importPartsCommit(rows, factoryId) { return call('importPartsCommit', { rows, factoryId: factoryId || undefined }) },
+  async cleanupParts(factoryId) { return call('cleanupParts', { factoryId: factoryId || undefined }) },
+  async migratePartsToFactory(factoryId) { return call('migratePartsToFactory', { factoryId }) },
 
   // ===== 阈值管理 =====
   async batchUpsertThresholds(items) { return call('batchUpsertThresholds', { items }) },
