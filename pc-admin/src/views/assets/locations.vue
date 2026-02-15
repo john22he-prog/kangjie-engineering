@@ -19,7 +19,7 @@
 
     <!-- 部位列表 -->
     <el-row :gutter="20">
-      <el-col :span="10">
+      <el-col :xs="24" :md="10">
         <el-card>
           <template #header>
             <span class="card-title">部位列表</span>
@@ -55,7 +55,7 @@
       </el-col>
 
       <!-- 映射管理（选中部位后显示） -->
-      <el-col :span="14">
+      <el-col :xs="24" :md="14">
         <el-card v-if="selectedLoc">
           <template #header>
             <div class="map-header">

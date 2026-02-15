@@ -21,7 +21,7 @@
 
     <!-- M1：核心数字卡 -->
     <el-row :gutter="16" class="stat-row">
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="6">
         <div class="stat-card">
           <div class="stat-icon icon-green">
             <el-icon :size="26"><Document /></el-icon>
@@ -32,7 +32,7 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="6">
         <div class="stat-card">
           <div class="stat-icon icon-blue">
             <el-icon :size="26"><Box /></el-icon>
@@ -43,7 +43,7 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="6">
         <div class="stat-card clickable" @click="goAlerts">
           <div class="stat-icon icon-red">
             <el-icon :size="26"><Warning /></el-icon>
@@ -54,7 +54,7 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="6">
         <div class="stat-card">
           <div class="stat-icon icon-orange">
             <el-icon :size="26"><UserFilled /></el-icon>
@@ -69,7 +69,7 @@
 
     <!-- M2 + M3：配件TOP5 + 设备TOP5 -->
     <el-row :gutter="16" class="chart-row">
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">M2 · 配件消耗 TOP 5</span>
@@ -78,7 +78,7 @@
           <div ref="chartPartsRef" class="chart-box"></div>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">M3 · 设备更换 TOP 5</span>
@@ -91,7 +91,7 @@
 
     <!-- M5 + M4：7天趋势 + 工程师工作量 -->
     <el-row :gutter="16" class="chart-row">
-      <el-col :span="14">
+      <el-col :xs="24" :md="14">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">M5 · 最近 7 天更换趋势</span>
@@ -99,7 +99,7 @@
           <div ref="chartTrendRef" class="chart-box"></div>
         </el-card>
       </el-col>
-      <el-col :span="10">
+      <el-col :xs="24" :md="10">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">M4 · 工程师工作量</span>
@@ -150,7 +150,7 @@
     <!-- M7：库存概览 + 月度金额趋势 + 设备金额TOP10（仅主管及以上可见） -->
     <el-row :gutter="16" class="chart-row" v-if="canViewCost">
       <!-- 库存概览（可点击跳转） -->
-      <el-col :span="6">
+      <el-col :xs="24" :md="6">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">库存概览</span>
@@ -180,7 +180,7 @@
         </el-card>
       </el-col>
       <!-- 月度库存金额趋势（简化：折线图 = 库存总值 / 入库 / 出库） -->
-      <el-col :span="10">
+      <el-col :xs="24" :md="10">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">月度库存金额趋势</span>
@@ -189,7 +189,7 @@
         </el-card>
       </el-col>
       <!-- 月度设备配件使用金额 TOP 10（竖状柱状图） -->
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never">
           <template #header>
             <div class="m6-header">
@@ -206,7 +206,7 @@
     <el-drawer
       v-model="partDrawerVisible"
       :title="`${partDetail.partName || ''} — 设备消耗分布`"
-      size="560px"
+      :size="drawerSize"
       direction="rtl"
     >
       <div class="drill-header">
@@ -256,7 +256,7 @@
     <el-drawer
       v-model="assetDrawerVisible"
       :title="`${assetDetail.assetName || ''} — 配件消耗分布`"
-      size="560px"
+      :size="drawerSize"
       direction="rtl"
     >
       <div class="drill-header">
@@ -313,7 +313,7 @@
     <el-drawer
       v-model="alertDrawerVisible"
       :title="`${alertDetail.assetName || ''} — 报警明细`"
-      size="600px"
+      :size="drawerSize"
       direction="rtl"
     >
       <div class="drill-header">
@@ -399,7 +399,7 @@
     <el-drawer
       v-model="costDetailDrawerVisible"
       :title="`${costDetail.assetName || ''} — 配件金额明细`"
-      size="560px"
+      :size="drawerSize"
       direction="rtl"
     >
       <div class="drill-header">
@@ -444,6 +444,13 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 const canViewCost = computed(() => authStore.canViewCost)
 const canEdit = computed(() => authStore.canEdit)
+
+const MOBILE_BREAKPOINT = 768
+const isMobileView = ref(typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT)
+const drawerSize = computed(() => (isMobileView.value ? '90%' : '560px'))
+function checkMobileView() {
+  isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT
+}
 
 // ===== 全局月份 =====
 const selectedMonth = ref(dayjs().format('YYYY-MM'))
@@ -926,10 +933,12 @@ function handleResize() {
 onMounted(() => {
   refreshAll()
   window.addEventListener('resize', handleResize)
+  window.addEventListener('resize', checkMobileView)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('resize', checkMobileView)
   chartParts?.dispose()
   chartAssets?.dispose()
   chartTrend?.dispose()
@@ -946,12 +955,22 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
 
     .header-actions {
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
     }
+  }
+}
+
+@media (max-width: 767px) {
+  .dashboard .page-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -1039,6 +1058,12 @@ onBeforeUnmount(() => {
 .chart-box {
   height: 240px;
   width: 100%;
+}
+
+@media (max-width: 767px) {
+  .dashboard .chart-box {
+    height: 200px;
+  }
 }
 
 // ===== M6 报警设备分布 =====

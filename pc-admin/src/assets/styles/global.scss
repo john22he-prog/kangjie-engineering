@@ -40,6 +40,8 @@ html, body, #app {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
 
     h2 {
       font-size: 20px;
@@ -54,6 +56,18 @@ html, body, #app {
     gap: 12px;
     margin-bottom: 16px;
     align-items: center;
+  }
+}
+
+@media (max-width: 767px) {
+  .page-container {
+    padding: 12px 16px;
+  }
+  .page-container .page-header {
+    margin-bottom: 16px;
+  }
+  .page-container .page-header h2 {
+    font-size: 18px;
   }
 }
 

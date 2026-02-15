@@ -47,20 +47,20 @@
     <template v-if="report">
       <!-- 1. 总览数字卡 -->
       <el-row :gutter="16" class="stat-row">
-        <el-col :span="4"><div class="stat-card"><div class="stat-value">{{ report.stats.totalLogs }}</div><div class="stat-label">更换次数</div></div></el-col>
-        <el-col :span="4"><div class="stat-card"><div class="stat-value">{{ report.stats.totalPartsQty }}</div><div class="stat-label">配件消耗</div></div></el-col>
-        <el-col :span="4">
+        <el-col :xs="24" :sm="12" :md="8" :lg="4"><div class="stat-card"><div class="stat-value">{{ report.stats.totalLogs }}</div><div class="stat-label">更换次数</div></div></el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4"><div class="stat-card"><div class="stat-value">{{ report.stats.totalPartsQty }}</div><div class="stat-label">配件消耗</div></div></el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4">
           <div class="stat-card" :class="{ 'stat-danger': report.stats.openAlerts > 0 }">
             <div class="stat-value">{{ report.stats.openAlerts }}</div><div class="stat-label">待处理报警</div>
           </div>
         </el-col>
-        <el-col :span="4"><div class="stat-card"><div class="stat-value">¥{{ (report.stats.totalUsageCost || 0).toLocaleString() }}</div><div class="stat-label">使用成本</div></div></el-col>
-        <el-col :span="4">
+        <el-col :xs="24" :sm="12" :md="8" :lg="4"><div class="stat-card"><div class="stat-value">¥{{ (report.stats.totalUsageCost || 0).toLocaleString() }}</div><div class="stat-label">使用成本</div></div></el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4">
           <div class="stat-card" :class="{ 'stat-warn': report.stats.lowStockCount > 0 }">
             <div class="stat-value">{{ report.stats.lowStockCount || 0 }}</div><div class="stat-label">低库存预警</div>
           </div>
         </el-col>
-        <el-col :span="4"><div class="stat-card"><div class="stat-value">{{ report.stats.engineerWorkload?.length || 0 }}</div><div class="stat-label">活跃工程师</div></div></el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4"><div class="stat-card"><div class="stat-value">{{ report.stats.engineerWorkload?.length || 0 }}</div><div class="stat-label">活跃工程师</div></div></el-col>
       </el-row>
 
       <!-- 2. 历史环比对比卡 -->
@@ -74,10 +74,10 @@
           </div>
         </template>
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <div ref="chartHistoryRef" class="chart-box"></div>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <ul class="section-list">
               <li v-for="(item, i) in historySection?.items" :key="i">{{ item.text }}</li>
             </ul>
@@ -123,7 +123,7 @@
 
       <!-- 4-8. 各维度分析卡片 -->
       <el-row :gutter="16" class="sections-row">
-        <el-col v-for="sec in otherSections" :key="sec.title" :span="12">
+        <el-col v-for="sec in otherSections" :key="sec.title" :xs="24" :md="12">
           <el-card shadow="never" class="section-card">
             <template #header>{{ sec.title }}</template>
             <ul class="section-list">
@@ -135,14 +135,14 @@
 
       <!-- 可视化：配件 TOP5 + 设备 TOP5 -->
       <el-row :gutter="16" class="chart-row">
-        <el-col :span="12">
+        <el-col :xs="24" :md="12">
           <el-card shadow="never">
             <template #header>配件消耗 TOP 5</template>
             <div ref="chartPartsRef" class="chart-box"></div>
             <el-empty v-if="!report.stats.topParts?.length" description="暂无数据" :image-size="60" />
           </el-card>
         </el-col>
-        <el-col :span="12">
+        <el-col :xs="24" :md="12">
           <el-card shadow="never">
             <template #header>设备更换 TOP 5</template>
             <div ref="chartAssetsRef" class="chart-box"></div>
