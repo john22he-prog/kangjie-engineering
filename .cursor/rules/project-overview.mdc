@@ -1,0 +1,42 @@
+---
+description: 云南康洁统一平台 - 项目总览与架构约定
+alwaysApply: true
+---
+
+# 云南康洁统一小程序平台
+
+## 项目概况
+
+这是「云南康洁」公司的统一微信小程序，通过分包加载支持多个部门模块。
+- AppID: wx3e10fc82cc0af56d
+- CloudBase 环境: cloud1-0g0grbwt8c230b0d
+- 共用同一个云开发环境，NoSQL 和 MySQL 共存
+
+## 部门模块
+
+| 部门 | 分包路径 | 数据库 | UI 组件库 | 状态 |
+|------|---------|--------|----------|------|
+| 工程部 | packages/engineering/ | CloudBase NoSQL | WeUI (useExtendedLib) | 已上线 |
+| 锅炉房 | packages/boiler/ | MySQL TDSQL-C | Vant Weapp (npm) | 开发中 |
+| 其他部门 | 待规划 | 推荐 MySQL | 自选 | 未来 |
+
+## 目录结构约定
+
+```
+miniprogram/
+├── pages/                  主包：登录、首页部门入口、我的
+├── common/                 公共模块（utils, components, styles）
+├── packages/
+│   ├── engineering/        工程部分包（独立开发，勿与锅炉房混用）
+│   └── boiler/             锅炉房分包（独立开发，勿与工程部混用）
+└── images/                 主包图片
+```
+
+## 核心原则
+
+1. **分包隔离**：各部门代码互不依赖，改 A 部门不影响 B 部门
+2. **公共模块上提**：auth、api 封装、离线队列等放 common/
+3. **数据库不混用**：工程部用 NoSQL API，锅炉房用 MySQL（serverless-mysql）
+4. **UI 组件不强制统一**：工程部继续 WeUI，锅炉房用 Vant Weapp
+5. **云函数命名**：工程部保持原名，锅炉房以 boiler- 开头
+6. **用户体系**：统一用 MySQL sys_user + sys_user_dept_role 表管理

@@ -1,0 +1,30 @@
+---
+description: 分包迁移阶段的检查清单
+alwaysApply: false
+globs: miniprogram/app.json,miniprogram/app.js,miniprogram/packages/**/*
+---
+
+# 分包迁移检查清单
+
+## 移动页面到分包时，必须检查
+
+1. **路径引用更新**：所有 require/import 路径是否指向正确位置
+   - `../../utils/auth.js` → `../../../common/utils/auth.js`（或相对路径调整）
+2. **页面跳转路径**：wx.navigateTo / wx.redirectTo 的 url 是否更新
+   - `/pages/scan/index` → `/packages/engineering/pages/scan/index`
+3. **图片路径**：WXML 和 WXSS 中的图片引用是否更新
+4. **组件引用**：页面 JSON 的 usingComponents 路径是否更新
+5. **app.json**：pages 数组和 subpackages 配置是否同步更新
+
+## 分包大小限制
+
+- 主包 ≤ 2MB
+- 单个分包 ≤ 2MB
+- 总体积 ≤ 20MB
+- 主包只放：登录页、首页入口、公共模块
+
+## 分包不能做的事
+
+- 分包页面不能作为小程序入口页（entryPagePath）
+- 分包不能使用全局 tabBar 中的页面
+- 分包间不能直接 require 对方的文件（要通过公共模块中转）

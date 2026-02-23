@@ -5,6 +5,18 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+function buildTimeQuery(data) {
+  if (data.yearMonths === null || data.yearMonths === undefined) {
+    if (data.yearMonth) return { yearMonth: data.yearMonth }
+    return {}
+  }
+  if (Array.isArray(data.yearMonths)) {
+    if (data.yearMonths.length === 1) return { yearMonth: data.yearMonths[0] }
+    if (data.yearMonths.length > 1) return { yearMonth: _.in(data.yearMonths) }
+  }
+  return {}
+}
+
 // ====== 数据库集合自动初始化 ======
 const ALL_COLLECTIONS = [
   'users', 'assets', 'parts', 'factories',
@@ -81,13 +93,17 @@ async function loadMe(db, userId) {
 }
 
 async function listReplacementLogs(db, data) {
-  const { factoryId, yearMonth, assetId, userId, status, page = 1, pageSize = 20 } = data
+  const { factoryId, assetId, userId, status, module: moduleFilter, page = 1, pageSize = 20 } = data
   const where = {}
   if (factoryId) where.factoryId = factoryId
-  if (yearMonth) where.yearMonth = yearMonth
+  Object.assign(where, buildTimeQuery(data))
   if (assetId) where.assetId = assetId
   if (userId) where.reporterUserIdSnapshot = userId
-  // 状态筛选：active/disabled，不传则显示全部
+  if (moduleFilter === 'facility' || moduleFilter === 'boiler') {
+    where.module = moduleFilter
+  } else if (moduleFilter === 'equipment') {
+    where.module = _.or(_.eq('equipment'), _.exists(false))
+  }
   if (status === 'active') where.disabled = db.command.neq(true)
   else if (status === 'disabled') where.disabled = true
 
@@ -196,6 +212,186 @@ async function listReplacementLogs(db, data) {
   })
 
   return { ok: true, data: { list, total, page, pageSize } }
+}
+
+// ====== PC端提交厂务/锅炉房记录 ======
+async function submitFacilityLog(db, data, meUser) {
+  const { module, type, selectedPartSkuIds, qtyMap, remark } = data
+  if (!['facility', 'boiler'].includes(module)) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: 'module 必须为 facility 或 boiler' } }
+  }
+  if (!Array.isArray(selectedPartSkuIds) || selectedPartSkuIds.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少 1 个配件' } }
+  }
+  if (!qtyMap || typeof qtyMap !== 'object') {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少数量信息' } }
+  }
+  for (const skuId of selectedPartSkuIds) {
+    const qty = qtyMap[skuId]
+    if (!qty || !Number.isInteger(qty) || qty < 1) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数量必须为正整数' } }
+    }
+  }
+
+  const now = Date.now()
+  const yearMonth = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`
+  const logId = `log_${now}_${Math.random().toString(36).slice(2, 8)}`
+  const factoryId = meUser.factoryId || data.factoryId || null
+
+  const partsSnapshot = {}
+  for (let i = 0; i < selectedPartSkuIds.length; i += 20) {
+    const batch = selectedPartSkuIds.slice(i, i + 20)
+    const { data: batchParts } = await db.collection('parts').where({ partSkuId: _.in(batch) }).get()
+    batchParts.forEach(p => { partsSnapshot[p.partSkuId] = p })
+  }
+
+  const items = selectedPartSkuIds.map(skuId => {
+    const part = partsSnapshot[skuId] || {}
+    return {
+      partSkuId: skuId,
+      partNameSnapshot: part.partName || skuId,
+      partCodeSnapshot: part.partCode || '',
+      specModelSnapshot: part.specModel || '',
+      qty: qtyMap[skuId]
+    }
+  })
+
+  const moduleLabel = module === 'facility' ? '厂务' : '锅炉房'
+  const logDoc = {
+    logId,
+    module,
+    factoryId,
+    assetId: '',
+    assetNameSnapshot: moduleLabel,
+    assetNoSnapshot: '',
+    reporterUserIdSnapshot: meUser.userId,
+    reporterNameSnapshot: meUser.displayName || '',
+    ts: now,
+    yearMonth,
+    type: type || '维修',
+    locationIdSnapshot: '',
+    locationNameSnapshot: '',
+    items,
+    remark: remark || '',
+    images: [],
+    clientOfflineId: `pc_${logId}`,
+    createdAt: now
+  }
+
+  await db.collection('replacement_logs').add({ data: logDoc })
+
+  let totalRepairCost = 0
+  for (const item of items) {
+    const { data: invList } = await db.collection('inventory')
+      .where({ factoryId, partSkuId: item.partSkuId })
+      .limit(1)
+      .get()
+
+    let unitCostAtTime = 0
+    if (invList.length > 0) {
+      const inv = invList[0]
+      unitCostAtTime = inv.avgUnitCost || 0
+      const itemCost = item.qty * unitCostAtTime
+      item.unitCost = unitCostAtTime
+      item.itemCost = Math.round(itemCost * 100) / 100
+      totalRepairCost += itemCost
+
+      const newQty = inv.currentQty - item.qty
+      await db.collection('inventory').doc(inv._id).update({
+        data: {
+          currentQty: _.inc(-item.qty),
+          totalCostValue: Math.round(Math.max(0, newQty) * inv.avgUnitCost * 100) / 100,
+          lastOutboundAt: now,
+          updatedAt: now
+        }
+      })
+
+      const outboundId = `ob_${now}_${Math.random().toString(36).slice(2, 8)}_${item.partSkuId}`
+      await db.collection('inventory_outbound_logs').add({
+        data: {
+          outboundId,
+          factoryId,
+          partSkuId: item.partSkuId,
+          partNameSnapshot: item.partNameSnapshot,
+          partCodeSnapshot: item.partCodeSnapshot,
+          qty: item.qty,
+          unitCostAtTime,
+          totalCost: Math.round(itemCost * 100) / 100,
+          replacementLogId: logId,
+          assetId: '',
+          assetNameSnapshot: moduleLabel,
+          reporterNameSnapshot: meUser.displayName || '',
+          ts: now,
+          yearMonth,
+          createdAt: now
+        }
+      })
+    }
+  }
+
+  totalRepairCost = Math.round(totalRepairCost * 100) / 100
+  await db.collection('replacement_logs').where({ logId }).limit(1).get().then(async ({ data: logDocs }) => {
+    if (logDocs.length > 0) {
+      await db.collection('replacement_logs').doc(logDocs[0]._id).update({
+        data: { items, totalRepairCost }
+      })
+    }
+  })
+
+  return { ok: true, data: { logId, yearMonth, totalRepairCost } }
+}
+
+// ====== 厂务/锅炉房出库汇总 ======
+async function getFacilityOutboundSummary(db, data) {
+  const { module } = data
+  if (!['facility', 'boiler'].includes(module)) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: 'module 必须为 facility 或 boiler' } }
+  }
+  const where = { module }
+  if (data.factoryId) where.factoryId = data.factoryId
+  Object.assign(where, buildTimeQuery(data))
+
+  const queryLimit = data.yearMonths === null ? 5000 : 2000
+  const { data: logs } = await db.collection('replacement_logs').where(where).orderBy('ts', 'desc').limit(queryLimit).get()
+
+  let totalQty = 0
+  let totalCost = 0
+  let totalRecords = logs.length
+  const partMap = {}
+
+  logs.forEach(log => {
+    (log.items || []).forEach(item => {
+      const qty = item.qty || 0
+      const cost = item.itemCost || 0
+      totalQty += qty
+      totalCost += cost
+      const key = item.partSkuId
+      if (!partMap[key]) {
+        partMap[key] = {
+          partSkuId: key,
+          partName: item.partNameSnapshot || '',
+          partCode: item.partCodeSnapshot || '',
+          specModel: item.specModelSnapshot || '',
+          totalQty: 0,
+          totalCost: 0,
+        }
+      }
+      partMap[key].totalQty += qty
+      partMap[key].totalCost += cost
+    })
+  })
+
+  const partList = Object.values(partMap).sort((a, b) => b.totalCost - a.totalCost || b.totalQty - a.totalQty)
+
+  return {
+    ok: true,
+    data: {
+      totalRecords,
+      totalQty,
+      totalCost: Math.round(totalCost * 100) / 100,
+      partList,
+    }
+  }
 }
 
 // ====== 切换更换记录启用/停用状态 ======
@@ -364,11 +560,11 @@ async function editReplacementLogItems(db, data, meUser) {
 }
 
 async function listAlerts(db, data) {
-  const { factoryId, status, yearMonth, assetId, page = 1, pageSize = 20 } = data
+  const { factoryId, status, assetId, page = 1, pageSize = 20 } = data
   const where = {}
   if (factoryId) where.factoryId = factoryId
   if (status) where.status = status
-  if (yearMonth) where.yearMonth = yearMonth
+  Object.assign(where, buildTimeQuery(data))
   if (assetId) where.assetId = assetId
 
   const countResult = await db.collection('alerts').where(where).count()
@@ -656,7 +852,9 @@ async function getFactories(db, meUser) {
 }
 
 async function getDashboardStats(db, data, meUser) {
-  const yearMonth = data.yearMonth || new Date().toISOString().slice(0, 7)
+  const timeQuery = buildTimeQuery(data)
+  const yearMonth = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  if (!timeQuery.yearMonth && yearMonth) timeQuery.yearMonth = yearMonth
   let factoryId = data.factoryId || meUser.factoryId || null
 
   if (!factoryId && meUser.role !== 'Admin') {
@@ -664,16 +862,18 @@ async function getDashboardStats(db, data, meUser) {
     if (fullUser && fullUser.factoryId) factoryId = fullUser.factoryId
   }
 
-  const logWhere = { yearMonth }
-  const alertWhere = { yearMonth }
+  const logWhere = { ...timeQuery }
+  const alertWhere = { ...timeQuery }
   if (factoryId) {
     logWhere.factoryId = factoryId
     alertWhere.factoryId = factoryId
   }
 
   logWhere.disabled = _.neq(true)
-  const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
-  const { data: alerts } = await db.collection('alerts').where(alertWhere).limit(1000).get()
+  logWhere.module = _.or(_.eq('equipment'), _.exists(false))
+  const queryLimit = data.yearMonths === null ? 5000 : 1000
+  const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(queryLimit).get()
+  const { data: alerts } = await db.collection('alerts').where(alertWhere).limit(queryLimit).get()
 
   const openAlerts = alerts.filter(a => a.status === 'OPEN')
   let totalPartsQty = 0
@@ -686,15 +886,17 @@ async function getDashboardStats(db, data, meUser) {
     items.forEach(item => {
       totalPartsQty += item.qty || 0
       if (!partUsageMap[item.partSkuId]) {
-        partUsageMap[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot, totalQty: 0 }
+        partUsageMap[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot || '', partCode: item.partCodeSnapshot || '', totalQty: 0 }
       }
       partUsageMap[item.partSkuId].totalQty += item.qty || 0
+      if (!partUsageMap[item.partSkuId].partName && item.partNameSnapshot) {
+        partUsageMap[item.partSkuId].partName = item.partNameSnapshot
+      }
     })
     if (!assetCountMap[l.assetId]) {
       assetCountMap[l.assetId] = { assetId: l.assetId, assetName: l.assetNameSnapshot, assetNo: l.assetNoSnapshot, logCount: 0 }
     }
     assetCountMap[l.assetId].logCount++
-    // 工程师工作量统计
     const reporterId = l.reporterUserIdSnapshot || l.userId
     const reporterName = l.reporterNameSnapshot || '未知'
     if (reporterId) {
@@ -703,23 +905,57 @@ async function getDashboardStats(db, data, meUser) {
     }
   })
 
+  // partName 仍为空的条目，回查 parts 集合补名称
+  const missingNameIds = Object.values(partUsageMap).filter(p => !p.partName).map(p => p.partSkuId)
+  if (missingNameIds.length > 0) {
+    for (let i = 0; i < missingNameIds.length; i += 20) {
+      const batch = missingNameIds.slice(i, i + 20)
+      const { data: batchParts } = await db.collection('parts').where({ partSkuId: _.in(batch) }).get()
+      batchParts.forEach(p => {
+        if (partUsageMap[p.partSkuId]) {
+          partUsageMap[p.partSkuId].partName = p.partName
+          if (!partUsageMap[p.partSkuId].partCode) partUsageMap[p.partSkuId].partCode = p.partCode
+        }
+      })
+    }
+    Object.values(partUsageMap).forEach(p => {
+      if (!p.partName) p.partName = p.partSkuId
+    })
+  }
+
   const topParts = Object.values(partUsageMap).sort((a, b) => b.totalQty - a.totalQty).slice(0, 5)
   const topAssets = Object.values(assetCountMap).sort((a, b) => b.logCount - a.logCount).slice(0, 5)
   const engineerWorkload = Object.values(engineerMap).sort((a, b) => b.logCount - a.logCount)
 
-  // 最近7天更换趋势
+  // 趋势数据：月模式按最近7天、其他模式按月聚合
   const dailyTrend = []
-  const now = new Date()
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
-    const dateStr = d.toISOString().slice(0, 10)
-    const label = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0')
-    const count = logs.filter(l => {
-      if (!l.ts) return false
-      const logDate = new Date(l.ts).toISOString().slice(0, 10)
-      return logDate === dateStr
-    }).length
-    dailyTrend.push({ date: dateStr, label, count })
+  const isSingleMonth = !data.yearMonths || (Array.isArray(data.yearMonths) && data.yearMonths.length === 1)
+  if (isSingleMonth) {
+    const now = new Date()
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+      const dateStr = d.toISOString().slice(0, 10)
+      const label = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0')
+      const count = logs.filter(l => {
+        if (!l.ts) return false
+        const logDate = new Date(l.ts).toISOString().slice(0, 10)
+        return logDate === dateStr
+      }).length
+      dailyTrend.push({ date: dateStr, label, count })
+    }
+  } else {
+    const monthMap = {}
+    logs.forEach(l => {
+      const ym = l.yearMonth || (l.ts ? new Date(l.ts).toISOString().slice(0, 7) : null)
+      if (ym) {
+        if (!monthMap[ym]) monthMap[ym] = 0
+        monthMap[ym]++
+      }
+    })
+    const sortedMonths = Object.keys(monthMap).sort()
+    sortedMonths.forEach(ym => {
+      dailyTrend.push({ date: ym, label: ym, count: monthMap[ym] })
+    })
   }
 
   // 报警设备分布（仅 OPEN 状态）
@@ -740,7 +976,7 @@ async function getDashboardStats(db, data, meUser) {
   return {
     ok: true,
     data: {
-      yearMonth,
+      yearMonth: yearMonth || (data.yearMonths ? data.yearMonths.join(',') : ''),
       totalLogs: logs.length,
       totalPartsQty,
       openAlerts: openAlerts.length,
@@ -750,6 +986,7 @@ async function getDashboardStats(db, data, meUser) {
       engineerWorkload,
       dailyTrend,
       alertsByAsset,
+      trendMode: isSingleMonth ? 'daily' : 'monthly',
     },
   }
 }
@@ -1111,11 +1348,113 @@ async function updatePart(db, data) {
   if (category !== undefined) updateData.category = category
   if (active !== undefined) updateData.active = active
   await db.collection('parts').where({ partSkuId }).update({ data: updateData })
+
+  const snapshotUpdate = {}
+  if (partName !== undefined) snapshotUpdate.partNameSnapshot = partName
+  if (specModel !== undefined) snapshotUpdate.specModelSnapshot = specModel
+  if (unit !== undefined) snapshotUpdate.unitSnapshot = unit
+  if (Object.keys(snapshotUpdate).length > 0) {
+    snapshotUpdate.updatedAt = Date.now()
+    await db.collection('inventory').where({ partSkuId }).update({ data: snapshotUpdate })
+  }
+
   return { ok: true, data: {} }
 }
 
+// ====== 删除配件（仅管理员） ======
+async function deletePart(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除配件' } }
+  }
+  const { partSkuId } = data
+  if (!partSkuId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 partSkuId' } }
+
+  // 检查是否有关联的更换记录（未禁用的）
+  try {
+    const { data: repLogs } = await db.collection('replacement_logs')
+      .where({ 'items.partSkuId': partSkuId, disabled: db.command.neq(true) })
+      .limit(1).get()
+    if (repLogs.length > 0) {
+      return { ok: false, error: { code: 'IN_USE', message: '该配件存在关联的更换记录，无法删除。可选择「编辑」将其停用。' } }
+    }
+  } catch (e) { /* 查询失败不阻止删除 */ }
+
+  // 检查是否有库存（数量 > 0）
+  try {
+    const { data: invList } = await db.collection('inventory')
+      .where({ partSkuId }).limit(1).get()
+    if (invList.length > 0 && invList[0].currentQty > 0) {
+      return { ok: false, error: { code: 'HAS_STOCK', message: `该配件尚有库存 ${invList[0].currentQty} ${invList[0].unit || '个'}，请先清零库存再删除。` } }
+    }
+    // 库存为0时，同步删除库存记录
+    if (invList.length > 0) {
+      await db.collection('inventory').doc(invList[0]._id).remove()
+    }
+  } catch (e) { /* ignore */ }
+
+  // 删除配件本身
+  const { stats } = await db.collection('parts').where({ partSkuId }).remove()
+  if (stats.removed === 0) {
+    return { ok: false, error: { code: 'NOT_FOUND', message: '配件不存在' } }
+  }
+
+  // 清理关联的部位-配件映射
+  try {
+    await db.collection('location_part_map').where({ partSkuId }).remove()
+  } catch (e) { /* ignore */ }
+
+  return { ok: true, data: { partSkuId, removed: stats.removed } }
+}
+
+// ====== 批量停用/启用配件（仅管理员） ======
+async function batchSetPartsActive(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可停用/启用配件' } }
+  }
+  const { partSkuIds, active } = data
+  if (!Array.isArray(partSkuIds) || partSkuIds.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少一个配件' } }
+  }
+  if (typeof active !== 'boolean') {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 active 参数' } }
+  }
+  const ids = [...new Set(partSkuIds.filter(Boolean))]
+  const { stats } = await db.collection('parts')
+    .where({ partSkuId: db.command.in(ids) })
+    .update({ data: { active, updatedAt: Date.now() } })
+  return { ok: true, data: { requested: ids.length, updated: stats.updated || 0, active } }
+}
+
+// ====== 批量删除配件（仅管理员） ======
+async function batchDeleteParts(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除配件' } }
+  }
+  const { partSkuIds } = data
+  if (!Array.isArray(partSkuIds) || partSkuIds.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少一个配件' } }
+  }
+  const ids = [...new Set(partSkuIds.filter(Boolean))]
+  let deleted = 0
+  const errors = []
+  for (const partSkuId of ids) {
+    const res = await deletePart(db, { partSkuId }, meUser)
+    if (res.ok) deleted++
+    else errors.push({ partSkuId, message: res.error?.message || '删除失败' })
+  }
+  return {
+    ok: true,
+    data: {
+      requested: ids.length,
+      deleted,
+      failed: errors.length,
+      errors: errors.slice(0, 50),
+    },
+  }
+}
+
 async function importPartsPreview(db, data) {
-  // 预览导入配件数据（不写入数据库，仅做校验）
+  // 预览导入配件数据（不写入数据库），用 pickPartRow 解析任意表头
   const { rows } = data
   if (!rows || !Array.isArray(rows)) {
     return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数据格式错误' } }
@@ -1123,13 +1462,44 @@ async function importPartsPreview(db, data) {
   const errors = []
   const valid = []
   rows.forEach((row, idx) => {
-    if (!row.partCode || !row.partName) {
-      errors.push({ row: idx + 1, message: '配件编号和名称为必填项' })
+    const lineNo = idx + 2
+    const picked = pickPartRow(row)
+    if (!picked.partCode || !picked.partName) {
+      errors.push({ line: lineNo, msg: '配件编号和名称为必填项' })
     } else {
-      valid.push(row)
+      valid.push({
+        partCode: picked.partCode,
+        partName: picked.partName,
+        unit: picked.unit,
+        specModel: picked.specModel,
+        partSkuId: picked.partSkuId || ('PSK-' + picked.partCode),
+      })
     }
   })
-  return { ok: true, data: { valid, errors, totalRows: rows.length } }
+  return { ok: true, data: { validRows: valid, valid: valid.length, errors, totalRows: rows.length } }
+}
+
+// 从一行数据中统一取出所有字段（兼容中文表头、带换行表头如 "名称\nName"）
+function pickPartRow(row) {
+  const val = (v) => (v != null && v !== '') ? String(v).trim() : ''
+  let code = val(row.partCode ?? row['配件编号'] ?? row['编号'])
+  let name = val(row.partName ?? row['配件名称'] ?? row['名称'])
+  let unit = val(row.unit ?? row['单位'])
+  let spec = val(row.specModel ?? row['规格'] ?? row['规格型号'])
+  let sku = val(row.partSkuId ?? row['SKU ID'] ?? row['配件SKU-ID'] ?? row['SKU-ID'])
+  for (const k of Object.keys(row)) {
+    const v = row[k]
+    if (v == null || v === '') continue
+    const s = String(v).trim()
+    if (!s) continue
+    const t = k.trim()
+    if (!code && (t === '编号' || t.startsWith('编号') || t.includes('Part No'))) code = s
+    if (!name && (t === '名称' || t.startsWith('名称') || t.includes('Part Name'))) name = s
+    if (!unit && (t === '单位' || t.startsWith('单位') || t.includes('Unit'))) unit = s
+    if (!spec && (t === '规格' || t.startsWith('规格') || t.includes('Spec'))) spec = s
+    if (!sku && (t === 'SKU ID' || t.startsWith('SKU') || t.includes('SKU'))) sku = s
+  }
+  return { partCode: code, partName: name, unit: unit || '个', specModel: spec, partSkuId: sku }
 }
 
 async function importPartsCommit(db, data) {
@@ -1137,27 +1507,39 @@ async function importPartsCommit(db, data) {
   if (!rows || !Array.isArray(rows)) {
     return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数据格式错误' } }
   }
-  let created = 0, skipped = 0
+  let created = 0, skipped = 0, skippedEmpty = 0, skippedDup = 0
   for (const row of rows) {
-    if (!row.partCode || !row.partName) { skipped++; continue }
-    // 同工厂下检查重复
-    const dupWhere = { partCode: row.partCode }
+    const picked = pickPartRow(row)
+    if (!picked.partCode || !picked.partName) {
+      skipped++
+      skippedEmpty++
+      continue
+    }
+    const dupWhere = { partCode: picked.partCode }
     if (factoryId) dupWhere.factoryId = factoryId
     const { data: existing } = await db.collection('parts').where(dupWhere).limit(1).get()
-    if (existing.length > 0) { skipped++; continue }
-    const partSkuId = row.partSkuId || ('PSK-' + Date.now() + '-' + Math.random().toString(36).slice(2, 4))
+    if (existing.length > 0) {
+      skipped++
+      skippedDup++
+      continue
+    }
+    const partSkuId = picked.partSkuId || ('PSK-' + Date.now() + '-' + Math.random().toString(36).slice(2, 4))
     await db.collection('parts').add({
       data: {
-        partSkuId, partCode: row.partCode, partName: row.partName,
+        partSkuId, partCode: picked.partCode, partName: picked.partName,
         factoryId: factoryId || '',
-        specModel: row.specModel || '', unit: row.unit || '个',
-        unitPrice: row.unitPrice || 0, category: row.category || '',
-        active: true, createdAt: Date.now(), updatedAt: Date.now(),
+        specModel: picked.specModel,
+        unit: picked.unit,
+        unitPrice: row.unitPrice || 0, category: (row.category && String(row.category).trim()) || '',
+        active: true, source: 'Excel', createdAt: Date.now(), updatedAt: Date.now(),
       },
     })
     created++
   }
-  return { ok: true, data: { created, skipped } }
+  const message = skipped > 0 && created === 0
+    ? `全部跳过。其中：缺少编号/名称 ${skippedEmpty} 条，编号已存在 ${skippedDup} 条。请检查 Excel 表头是否与「编号、名称、单位」对应，或先清空配件再导入。`
+    : null
+  return { ok: true, data: { created, skipped, skippedEmpty, skippedDup, message } }
 }
 
 // ====== 配件工厂迁移 ======
@@ -1598,9 +1980,10 @@ function buildDataSummary(current, prev, factoryLabel, byFactory) {
 }
 
 // ====== AI 报告：聚合单月数据 ======
-async function aggregateMonthData(db, factoryId, yearMonth) {
-  const logWhere = { yearMonth, disabled: _.neq(true) }
-  const alertWhere = { yearMonth }
+async function aggregateMonthData(db, factoryId, yearMonth, yearMonthsArr) {
+  const timeQ = yearMonthsArr ? buildTimeQuery({ yearMonths: yearMonthsArr }) : (yearMonth ? { yearMonth } : {})
+  const logWhere = { ...timeQ, disabled: _.neq(true) }
+  const alertWhere = { ...timeQ }
   if (factoryId) {
     logWhere.factoryId = factoryId
     alertWhere.factoryId = factoryId
@@ -1660,9 +2043,8 @@ async function aggregateMonthData(db, factoryId, yearMonth) {
     const { data: invList } = await db.collection('inventory').where(invWhere).limit(1000).get()
     lowStockCount = invList.filter(i => i.threshold > 0 && i.currentQty <= i.threshold).length
   } catch (e) { /* ignore */ }
-  // 出库成本
   try {
-    const obWhere = { yearMonth }
+    const obWhere = { ...timeQ }
     if (factoryId) obWhere.factoryId = factoryId
     const { data: outLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
     totalUsageCost = outLogs.reduce((s, l) => s + (l.totalCost || 0), 0)
@@ -1759,26 +2141,29 @@ function buildReport(current, prev, factoryLabel, scope, byFactory) {
 }
 
 async function getAIReport(db, data, meUser) {
-  const yearMonth = data.yearMonth || new Date().toISOString().slice(0, 7)
+  const yearMonth = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  const yearMonthsArr = data.yearMonths || null
   const factoryId = data.factoryId || meUser.factoryId || null
   const scope = data.scope || 'factory'
   const promptType = data.promptType || 'monthly_summary'
 
-  // 计算上月
-  const d = new Date(yearMonth + '-01')
-  d.setMonth(d.getMonth() - 1)
-  const prevYm = d.toISOString().slice(0, 7)
+  let prevYm = null
+  if (yearMonth) {
+    const d = new Date(yearMonth + '-01')
+    d.setMonth(d.getMonth() - 1)
+    prevYm = d.toISOString().slice(0, 7)
+  }
 
   let current, prev
   let byFactory = []
 
   if (scope === 'summary') {
-    current = await aggregateMonthData(db, null, yearMonth)
-    prev = await aggregateMonthData(db, null, prevYm)
+    current = await aggregateMonthData(db, null, yearMonth, yearMonthsArr)
+    prev = prevYm ? await aggregateMonthData(db, null, prevYm) : current
     try {
       const { data: factories } = await db.collection('factories').limit(100).get()
       for (const f of factories) {
-        const fc = await aggregateMonthData(db, f.factoryId, yearMonth)
+        const fc = await aggregateMonthData(db, f.factoryId, yearMonth, yearMonthsArr)
         byFactory.push({
           factoryId: f.factoryId,
           factoryName: f.factoryName,
@@ -1791,8 +2176,8 @@ async function getAIReport(db, data, meUser) {
       }
     } catch (e) { /* ignore */ }
   } else {
-    current = await aggregateMonthData(db, factoryId, yearMonth)
-    prev = await aggregateMonthData(db, factoryId, prevYm)
+    current = await aggregateMonthData(db, factoryId, yearMonth, yearMonthsArr)
+    prev = prevYm ? await aggregateMonthData(db, factoryId, prevYm) : current
   }
 
   // 确定工厂名称
@@ -1923,10 +2308,11 @@ async function deleteAIReport(db, data, meUser) {
 // ====== 看板下钻 ======
 
 async function getDashboardPartDetail(db, data, meUser) {
-  const { partSkuId, yearMonth } = data
+  const { partSkuId } = data
   if (!partSkuId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 partSkuId' } }
-  const ym = yearMonth || new Date().toISOString().slice(0, 7)
-  const where = { yearMonth: ym, disabled: _.neq(true) }
+  const ym = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  const where = { ...buildTimeQuery(data), disabled: _.neq(true) }
+  if (!where.yearMonth && ym) where.yearMonth = ym
   const factoryId = meUser.factoryId || null
   if (factoryId) where.factoryId = factoryId
 
@@ -1998,16 +2384,16 @@ async function getDashboardPartDetail(db, data, meUser) {
     ok: true,
     data: {
       partSkuId, partName: partName || data.partName || '',
-      partCode, unit, yearMonth: ym, totalQty,
+      partCode, unit, yearMonth: ym || '', totalQty,
       byAsset,
     },
   }
 }
 
 async function getDashboardAssetDetail(db, data, meUser) {
-  const { assetId, yearMonth } = data
+  const { assetId } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
-  const ym = yearMonth || new Date().toISOString().slice(0, 7)
+  const ym = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
 
   // 查设备信息
   let assetName = '', assetNo = '', workshop = ''
@@ -2035,7 +2421,9 @@ async function getDashboardAssetDetail(db, data, meUser) {
     thresholds.forEach(t => { thresholdMap[t.partSkuId] = t.thresholdMonthly || 0 })
   } catch (e) { /* ignore */ }
 
-  const { data: logs } = await db.collection('replacement_logs').where({ assetId, yearMonth: ym, disabled: _.neq(true) }).limit(1000).get()
+  const assetLogWhere = { assetId, ...buildTimeQuery(data), disabled: _.neq(true) }
+  if (!assetLogWhere.yearMonth && ym) assetLogWhere.yearMonth = ym
+  const { data: logs } = await db.collection('replacement_logs').where(assetLogWhere).limit(1000).get()
 
   // 按配件分组
   const partQtyMap = {}
@@ -2076,7 +2464,7 @@ async function getDashboardAssetDetail(db, data, meUser) {
   return {
     ok: true,
     data: {
-      assetId, assetName, assetNo, workshop, yearMonth: ym,
+      assetId, assetName, assetNo, workshop, yearMonth: ym || '',
       totalLogCount, totalPartTypes,
       byPart,
     },
@@ -2084,11 +2472,10 @@ async function getDashboardAssetDetail(db, data, meUser) {
 }
 
 async function getDashboardAssetAlerts(db, data, meUser) {
-  const { assetId, yearMonth } = data
+  const { assetId } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
-  const ym = yearMonth || new Date().toISOString().slice(0, 7)
   const where = { assetId, status: 'OPEN' }
-  if (yearMonth) where.yearMonth = yearMonth
+  Object.assign(where, buildTimeQuery(data))
   const { data: rawAlerts } = await db.collection('alerts').where(where).limit(1000).get()
 
   // 查设备信息
@@ -2370,17 +2757,85 @@ async function inventoryInbound(db, data) {
 async function listInboundLogs(db, data) {
   const where = {}
   if (data.factoryId) where.factoryId = data.factoryId
-  if (data.yearMonth) where.yearMonth = data.yearMonth
-  const { data: list } = await db.collection('inventory_inbound_logs').where(where).orderBy('ts', 'desc').limit(1000).get()
+  Object.assign(where, buildTimeQuery(data))
+  const queryLimit = data.yearMonths === null ? 5000 : 1000
+  const { data: list } = await db.collection('inventory_inbound_logs').where(where).orderBy('ts', 'desc').limit(queryLimit).get()
   return { ok: true, data: { list } }
 }
 
 async function listOutboundLogs(db, data) {
   const where = {}
   if (data.factoryId) where.factoryId = data.factoryId
-  if (data.yearMonth) where.yearMonth = data.yearMonth
-  const { data: list } = await db.collection('inventory_outbound_logs').where(where).orderBy('ts', 'desc').limit(1000).get()
+  Object.assign(where, buildTimeQuery(data))
+  const queryLimit = data.yearMonths === null ? 5000 : 1000
+  const { data: list } = await db.collection('inventory_outbound_logs').where(where).orderBy('ts', 'desc').limit(queryLimit).get()
   return { ok: true, data: { list } }
+}
+
+// ====== 删除入库记录（仅管理员，同步回退库存） ======
+async function deleteInboundLog(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除入库记录' } }
+  }
+  const { inboundId } = data
+  if (!inboundId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 inboundId' } }
+
+  const { data: logs } = await db.collection('inventory_inbound_logs').where({ inboundId }).limit(1).get()
+  if (!logs.length) return { ok: false, error: { code: 'NOT_FOUND', message: '入库记录不存在' } }
+  const log = logs[0]
+
+  const { data: invList } = await db.collection('inventory')
+    .where({ factoryId: log.factoryId, partSkuId: log.partSkuId })
+    .limit(1).get()
+
+  if (invList.length > 0) {
+    const inv = invList[0]
+    const newQty = Math.max(0, (inv.currentQty || 0) - (log.qty || 0))
+    const avgCost = inv.avgUnitCost || 0
+    await db.collection('inventory').doc(inv._id).update({
+      data: {
+        currentQty: newQty,
+        totalCostValue: Math.round(newQty * avgCost * 100) / 100,
+        updatedAt: Date.now()
+      }
+    })
+  }
+
+  await db.collection('inventory_inbound_logs').doc(log._id).remove()
+  return { ok: true, data: {} }
+}
+
+// ====== 删除出库记录（仅管理员，同步回退库存） ======
+async function deleteOutboundLog(db, data, meUser) {
+  if (!meUser || meUser.role !== 'Admin') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除出库记录' } }
+  }
+  const { outboundId } = data
+  if (!outboundId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 outboundId' } }
+
+  const { data: logs } = await db.collection('inventory_outbound_logs').where({ outboundId }).limit(1).get()
+  if (!logs.length) return { ok: false, error: { code: 'NOT_FOUND', message: '出库记录不存在' } }
+  const log = logs[0]
+
+  const { data: invList } = await db.collection('inventory')
+    .where({ factoryId: log.factoryId, partSkuId: log.partSkuId })
+    .limit(1).get()
+
+  if (invList.length > 0) {
+    const inv = invList[0]
+    const newQty = (inv.currentQty || 0) + (log.qty || 0)
+    const avgCost = inv.avgUnitCost || 0
+    await db.collection('inventory').doc(inv._id).update({
+      data: {
+        currentQty: newQty,
+        totalCostValue: Math.round(newQty * avgCost * 100) / 100,
+        updatedAt: Date.now()
+      }
+    })
+  }
+
+  await db.collection('inventory_outbound_logs').doc(log._id).remove()
+  return { ok: true, data: {} }
 }
 
 async function listInventoryAlerts(db, data) {
@@ -2402,7 +2857,9 @@ async function updateInventoryThreshold(db, data) {
 async function getInventorySummary(db, data) {
   const where = {}
   if (data.factoryId) where.factoryId = data.factoryId
-  const yearMonth = data.yearMonth || new Date().toISOString().slice(0, 7)
+  const yearMonth = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  const sumTimeQuery = buildTimeQuery(data)
+  if (!sumTimeQuery.yearMonth && yearMonth) sumTimeQuery.yearMonth = yearMonth
   const { data: invList } = await db.collection('inventory').where(where).limit(1000).get()
   const totalItems = invList.length
   const totalQty = invList.reduce((sum, inv) => sum + (inv.currentQty || 0), 0)
@@ -2449,10 +2906,9 @@ async function getInventorySummary(db, data) {
   }
   totalInventoryValue = Math.round(totalInventoryValue * 100) / 100
 
-  // 当月入库金额
   let totalInboundValue = 0
   try {
-    const ibWhere = { yearMonth }
+    const ibWhere = { ...sumTimeQuery }
     if (data.factoryId) ibWhere.factoryId = data.factoryId
     const { data: ibLogs } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(1000).get()
     totalInboundValue = ibLogs.reduce((s, l) => s + (l.totalPrice || 0), 0)
@@ -2473,12 +2929,12 @@ async function getInventorySummary(db, data) {
     return 0
   }
 
-  // 当月出库金额：先查出库日志，若无则从更换记录统计
   let totalOutboundValue = 0
   try {
-    const obWhere = { yearMonth }
+    const obWhere = { ...sumTimeQuery }
     if (data.factoryId) obWhere.factoryId = data.factoryId
-    const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+    const { data: obLogsAll } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+    const obLogs = obLogsAll.filter(ob => ob.assetNameSnapshot !== '厂务' && ob.assetNameSnapshot !== '锅炉房')
 
     if (obLogs.length > 0) {
       for (const ob of obLogs) {
@@ -2487,8 +2943,7 @@ async function getInventorySummary(db, data) {
         totalOutboundValue += cost
       }
     } else {
-      // 无出库日志 → 从更换记录（replacement_logs）统计当月出库金额
-      const repWhere = { yearMonth, disabled: db.command.neq(true) }
+      const repWhere = { ...sumTimeQuery, disabled: db.command.neq(true), module: _.or(_.eq('equipment'), _.exists(false)) }
       if (data.factoryId) repWhere.factoryId = data.factoryId
       const { data: repLogs } = await db.collection('replacement_logs').where(repWhere).limit(1000).get()
       for (const log of repLogs) {
@@ -2504,7 +2959,7 @@ async function getInventorySummary(db, data) {
   return {
     ok: true,
     data: {
-      yearMonth, totalItems, totalQty, lowStockCount,
+      yearMonth: yearMonth || '', totalItems, totalQty, lowStockCount,
       totalInventoryValue: Math.round(totalInventoryValue * 100) / 100,
       totalInboundValue: Math.round(totalInboundValue * 100) / 100,
       totalOutboundValue: Math.round(totalOutboundValue * 100) / 100,
@@ -2513,7 +2968,9 @@ async function getInventorySummary(db, data) {
 }
 
 async function getMonthlyCostRanking(db, data, meUser) {
-  const ym = data.yearMonth || new Date().toISOString().slice(0, 7)
+  const ym = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  const costTimeQuery = buildTimeQuery(data)
+  if (!costTimeQuery.yearMonth && ym) costTimeQuery.yearMonth = ym
   const factoryId = data.factoryId || meUser.factoryId || null
 
   // 1) 查配件表（获取名称、编号、规格、单位、参考单价）
@@ -2560,13 +3017,13 @@ async function getMonthlyCostRanking(db, data, meUser) {
     return 0
   }
 
-  // 4) 从出库记录统计当月使用量和成本
-  const obWhere = { yearMonth: ym }
+  // 4) 从出库记录统计使用量和成本（排除厂务/锅炉房）
+  const obWhere = { ...costTimeQuery }
   if (factoryId) obWhere.factoryId = factoryId
-  const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+  const { data: obLogsRaw } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
+  const obLogs = obLogsRaw.filter(ob => ob.assetNameSnapshot !== '厂务' && ob.assetNameSnapshot !== '锅炉房')
 
-  // 同时从 replacement_logs 补充（处理无出库记录但有更换记录的情况）
-  const logWhere = { yearMonth: ym, disabled: _.neq(true) }
+  const logWhere = { ...costTimeQuery, disabled: _.neq(true), module: _.or(_.eq('equipment'), _.exists(false)) }
   if (factoryId) logWhere.factoryId = factoryId
   const { data: repLogs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
 
@@ -2653,9 +3110,11 @@ async function getPartUsageCostList(db, data, meUser) {
 }
 
 async function getAssetCostDetail(db, data) {
-  const { factoryId, assetId, yearMonth } = data
+  const { factoryId, assetId } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
-  const ym = yearMonth || new Date().toISOString().slice(0, 7)
+  const ym = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
+  const acTimeQuery = buildTimeQuery(data)
+  if (!acTimeQuery.yearMonth && ym) acTimeQuery.yearMonth = ym
 
   // 预加载配件表、库存表、入库日志
   const partsMap = {}, invMap = {}, ibCostMap = {}
@@ -2689,8 +3148,7 @@ async function getAssetCostDetail(db, data) {
     return 0
   }
 
-  // 优先从出库记录统计
-  const obWhere = { assetId, yearMonth: ym }
+  const obWhere = { assetId, ...acTimeQuery }
   if (factoryId) obWhere.factoryId = factoryId
   const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
 
@@ -2708,8 +3166,7 @@ async function getAssetCostDetail(db, data) {
       parts[key].totalCost += cost
     }
   } else {
-    // 回退到更换记录
-    const where = { assetId, yearMonth: ym, disabled: _.neq(true) }
+    const where = { assetId, ...acTimeQuery, disabled: _.neq(true) }
     if (factoryId) where.factoryId = factoryId
     const { data: logs } = await db.collection('replacement_logs').where(where).limit(1000).get()
     logs.forEach(l => {
@@ -2734,7 +3191,7 @@ async function getAssetCostDetail(db, data) {
     ok: true,
     data: {
       assetName,
-      yearMonth: ym,
+      yearMonth: ym || '',
       totalCost: Math.round(totalCost * 100) / 100,
       partList: Object.values(parts),
       logCount: obLogs.length
@@ -2946,10 +3403,17 @@ exports.main = async (event, context) => {
       'createFactory', 'updateFactory',
       'createAsset', 'updateAsset', 'setAssetStatus',
       'createPart', 'updatePart', 'importPartsCommit',
+      'deletePart', 'batchSetPartsActive', 'batchDeleteParts',
+      'deleteInboundLog', 'deleteOutboundLog',
       'setAIConfig',
     ]
     if (adminOnlyActions.includes(action) && me.role !== 'Admin') {
       return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅管理员可执行此操作' } }
+    }
+
+    const supervisorActions = ['submitFacilityLog']
+    if (supervisorActions.includes(action) && !['Admin', 'Supervisor'].includes(me.role)) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅主管或管理员可执行此操作' } }
     }
 
     switch (action) {
@@ -2984,6 +3448,9 @@ exports.main = async (event, context) => {
       case 'listParts': return await listParts(db, data)
       case 'createPart': return await createPart(db, data)
       case 'updatePart': return await updatePart(db, data)
+      case 'deletePart': return await deletePart(db, data, meUser)
+      case 'batchSetPartsActive': return await batchSetPartsActive(db, data, meUser)
+      case 'batchDeleteParts': return await batchDeleteParts(db, data, meUser)
       case 'importPartsPreview': return await importPartsPreview(db, data)
       case 'importPartsCommit': return await importPartsCommit(db, data)
       case 'cleanupParts': return await cleanupParts(db, data)
@@ -3004,6 +3471,8 @@ exports.main = async (event, context) => {
       case 'listReplacementLogs': return await listReplacementLogs(db, data)
       case 'toggleLogStatus': return await toggleLogStatus(db, data)
       case 'editReplacementLogItems': return await editReplacementLogItems(db, data, meUser)
+      case 'submitFacilityLog': return await submitFacilityLog(db, data, meUser)
+      case 'getFacilityOutboundSummary': return await getFacilityOutboundSummary(db, data)
 
       // 看板 & 报告
       case 'getDashboardStats': return await getDashboardStats(db, data, meUser)
@@ -3031,6 +3500,8 @@ exports.main = async (event, context) => {
       case 'inventoryInbound': return await inventoryInbound(db, data)
       case 'listInboundLogs': return await listInboundLogs(db, data)
       case 'listOutboundLogs': return await listOutboundLogs(db, data)
+      case 'deleteInboundLog': return await deleteInboundLog(db, data, meUser)
+      case 'deleteOutboundLog': return await deleteOutboundLog(db, data, meUser)
       case 'listInventoryAlerts': return await listInventoryAlerts(db, data)
       case 'updateInventoryThreshold': return await updateInventoryThreshold(db, data)
       case 'getInventorySummary': return await getInventorySummary(db, data)

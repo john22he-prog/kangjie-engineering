@@ -92,8 +92,8 @@ export const httpApi = {
   },
 
   async getDashboardStats(opts) {
-    const { yearMonth, factoryId } = typeof opts === 'object' ? opts : { yearMonth: opts, factoryId: null }
-    return call('getDashboardStats', { yearMonth, factoryId })
+    const { yearMonth, yearMonths, factoryId } = typeof opts === 'object' ? opts : { yearMonth: opts, factoryId: null }
+    return call('getDashboardStats', { yearMonth, yearMonths, factoryId })
   },
 
   // ===== 用户管理 =====
@@ -125,9 +125,16 @@ export const httpApi = {
   async importPartsCommit(rows, factoryId) { return call('importPartsCommit', { rows, factoryId: factoryId || undefined }) },
   async migratePartsToFactory(factoryId) { return call('migratePartsToFactory', { factoryId }) },
   async cleanupParts(factoryId) { return call('cleanupParts', { factoryId: factoryId || undefined }) },
+  async deletePart(partSkuId) { return call('deletePart', { partSkuId }) },
+  async batchSetPartsActive(partSkuIds, active) { return call('batchSetPartsActive', { partSkuIds, active }) },
+  async batchDeleteParts(partSkuIds) { return call('batchDeleteParts', { partSkuIds }) },
   async getFileUrls(fileIds) { return call('getFileUrls', { fileIds }) },
   async toggleLogStatus(logId, disabled) { return call('toggleLogStatus', { logId, disabled }) },
   async editReplacementLogItems(logId, items) { return call('editReplacementLogItems', { logId, items }) },
+  async submitFacilityLog(data) { return call('submitFacilityLog', data) },
+  async getFacilityOutboundSummary(module, factoryId, yearMonth, yearMonths) {
+    return call('getFacilityOutboundSummary', { module, factoryId, yearMonth, yearMonths })
+  },
 
   // ===== 阈值管理 =====
   async batchUpsertThresholds(items) { return call('batchUpsertThresholds', { items }) },
@@ -140,9 +147,9 @@ export const httpApi = {
   async deleteAIReport(reportId) { return call('deleteAIReport', { reportId }) },
   async getAIConfig() { return call('getAIConfig', {}) },
   async setAIConfig(data) { return call('setAIConfig', data) },
-  async getDashboardPartDetail(partSkuId, yearMonth) { return call('getDashboardPartDetail', { partSkuId, yearMonth }) },
-  async getDashboardAssetDetail(assetId, yearMonth) { return call('getDashboardAssetDetail', { assetId, yearMonth }) },
-  async getDashboardAssetAlerts(assetId, yearMonth) { return call('getDashboardAssetAlerts', { assetId, yearMonth }) },
+  async getDashboardPartDetail(partSkuId, yearMonth, yearMonths) { return call('getDashboardPartDetail', { partSkuId, yearMonth, yearMonths }) },
+  async getDashboardAssetDetail(assetId, yearMonth, yearMonths) { return call('getDashboardAssetDetail', { assetId, yearMonth, yearMonths }) },
+  async getDashboardAssetAlerts(assetId, yearMonth, yearMonths) { return call('getDashboardAssetAlerts', { assetId, yearMonth, yearMonths }) },
 
   // ===== 工厂管理 =====
   async listFactories() { return call('getFactories', {}) },
@@ -152,14 +159,16 @@ export const httpApi = {
   // ===== 库存管理 =====
   async listInventory(factoryId) { return call('listInventory', { factoryId }) },
   async inventoryInbound(data) { return call('inventoryInbound', data) },
-  async listInboundLogs(factoryId, yearMonth) { return call('listInboundLogs', { factoryId, yearMonth }) },
-  async listOutboundLogs(factoryId, yearMonth) { return call('listOutboundLogs', { factoryId, yearMonth }) },
+  async listInboundLogs(factoryId, yearMonth, yearMonths) { return call('listInboundLogs', { factoryId, yearMonth, yearMonths }) },
+  async listOutboundLogs(factoryId, yearMonth, yearMonths) { return call('listOutboundLogs', { factoryId, yearMonth, yearMonths }) },
+  async deleteInboundLog(inboundId) { return call('deleteInboundLog', { inboundId }) },
+  async deleteOutboundLog(outboundId) { return call('deleteOutboundLog', { outboundId }) },
   async listInventoryAlerts(factoryId) { return call('listInventoryAlerts', { factoryId }) },
   async updateInventoryThreshold(inventoryId, threshold) { return call('updateInventoryThreshold', { inventoryId, threshold }) },
-  async getInventorySummary(factoryId, yearMonth) { return call('getInventorySummary', { factoryId, yearMonth }) },
-  async getMonthlyCostRanking(factoryId, yearMonth) { return call('getMonthlyCostRanking', { factoryId, yearMonth }) },
-  async getPartUsageCostList(factoryId, yearMonth) { return call('getPartUsageCostList', { factoryId, yearMonth }) },
-  async getAssetCostDetail(factoryId, assetId, yearMonth) { return call('getAssetCostDetail', { factoryId, assetId, yearMonth }) },
+  async getInventorySummary(factoryId, yearMonth, yearMonths) { return call('getInventorySummary', { factoryId, yearMonth, yearMonths }) },
+  async getMonthlyCostRanking(factoryId, yearMonth, yearMonths) { return call('getMonthlyCostRanking', { factoryId, yearMonth, yearMonths }) },
+  async getPartUsageCostList(factoryId, yearMonth, yearMonths) { return call('getPartUsageCostList', { factoryId, yearMonth, yearMonths }) },
+  async getAssetCostDetail(factoryId, assetId, yearMonth, yearMonths) { return call('getAssetCostDetail', { factoryId, assetId, yearMonth, yearMonths }) },
   async getInventoryTrend(factoryId, months) { return call('getInventoryTrend', { factoryId, months }) },
   async getCostTrend(factoryId, months) { return call('getCostTrend', { factoryId, months }) },
 }

@@ -61,10 +61,10 @@ async function monthlyCostRanking(params, user) {
     .limit(1000)
     .get()
 
-  // 按设备聚合成本
+  // 按设备聚合成本（排除厂务/锅炉房）
   const assetCostMap = {}
   let totalCost = 0
-  outLogs.forEach(log => {
+  outLogs.filter(log => log.assetNameSnapshot !== '厂务' && log.assetNameSnapshot !== '锅炉房').forEach(log => {
     const cost = log.totalCost || 0
     totalCost += cost
     if (!assetCostMap[log.assetId]) {
@@ -82,6 +82,7 @@ async function monthlyCostRanking(params, user) {
     const logQuery = { yearMonth }
     if (factoryId) logQuery.factoryId = factoryId
 
+    logQuery.module = _.or(_.eq('equipment'), _.exists(false))
     const { data: repLogs } = await db.collection('replacement_logs')
       .where(logQuery)
       .limit(1000)
@@ -222,6 +223,7 @@ async function getAIReport(params, user) {
       alertQuery.factoryId = factoryId
     }
 
+    logQuery.module = _.or(_.eq('equipment'), _.exists(false))
     const { data: ymLogs } = await db.collection('replacement_logs').where(logQuery).limit(1000).get()
     const { data: ymAlerts } = await db.collection('alerts').where(alertQuery).limit(1000).get()
     const openAlertsList = ymAlerts.filter(a => a.status === 'OPEN')

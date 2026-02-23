@@ -7,15 +7,7 @@
         <el-button type="success" plain @click="$router.push('/dashboard/ai-report')">
           <el-icon style="margin-right: 4px;"><TrendCharts /></el-icon>AI 分析报告
         </el-button>
-        <el-date-picker
-          v-model="selectedMonth"
-          type="month"
-          placeholder="选择月份"
-          format="YYYY年MM月"
-          value-format="YYYY-MM"
-          :clearable="false"
-          @change="refreshAll"
-        />
+        <TimeRangeSelector v-model="timeRange" />
       </div>
     </div>
 
@@ -94,7 +86,7 @@
       <el-col :xs="24" :md="14">
         <el-card shadow="never">
           <template #header>
-            <span class="card-title">M5 · 最近 7 天更换趋势</span>
+            <span class="card-title">M5 · {{ trendTitle }}</span>
           </template>
           <div ref="chartTrendRef" class="chart-box"></div>
         </el-card>
@@ -430,14 +422,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, markRaw } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, markRaw } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
+import TimeRangeSelector from '@/components/TimeRangeSelector.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -452,8 +445,12 @@ function checkMobileView() {
   isMobileView.value = window.innerWidth < MOBILE_BREAKPOINT
 }
 
-// ===== 全局月份 =====
-const selectedMonth = ref(dayjs().format('YYYY-MM'))
+// ===== 全局时间范围 =====
+const timeRange = ref({ mode: 'month', yearMonths: [dayjs().format('YYYY-MM')], label: dayjs().format('YYYY年MM月') })
+const trendTitle = computed(() => {
+  if (!timeRange.value || timeRange.value.mode === 'month') return '最近 7 天更换趋势'
+  return '月度更换趋势'
+})
 
 // ===== 统计数据 =====
 const stats = reactive({
@@ -512,22 +509,29 @@ function goAlerts() {
 }
 
 // ===== 数据加载 =====
+function getTimeParams() {
+  const t = timeRange.value
+  if (!t) return { yearMonth: dayjs().format('YYYY-MM') }
+  if (t.mode === 'month' && t.yearMonths?.length === 1) return { yearMonth: t.yearMonths[0] }
+  return { yearMonths: t.yearMonths }
+}
+
 async function refreshAll() {
   const isSupervisorWithFactory = authStore.user?.role === 'Supervisor' && authStore.user?.factoryId
+  const tp = getTimeParams()
   const res = await api.getDashboardStats({
-    yearMonth: selectedMonth.value,
+    ...tp,
     factoryId: isSupervisorWithFactory ? authStore.user.factoryId : appStore.currentFactoryId,
   })
   if (!res.ok) return
   Object.assign(stats, res.data)
 
-  // Load inventory & cost data if user can view
   if (canViewCost.value) {
     const factoryId = appStore.currentFactoryId
     const [sumRes, trendRes, rankRes] = await Promise.all([
-      api.getInventorySummary(factoryId, selectedMonth.value),
+      api.getInventorySummary(factoryId, tp.yearMonth, tp.yearMonths),
       api.getInventoryTrend(factoryId, 12),
-      api.getMonthlyCostRanking(factoryId, selectedMonth.value)
+      api.getMonthlyCostRanking(factoryId, tp.yearMonth, tp.yearMonths)
     ])
     if (sumRes.ok) Object.assign(inventorySummary, sumRes.data)
     if (trendRes.ok) Object.assign(costTrendData, trendRes.data)
@@ -564,20 +568,34 @@ function renderPartsChart() {
     chartParts = echarts.init(chartPartsRef.value)
     chartParts.on('click', (params) => {
       if (params.componentType === 'series') {
-        const item = stats.topParts[params.dataIndex]
+        const item = stats.topParts[stats.topParts.length - 1 - params.dataIndex]
         if (item) openPartDrawer(item.partSkuId)
       }
     })
   }
   const data = [...stats.topParts].reverse()
   chartParts.setOption({
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 100, right: 40, top: 10, bottom: 10 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const idx = params[0].dataIndex
+        const item = data[idx]
+        return `${item?.partName || params[0].name}<br/>消耗: <b>${params[0].value}</b>`
+      },
+    },
+    grid: { left: 140, right: 40, top: 10, bottom: 10 },
     xAxis: { type: 'value', show: false },
     yAxis: {
       type: 'category',
-      data: data.map(d => d.partName),
-      axisLabel: { fontSize: 13, color: '#303133' },
+      data: data.map(d => {
+        const name = d.partName || d.partSkuId
+        return name.length > 10 ? name.substring(0, 10) + '...' : name
+      }),
+      axisLabel: {
+        fontSize: 13,
+        color: '#303133',
+      },
       axisTick: { show: false },
       axisLine: { show: false },
     },
@@ -604,7 +622,7 @@ function renderAssetsChart() {
     chartAssets = echarts.init(chartAssetsRef.value)
     chartAssets.on('click', (params) => {
       if (params.componentType === 'series') {
-        const item = stats.topAssets[params.dataIndex]
+        const item = stats.topAssets[stats.topAssets.length - 1 - params.dataIndex]
         if (item) openAssetDrawer(item.assetId)
       }
     })
@@ -859,7 +877,8 @@ function renderCostRankingChart() {
 
 // ===== 下钻：配件消耗明细 =====
 async function openPartDrawer(partSkuId) {
-  const res = await api.getDashboardPartDetail(partSkuId, selectedMonth.value)
+  const tp = getTimeParams()
+  const res = await api.getDashboardPartDetail(partSkuId, tp.yearMonth, tp.yearMonths)
   if (!res.ok) return
   // 添加展开状态
   res.data.byAsset.forEach(row => { row._expanded = false })
@@ -869,7 +888,8 @@ async function openPartDrawer(partSkuId) {
 
 // ===== 下钻：设备消耗明细 =====
 async function openAssetDrawer(assetId) {
-  const res = await api.getDashboardAssetDetail(assetId, selectedMonth.value)
+  const tp = getTimeParams()
+  const res = await api.getDashboardAssetDetail(assetId, tp.yearMonth, tp.yearMonths)
   if (!res.ok) return
   res.data.byPart.forEach(row => { row._expanded = false })
   Object.assign(assetDetail, res.data)
@@ -878,7 +898,8 @@ async function openAssetDrawer(assetId) {
 
 // ===== 下钻：设备报警明细 =====
 async function openAssetAlertDrawer(assetId) {
-  const res = await api.getDashboardAssetAlerts(assetId, selectedMonth.value)
+  const tp = getTimeParams()
+  const res = await api.getDashboardAssetAlerts(assetId, tp.yearMonth, tp.yearMonths)
   if (!res.ok) return
   res.data.alerts.forEach(a => { a._ackNote = ''; a._acking = false })
   Object.assign(alertDetail, res.data)
@@ -887,8 +908,9 @@ async function openAssetAlertDrawer(assetId) {
 
 // ===== 下钻：设备配件金额明细 =====
 async function openCostDetailDrawer(assetId) {
+  const tp = getTimeParams()
   const res = await api.getAssetCostDetail(
-    appStore.currentFactoryId, assetId, selectedMonth.value
+    appStore.currentFactoryId, assetId, tp.yearMonth, tp.yearMonths
   )
   if (!res.ok) return
   Object.assign(costDetail, res.data)
@@ -930,8 +952,9 @@ function handleResize() {
   chartCostRanking?.resize()
 }
 
+watch(timeRange, () => refreshAll(), { deep: true })
+
 onMounted(() => {
-  refreshAll()
   window.addEventListener('resize', handleResize)
   window.addEventListener('resize', checkMobileView)
 })

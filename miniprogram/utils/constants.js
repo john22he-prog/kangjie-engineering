@@ -1,7 +1,7 @@
 // utils/constants.js — 错误文案 / 枚举常量
 
 // 更换类型
-const REPLACE_TYPES = ['维修', '预防', '紧急']
+const REPLACE_TYPES = ['维修', '保养']
 
 // 角色
 const ROLES = {
@@ -33,6 +33,15 @@ const ERRORS = {
   ACK_NOTE_REQUIRED: '请填写确认说明'
 }
 
+// 巡检相关错误
+const INSPECTION_ERRORS = {
+  NO_PLAN: '当前没有有效的巡检计划',
+  ASSET_NOT_IN_PLAN: '该设备不在今日巡检清单中',
+  ALREADY_CHECKED: '该设备今日已完成巡检打卡',
+  IMAGE_REQUIRED: '请至少上传 1 张照片',
+  NO_ASSETS_SELECTED: '请选择至少 1 台设备'
+}
+
 // 离线队列 Storage Key
 const OFFLINE_QUEUE_KEY = 'KJ_OFFLINE_QUEUE'
 
@@ -41,5 +50,6 @@ module.exports = {
   ROLES,
   ALERT_STATUS,
   ERRORS,
+  INSPECTION_ERRORS,
   OFFLINE_QUEUE_KEY
 }

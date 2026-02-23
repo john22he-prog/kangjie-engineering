@@ -9,6 +9,7 @@ Page({
     offlineCount: 0,
     syncing: false,
     canManage: false,
+    canViewCompany: false,
     canSwitchFactory: false,
     currentFactoryName: '',
     factories: [],
@@ -27,6 +28,7 @@ Page({
       isLoggedIn: auth.isLoggedIn(),
       offlineCount: offlineQueue.getCount(),
       canManage: auth.canManage(),
+      canViewCompany: auth.isAdmin() || auth.isManagement(),
       canSwitchFactory: auth.canSwitchFactory(),
       currentFactoryName: app.globalData.currentFactoryName || '未选择'
     })
@@ -69,6 +71,14 @@ Page({
         wx.showToast({ title: `已切换到 ${selected.factoryName}`, icon: 'none' })
       }
     })
+  },
+
+  onInspection() {
+    wx.navigateTo({ url: '/pages/inspection/index' })
+  },
+
+  onCompanyOverview() {
+    wx.navigateTo({ url: '/pages/company/index' })
   },
 
   onAIAnalysis() {

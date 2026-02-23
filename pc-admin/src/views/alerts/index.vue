@@ -15,15 +15,7 @@
         <el-option label="待处理" value="OPEN" />
         <el-option label="已确认" value="ACK" />
       </el-select>
-      <el-date-picker
-        v-model="filterMonth"
-        type="month"
-        placeholder="选择月份"
-        format="YYYY-MM"
-        value-format="YYYY-MM"
-        style="width: 160px"
-        @change="loadList"
-      />
+      <TimeRangeSelector v-model="timeRange" />
       <el-select v-model="filterAssetId" placeholder="设备筛选" clearable filterable style="width: 200px" @change="loadList">
         <el-option v-for="a in assets" :key="a.assetId" :label="a.assetName" :value="a.assetId" />
       </el-select>
@@ -141,13 +133,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
-import * as XLSX from 'xlsx'
+// XLSX 动态导入，按需加载
 import dayjs from 'dayjs'
+import TimeRangeSelector from '@/components/TimeRangeSelector.vue'
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -158,7 +151,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = 20
 const filterStatus = ref('')
-const filterMonth = ref('')
+const timeRange = ref({ mode: 'month', yearMonths: [dayjs().format('YYYY-MM')], label: dayjs().format('YYYY年MM月') })
 const filterAssetId = ref('')
 const assets = ref([])
 
@@ -201,9 +194,11 @@ async function handleAck() {
 async function handleExportAlerts() {
   exportLoading.value = true
   try {
-    const params = { page: 1, pageSize: 5000 }
+    const XLSX = await import('xlsx')
+    const t = timeRange.value
+    const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
+    const params = { ...tp, page: 1, pageSize: 5000 }
     if (filterStatus.value) params.status = filterStatus.value
-    if (filterMonth.value) params.yearMonth = filterMonth.value
     if (filterAssetId.value) params.assetId = filterAssetId.value
 
     const res = await api.listAlerts(params)
@@ -229,7 +224,7 @@ async function handleExportAlerts() {
     const ws = XLSX.utils.json_to_sheet(exportRows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '报警记录')
-    const filename = filterMonth.value ? `报警记录_${filterMonth.value}.xlsx` : '报警记录.xlsx'
+    const filename = `报警记录_${timeRange.value.label}.xlsx`
     XLSX.writeFile(wb, filename)
     ElMessage.success('导出成功')
   } catch (err) {
@@ -242,10 +237,11 @@ async function handleExportAlerts() {
 async function loadList() {
   loading.value = true
   try {
-    const params = { page: currentPage.value, pageSize }
+    const t = timeRange.value
+    const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
+    const params = { ...tp, page: currentPage.value, pageSize }
     if (appStore.currentFactoryId) params.factoryId = appStore.currentFactoryId
     if (filterStatus.value) params.status = filterStatus.value
-    if (filterMonth.value) params.yearMonth = filterMonth.value
     if (filterAssetId.value) params.assetId = filterAssetId.value
 
     const res = await api.listAlerts(params)
@@ -263,9 +259,10 @@ async function loadAssets() {
   if (res.ok) assets.value = res.data.list
 }
 
+watch(timeRange, () => loadList(), { deep: true })
+
 onMounted(async () => {
   await loadAssets()
-  await loadList()
 })
 </script>
 

@@ -1,0 +1,80 @@
+/* 复用 form 页面的样式 */
+.form-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.form-row:last-child {
+  border-bottom: none;
+}
+
+.form-row.readonly {
+  opacity: 0.85;
+}
+
+.form-label {
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+  min-width: 160rpx;
+}
+
+.form-label.required::before {
+  content: '* ';
+  color: #FA5151;
+}
+
+.form-value {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  text-align: right;
+  flex: 1;
+}
+
+.form-section-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  margin-bottom: 16rpx;
+  color: var(--weui-FG-0);
+}
+
+.form-section-title.required::before {
+  content: '* ';
+  color: #FA5151;
+}
+
+.form-textarea {
+  width: 100%;
+  min-height: 120rpx;
+  padding: 16rpx;
+  border: 1rpx solid var(--weui-BG-0);
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.submit-bar {
+  padding: 24rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.abandon-link {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+.abandon-link:active {
+  color: var(--weui-FG-1);
+}
+
+.submit-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+}

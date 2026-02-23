@@ -11,15 +11,7 @@
 
     <!-- 筛选 -->
     <div class="filter-bar">
-      <el-date-picker
-        v-model="filterMonth"
-        type="month"
-        placeholder="选择月份"
-        format="YYYY-MM"
-        value-format="YYYY-MM"
-        style="width: 160px"
-        @change="loadList"
-      />
+      <TimeRangeSelector v-model="timeRange" />
       <el-select v-model="filterAssetId" placeholder="设备筛选" clearable filterable style="width: 200px" @change="loadList">
         <el-option v-for="a in assets" :key="a.assetId" :label="`${a.assetName}`" :value="a.assetId" />
       </el-select>
@@ -212,13 +204,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
-import * as XLSX from 'xlsx'
+// XLSX 动态导入，按需加载
 import dayjs from 'dayjs'
+import TimeRangeSelector from '@/components/TimeRangeSelector.vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -229,7 +222,7 @@ const list = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = 20
-const filterMonth = ref(dayjs().format('YYYY-MM'))
+const timeRange = ref({ mode: 'month', yearMonths: [dayjs().format('YYYY-MM')], label: dayjs().format('YYYY年MM月') })
 const filterAssetId = ref('')
 const filterUserId = ref('')
 const filterType = ref('')
@@ -295,7 +288,10 @@ async function showImages(row) {
 async function handleExport() {
   exporting.value = true
   try {
-    const params = { yearMonth: filterMonth.value, page: 1, pageSize: 5000 }
+    const XLSX = await import('xlsx')
+    const t = timeRange.value
+    const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
+    const params = { ...tp, page: 1, pageSize: 5000, module: 'equipment' }
     if (appStore.currentFactoryId) params.factoryId = appStore.currentFactoryId
     if (filterAssetId.value) params.assetId = filterAssetId.value
     if (filterUserId.value) params.userId = filterUserId.value
@@ -335,7 +331,7 @@ async function handleExport() {
     const ws = XLSX.utils.json_to_sheet(exportRows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '更换记录')
-    XLSX.writeFile(wb, `更换记录_${filterMonth.value}.xlsx`)
+    XLSX.writeFile(wb, `更换记录_${timeRange.value.label}.xlsx`)
     ElMessage.success('导出成功')
   } catch (err) {
     ElMessage.error('导出失败：' + (err.message || '未知错误'))
@@ -347,7 +343,9 @@ async function handleExport() {
 async function loadList() {
   loading.value = true
   try {
-    let filteredData = { yearMonth: filterMonth.value, page: currentPage.value, pageSize }
+    const t = timeRange.value
+    const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
+    let filteredData = { ...tp, page: currentPage.value, pageSize, module: 'equipment' }
     if (appStore.currentFactoryId) filteredData.factoryId = appStore.currentFactoryId
     if (filterAssetId.value) filteredData.assetId = filterAssetId.value
     if (filterUserId.value) filteredData.userId = filterUserId.value
@@ -434,9 +432,10 @@ async function handleSaveEditItems() {
   }
 }
 
+watch(timeRange, () => loadList(), { deep: true })
+
 onMounted(async () => {
   await loadBasicData()
-  await loadList()
 })
 </script>
 

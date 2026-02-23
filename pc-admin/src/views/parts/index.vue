@@ -54,9 +54,36 @@
         <el-option label="ERP" value="ERP" />
       </el-select>
     </div>
+    <div v-if="isAdmin" class="batch-actions">
+      <span class="batch-tip">已选 {{ selectedPartSkuIds.length }} 项</span>
+      <el-button :disabled="!selectedPartSkuIds.length" :loading="batchActionLoading" @click="handleBatchDisable">
+        批量停用
+      </el-button>
+      <el-popconfirm
+        title="确定删除已勾选配件？删除后不可恢复。"
+        confirm-button-text="删除"
+        cancel-button-text="取消"
+        confirm-button-type="danger"
+        @confirm="handleBatchDelete"
+      >
+        <template #reference>
+          <el-button type="danger" :disabled="!selectedPartSkuIds.length" :loading="batchActionLoading">
+            批量删除
+          </el-button>
+        </template>
+      </el-popconfirm>
+    </div>
 
     <!-- 表格 -->
-    <el-table :data="filteredList" v-loading="loading" stripe>
+    <el-table
+      ref="tableRef"
+      :data="filteredList"
+      v-loading="loading"
+      stripe
+      row-key="partSkuId"
+      @selection-change="handleSelectionChange"
+    >
+      <el-table-column v-if="isAdmin" type="selection" width="48" />
       <el-table-column prop="partSkuId" label="SKU ID" width="120" />
       <el-table-column prop="partName" label="配件名称" min-width="130" />
       <el-table-column prop="partCode" label="配件编号" width="140" />
@@ -74,9 +101,21 @@
           <el-tag size="small" type="info">{{ row.source }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
+      <el-table-column v-if="canEdit" label="操作" width="150" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDialog(row)">编辑</el-button>
+          <el-popconfirm
+            v-if="isAdmin"
+            title="确定删除该配件？删除后不可恢复。"
+            confirm-button-text="删除"
+            cancel-button-text="取消"
+            confirm-button-type="danger"
+            @confirm="handleDeletePart(row)"
+          >
+            <template #reference>
+              <el-button size="small" type="danger" text :loading="row._deleting">删除</el-button>
+            </template>
+          </el-popconfirm>
         </template>
       </el-table-column>
     </el-table>
@@ -166,7 +205,7 @@
           show-icon
           :title="`校验通过！共 ${importPreview.valid} 条数据待导入`"
         />
-        <el-table :data="importRows.slice(0, 20)" size="small" max-height="300" style="margin-top: 12px">
+        <el-table :data="(importPreview.validRows || importRows).slice(0, 20)" size="small" max-height="300" style="margin-top: 12px">
           <el-table-column prop="partSkuId" label="SKU ID" width="100" />
           <el-table-column prop="partName" label="名称" width="120" />
           <el-table-column prop="partCode" label="编号" width="120" />
@@ -181,9 +220,25 @@
       <!-- Step 3: 结果 -->
       <div v-if="importStep === 2" class="import-body">
         <el-result
-          icon="success"
-          :title="`导入完成`"
-          :sub-title="`新增 ${importResult.created} 条，更新 ${importResult.updated} 条`"
+          :icon="importResult.created > 0 ? 'success' : 'warning'"
+          :title="importResult.created > 0 ? '导入完成' : '未新增数据'"
+          :sub-title="`新增 ${importResult.created ?? 0} 条，跳过 ${importResult.skipped ?? 0} 条（同编号已存在则跳过）`"
+        />
+        <el-alert
+          v-if="importResult.message"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="importResult.message"
+          style="margin-top: 12px"
+        />
+        <el-alert
+          v-else-if="importResult.created === 0 && importRows.length > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="所有行均被跳过。请检查：1）顶部是否已选工厂；2）编号是否与现有配件重复；3）Excel 表头是否为「编号、名称、单位」。"
+          style="margin-top: 12px"
         />
       </div>
 
@@ -195,7 +250,7 @@
         <el-button
           v-if="importStep === 1"
           type="primary"
-          :disabled="!!importPreview.errors?.length"
+          :disabled="!!importPreview.errors?.length || !(importPreview.valid > 0)"
           :loading="importLoading"
           @click="handleImportCommit"
         >
@@ -213,16 +268,20 @@ import { api } from '@/utils/api'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as XLSX from 'xlsx'
+// XLSX 动态导入，按需加载
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const canEdit = computed(() => authStore.canEdit)
+const isAdmin = computed(() => authStore.isAdmin)
 const currentFactoryId = computed(() => appStore.currentFactoryId)
 const loading = ref(false)
 const submitLoading = ref(false)
 const cleanupLoading = ref(false)
+const batchActionLoading = ref(false)
 const list = ref([])
+const tableRef = ref()
+const selectedRows = ref([])
 const searchText = ref('')
 const filterActive = ref(null)
 const filterSource = ref('')
@@ -252,6 +311,7 @@ const exportLoading = ref(false)
 async function handleExportParts() {
   exportLoading.value = true
   try {
+    const XLSX = await import('xlsx')
     if (!list.value.length) {
       ElMessage.warning('暂无数据可导出')
       return
@@ -307,6 +367,12 @@ const filteredList = computed(() => {
   })
 })
 
+const selectedPartSkuIds = computed(() => selectedRows.value.map(row => row.partSkuId).filter(Boolean))
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows || []
+}
+
 function openDialog(row) {
   if (row) {
     isEdit.value = true
@@ -353,7 +419,7 @@ function handleFileChange(file) {
   importFile.value = file.raw
 }
 
-// 中文表头 → 英文字段名映射
+// 中文表头 → 英文字段名映射（支持带换行的表头如 "名称\nName"）
 const headerMap = {
   '配件编号': 'partCode',
   '配件名称': 'partName',
@@ -361,6 +427,7 @@ const headerMap = {
   '单位': 'unit',
   '配件SKU-ID': 'partSkuId',
   'SKU-ID': 'partSkuId',
+  'SKU ID': 'partSkuId',
   'partSkuId': 'partSkuId',
   'partName': 'partName',
   'partCode': 'partCode',
@@ -373,13 +440,24 @@ const headerMap = {
   '分类': 'category',
 }
 
+function normalizeHeaderKey(key) {
+  if (key == null || typeof key !== 'string') return ''
+  const k = key.trim()
+  if (headerMap[k]) return headerMap[k]
+  const firstLine = k.split('\n')[0].trim()
+  return headerMap[firstLine] || k
+}
+
 function mapRow(row) {
   const mapped = {}
   for (const [key, value] of Object.entries(row)) {
-    const fieldName = headerMap[key.trim()] || key
+    const fieldName = normalizeHeaderKey(key)
     mapped[fieldName] = value
   }
-  // 如果没有 partSkuId，自动生成
+  if (mapped.partCode != null) mapped.partCode = String(mapped.partCode).trim()
+  if (mapped.partName != null) mapped.partName = String(mapped.partName).trim()
+  if (mapped.unit != null) mapped.unit = String(mapped.unit).trim()
+  if (mapped.specModel != null) mapped.specModel = String(mapped.specModel).trim()
   if (!mapped.partSkuId && mapped.partCode) {
     mapped.partSkuId = 'PSK-' + mapped.partCode
   }
@@ -389,21 +467,24 @@ function mapRow(row) {
 async function handlePreview() {
   if (!importFile.value) return
   try {
+    const XLSX = await import('xlsx')
     const data = await importFile.value.arrayBuffer()
     const workbook = XLSX.read(data, { type: 'array' })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
     const rawRows = XLSX.utils.sheet_to_json(sheet)
-    // 映射中文表头为英文字段名
-    const rows = rawRows.map(mapRow).filter(r => r.partCode || r.partName)
+    // 只去掉整行为空，保留原始列名交给云函数解析（避免表头换行导致前端映射失败）
+    const rows = rawRows.filter(r => Object.values(r).some(v => v != null && String(v).trim() !== ''))
     importRows.value = rows
 
     const res = await api.importPartsPreview(rows)
     if (res.ok) {
       importPreview.value = res.data
       importStep.value = 1
+    } else {
+      ElMessage.error(res.error?.message || '预览校验失败')
     }
   } catch (err) {
-    ElMessage.error('文件解析失败：' + err.message)
+    ElMessage.error('文件解析失败：' + (err.message || String(err)))
   }
 }
 
@@ -414,8 +495,15 @@ async function handleImportCommit() {
     if (res.ok) {
       importResult.value = res.data
       importStep.value = 2
-      loadList()
+      await loadList()
+      if ((res.data.created > 0) && list.value.length === 0) {
+        ElMessage.warning('数据已写入，但当前列表未显示。请确认顶部已选择工厂，或刷新页面。')
+      }
+    } else {
+      ElMessage.error(res.error?.message || '导入失败')
     }
+  } catch (e) {
+    ElMessage.error('导入失败：' + (e.message || String(e)))
   } finally {
     importLoading.value = false
   }
@@ -457,11 +545,77 @@ async function handleCleanup() {
   }
 }
 
+async function handleDeletePart(row) {
+  row._deleting = true
+  try {
+    const res = await api.deletePart(row.partSkuId)
+    if (res.ok) {
+      ElMessage.success('配件已删除')
+      loadList()
+    } else {
+      ElMessage.error(res.error?.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e.message || ''))
+  } finally {
+    row._deleting = false
+  }
+}
+
+async function handleBatchDisable() {
+  if (!selectedPartSkuIds.value.length) {
+    ElMessage.warning('请先勾选要停用的配件')
+    return
+  }
+  batchActionLoading.value = true
+  try {
+    const res = await api.batchSetPartsActive(selectedPartSkuIds.value, false)
+    if (!res.ok) {
+      ElMessage.error(res.error?.message || '批量停用失败')
+      return
+    }
+    ElMessage.success(`已停用 ${res.data?.updated ?? 0} 条配件`)
+    await loadList()
+  } catch (e) {
+    ElMessage.error('批量停用失败：' + (e.message || ''))
+  } finally {
+    batchActionLoading.value = false
+  }
+}
+
+async function handleBatchDelete() {
+  if (!selectedPartSkuIds.value.length) {
+    ElMessage.warning('请先勾选要删除的配件')
+    return
+  }
+  batchActionLoading.value = true
+  try {
+    const res = await api.batchDeleteParts(selectedPartSkuIds.value)
+    if (!res.ok) {
+      ElMessage.error(res.error?.message || '批量删除失败')
+      return
+    }
+    const failed = res.data?.failed ?? 0
+    if (failed > 0) {
+      ElMessage.warning(`删除完成：成功 ${res.data?.deleted ?? 0} 条，失败 ${failed} 条`)
+    } else {
+      ElMessage.success(`已删除 ${res.data?.deleted ?? 0} 条配件`)
+    }
+    await loadList()
+  } catch (e) {
+    ElMessage.error('批量删除失败：' + (e.message || ''))
+  } finally {
+    batchActionLoading.value = false
+  }
+}
+
 async function loadList() {
   loading.value = true
   try {
     const res = await api.listParts(currentFactoryId.value)
     if (res.ok) list.value = res.data.list
+    selectedRows.value = []
+    tableRef.value?.clearSelection?.()
   } finally {
     loading.value = false
   }
@@ -508,6 +662,18 @@ onMounted(loadList)
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+
+  .batch-tip {
+    color: #606266;
+    font-size: 13px;
+  }
 }
 
 .summary-cards {

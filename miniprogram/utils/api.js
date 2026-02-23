@@ -187,6 +187,39 @@ function getAIReport(params) {
   return callCloud('adminDashboard', { action: 'getAIReport', data: params })
 }
 
+// ======================== 巡检打卡 API ========================
+
+/**
+ * 获取当前工厂的巡检计划 + 今日完成进度
+ */
+function getInspectionPlan() {
+  return callCloud('getInspectionPlan', {})
+}
+
+/**
+ * 提交巡检打卡
+ * @param {Object} params { assetId, images[], remark? }
+ */
+function submitInspectionLog(params) {
+  return callCloud('submitInspectionLog', params)
+}
+
+/**
+ * 查询巡检历史记录
+ * @param {Object} params { startDate?, endDate?, page, pageSize }
+ */
+function listInspectionHistory(params) {
+  return callCloud('listInspectionHistory', params)
+}
+
+/**
+ * 管理员设置巡检计划
+ * @param {Object} params { assetIds[], planName? }
+ */
+function setInspectionPlan(params) {
+  return callCloud('setInspectionPlan', params)
+}
+
 module.exports = {
   getMe,
   getAssetByQr,
@@ -207,5 +240,9 @@ module.exports = {
   getMonthlyCostRanking,
   listInventoryAlerts,
   getFactories,
-  getAIReport
+  getAIReport,
+  getInspectionPlan,
+  submitInspectionLog,
+  listInspectionHistory,
+  setInspectionPlan
 }

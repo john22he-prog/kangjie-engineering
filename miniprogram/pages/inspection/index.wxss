@@ -1,0 +1,192 @@
+/* 进度卡片 */
+.progress-card {
+  text-align: center;
+  padding: 40rpx 24rpx;
+}
+
+.progress-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.progress-date {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-bottom: 24rpx;
+}
+
+.progress-nums {
+  font-size: 56rpx;
+  font-weight: 700;
+  margin-bottom: 20rpx;
+}
+
+.progress-done {
+  color: var(--weui-BRAND);
+}
+
+.progress-sep {
+  color: var(--weui-FG-2);
+  font-size: 40rpx;
+}
+
+.progress-total {
+  color: var(--weui-FG-1);
+}
+
+.progress-bar-bg {
+  height: 16rpx;
+  background: var(--weui-BG-0);
+  border-radius: 8rpx;
+  overflow: hidden;
+  margin: 0 40rpx;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--weui-BRAND);
+  border-radius: 8rpx;
+  transition: width 0.3s ease;
+}
+
+.progress-pct {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-top: 8rpx;
+}
+
+/* 扫码按钮 */
+.scan-btn {
+  height: 88rpx;
+  line-height: 88rpx;
+  font-size: 34rpx;
+}
+
+/* 全部完成 */
+.all-done-card {
+  text-align: center;
+  padding: 40rpx;
+}
+
+.all-done-icon {
+  display: block;
+  font-size: 64rpx;
+  color: var(--weui-BRAND);
+  margin-bottom: 12rpx;
+}
+
+.all-done-text {
+  font-size: 30rpx;
+  color: var(--weui-BRAND);
+  font-weight: 500;
+}
+
+/* 设备列表 */
+.asset-list {
+  padding: 0 24rpx;
+}
+
+.asset-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.asset-item:last-child {
+  border-bottom: none;
+}
+
+.asset-status {
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 28rpx;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+  margin-top: 4rpx;
+}
+
+.asset-status.pending {
+  border: 2rpx solid var(--weui-FG-2);
+  color: var(--weui-FG-2);
+}
+
+.asset-status.done {
+  background: var(--weui-BRAND);
+  color: #fff;
+  font-size: 24rpx;
+}
+
+.asset-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.asset-name {
+  font-size: 30rpx;
+  font-weight: 500;
+  margin-bottom: 4rpx;
+}
+
+.asset-no {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.asset-meta {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+.meta-sep {
+  margin: 0 8rpx;
+}
+
+.asset-arrow {
+  font-size: 36rpx;
+  color: var(--weui-FG-2);
+  margin-left: 8rpx;
+  align-self: center;
+}
+
+/* 缩略图 */
+.thumb-row {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 12rpx;
+  flex-wrap: wrap;
+}
+
+.thumb-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 8rpx;
+}
+
+.asset-remark {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+  margin-top: 8rpx;
+}
+
+/* 底部操作 */
+.bottom-actions {
+  margin-top: 20rpx;
+}
+
+.action-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+  font-size: 30rpx;
+}
+
+.action-item:last-child {
+  border-bottom: none;
+}

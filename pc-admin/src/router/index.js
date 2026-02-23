@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   DataAnalysis, List, Bell, Monitor, SetUp,
   Notebook, User, OfficeBuilding, Box, Setting,
-  TrendCharts,
+  TrendCharts, House, Sunrise, HomeFilled,
 } from '@element-plus/icons-vue'
 
 const routes = [
@@ -16,16 +16,18 @@ const routes = [
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    redirect: '/dashboard',
     children: [
+      { path: 'company', name: 'Company', component: () => import('@/views/company/index.vue'), meta: { title: '公司总览', icon: HomeFilled, hidden: true, roles: ['Admin', 'Management'] } },
       { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/dashboard/index.vue'), meta: { title: '数据看板', icon: DataAnalysis } },
-      { path: 'dashboard/ai-report', name: 'AIReport', component: () => import('@/views/dashboard/ai-report.vue'), meta: { title: 'AI 分析报告', icon: TrendCharts } },
+      { path: 'dashboard/ai-report', name: 'AIReport', component: () => import('@/views/dashboard/ai-report.vue'), meta: { title: 'AI 分析报告', icon: TrendCharts, hidden: true } },
       { path: 'records', name: 'Records', component: () => import('@/views/records/index.vue'), meta: { title: '更换记录', icon: List } },
       { path: 'alerts', name: 'Alerts', component: () => import('@/views/alerts/index.vue'), meta: { title: '报警管理', icon: Bell } },
       { path: 'assets', name: 'Assets', component: () => import('@/views/assets/index.vue'), meta: { title: '设备管理', icon: Monitor } },
       { path: 'assets/:assetId/locations', name: 'AssetLocations', component: () => import('@/views/assets/locations.vue'), props: true, meta: { title: '部位管理', hidden: true } },
       { path: 'parts', name: 'Parts', component: () => import('@/views/parts/index.vue'), meta: { title: '配件字典', icon: SetUp } },
       { path: 'thresholds', name: 'Thresholds', component: () => import('@/views/thresholds/index.vue'), meta: { title: '阈值管理', icon: Notebook } },
+      { path: 'facility', name: 'Facility', component: () => import('@/views/facility/index.vue'), meta: { title: '厂务', icon: House, hidden: true, roles: ['Admin', 'Supervisor'] } },
+      { path: 'boiler', name: 'Boiler', component: () => import('@/views/facility/index.vue'), meta: { title: '锅炉房', icon: Sunrise, hidden: true, roles: ['Admin', 'Supervisor'] } },
       { path: 'users', name: 'Users', component: () => import('@/views/users/index.vue'), meta: { title: '用户管理', icon: User, roles: ['Admin'] } },
       { path: 'factories', name: 'Factories', component: () => import('@/views/factories/index.vue'), meta: { title: '工厂管理', icon: OfficeBuilding, roles: ['Admin'] } },
       { path: 'inventory', name: 'Inventory', component: () => import('@/views/inventory/index.vue'), meta: { title: '库存管理', icon: Box } },
@@ -43,12 +45,24 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
+
   if (!to.meta.public && !auth.isLoggedIn) {
     return next('/login')
   }
+
+  // Admin/Management 访问根路径时跳转到公司总览，其他角色跳转到数据看板
+  if (to.path === '/') {
+    const role = auth.user?.role
+    if (role === 'Admin' || role === 'Management') {
+      return next('/company')
+    }
+    return next('/dashboard')
+  }
+
   if (to.meta.roles && !to.meta.roles.includes(auth.user?.role)) {
     return next('/dashboard')
   }
+
   next()
 })
 

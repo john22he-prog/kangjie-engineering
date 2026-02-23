@@ -1,0 +1,102 @@
+.history-card {
+  padding: 0 24rpx;
+}
+
+.date-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.date-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.date-text {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.expand-arrow {
+  font-size: 32rpx;
+  color: var(--weui-FG-2);
+  transition: transform 0.2s;
+}
+
+.expand-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+/* 展开详情 */
+.detail-panel {
+  padding: 12rpx 0 24rpx;
+}
+
+.log-item {
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--weui-BG-1);
+}
+
+.log-item:last-child {
+  border-bottom: none;
+}
+
+.log-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  margin-bottom: 4rpx;
+}
+
+.log-asset-name {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.log-asset-no {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+}
+
+.log-meta {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-bottom: 8rpx;
+}
+
+.thumb-row {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 8rpx;
+  flex-wrap: wrap;
+}
+
+.thumb-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 8rpx;
+}
+
+.log-remark {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+  margin-top: 8rpx;
+}
+
+.no-logs {
+  text-align: center;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+  padding: 24rpx 0;
+}
+
+.load-more {
+  text-align: center;
+  padding: 24rpx;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+}

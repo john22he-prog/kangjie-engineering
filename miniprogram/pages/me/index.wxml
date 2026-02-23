@@ -21,8 +21,34 @@
     </view>
   </view>
 
+  <!-- 巡检打卡 -->
+  <view class="card" wx:if="{{isLoggedIn}}">
+    <view class="me-cell" bindtap="onInspection">
+      <view class="me-cell-left">
+        <view>
+          <text class="me-cell-title">巡检打卡</text>
+          <text class="me-cell-desc">每日设备巡检，扫码拍照打卡</text>
+        </view>
+      </view>
+      <text class="me-cell-arrow">›</text>
+    </view>
+  </view>
+
   <!-- 离线队列 -->
   <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+  <!-- 公司总览（Admin / Management） -->
+  <view class="card" wx:if="{{canViewCompany}}">
+    <view class="me-cell" bindtap="onCompanyOverview">
+      <view class="me-cell-left">
+        <view>
+          <text class="me-cell-title">公司总览</text>
+          <text class="me-cell-desc">各部门状态与关键数据</text>
+        </view>
+      </view>
+      <text class="me-cell-arrow">›</text>
+    </view>
+  </view>
 
   <!-- AI 分析报告（主管及以上） -->
   <view class="card" wx:if="{{canManage}}">

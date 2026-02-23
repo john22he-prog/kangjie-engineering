@@ -236,7 +236,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import QRCode from 'qrcode'
-import * as XLSX from 'xlsx'
+// XLSX 动态导入，按需加载
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -487,7 +487,7 @@ async function loadRefData() {
 async function downloadTemplate() {
   ElMessage.info('正在生成模板，请稍候...')
   await loadRefData()
-
+  const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
 
   // ---- Sheet 1：设备信息 ----
@@ -549,8 +549,9 @@ async function handleExcelUpload(file) {
   if (!cachedParts.value.length) await loadRefData()
 
   const reader = new FileReader()
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
+      const XLSX = await import('xlsx')
       const wb = XLSX.read(e.target.result, { type: 'array' })
       const errors = []
       const validDevices = []

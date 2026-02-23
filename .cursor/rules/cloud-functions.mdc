@@ -1,0 +1,51 @@
+---
+description: 云函数开发规范
+globs: cloudfunctions/**/*
+alwaysApply: false
+---
+
+# 云函数开发规范
+
+## 两种架构并存
+
+| 风格 | 适用 | 示例 |
+|------|------|------|
+| 独立函数（一函数一功能） | 工程部现有函数 | getMe, listAssets, submitReplacementLog |
+| 合并函数（module+action 路由） | 锅炉房 + 未来新部门 | boiler-core, boiler-analysis |
+
+## 命名约定
+
+- 工程部：保持原名不变（驼峰式，如 getAssetByQr）
+- 锅炉房：boiler- 前缀（如 boiler-core, boiler-analysis, boiler-auth）
+- 统一模块：unified- 前缀（如 unified-auth）
+- 未来部门：部门缩写-功能（如 general-core, finance-core）
+
+## 运行时
+
+- 目标版本：Node.js 18.15
+- 超时时间：默认 10s，网关/导出类 120s
+
+## CloudBase 环境
+
+- 环境 ID：cloud1-0g0grbwt8c230b0d
+- 同一环境下 NoSQL 和 MySQL 共存
+
+## MySQL 连接（锅炉房及未来部门使用）
+
+```javascript
+const mysql = require('serverless-mysql')({
+  config: {
+    host: process.env.MYSQL_ADDRESS,
+    port: parseInt(process.env.MYSQL_PORT),
+    user: process.env.MYSQL_USERNAME,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DBNAME
+  }
+})
+// 每次查询后调用 await mysql.end()
+```
+
+## 安全
+
+- 始终通过 cloud.getWXContext() 获取 OPENID，不信任前端传入
+- 锅炉房环境变量加 BOILER_ 前缀避免冲突（如有需要）

@@ -13,7 +13,12 @@
     "pages/dashboard/asset-detail",
     "pages/dashboard/asset-alerts",
     "pages/dashboard/asset-cost-detail",
-    "pages/bind/index"
+    "pages/bind/index",
+    "pages/inspection/index",
+    "pages/inspection/checkin",
+    "pages/inspection/history",
+    "pages/inspection/plan-config",
+    "pages/company/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

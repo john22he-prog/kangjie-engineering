@@ -1,0 +1,54 @@
+---
+description: 小程序 JavaScript/WXML 编码风格
+globs: miniprogram/**/*.js,miniprogram/**/*.wxml,miniprogram/**/*.wxss,miniprogram/**/*.json
+alwaysApply: false
+---
+
+# 编码风格规范
+
+## JavaScript
+
+- 使用 ES6+ 语法（const/let、箭头函数、async/await、解构）
+- 不使用 var
+- 字符串用单引号
+- 缩进 2 空格
+- 异步操作统一用 async/await，不用 .then() 链
+
+```javascript
+// ✅ 正确
+const { data } = await wx.cloud.callFunction({ name: 'listAssets', data: { factoryId } })
+
+// ❌ 避免
+wx.cloud.callFunction({ name: 'listAssets', data: { factoryId } }).then(res => { ... })
+```
+
+## 错误处理
+
+- 所有云函数调用必须 try/catch
+- 错误时用 wx.showToast 提示用户，不要静默吞掉
+
+```javascript
+try {
+  const res = await wx.cloud.callFunction({ name: 'xxx', data })
+  // 处理成功
+} catch (err) {
+  console.error('[xxx] 调用失败:', err)
+  wx.showToast({ title: '操作失败，请重试', icon: 'none' })
+}
+```
+
+## 页面生命周期
+
+- 数据加载放 onLoad 或 onShow，不放 onReady
+- 需要登录的页面，用 app.waitLogin() 等待登录完成后再加载数据
+
+## WXML
+
+- 条件渲染用 wx:if，频繁切换用 hidden
+- 列表渲染必须加 wx:key
+- 事件绑定用 bind:tap，不用 bindtap（保持一致性）
+
+## WXSS
+
+- 使用 rpx 做响应式单位
+- 颜色值使用 CSS 变量（--weui-BRAND 等），不硬编码色值

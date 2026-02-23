@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "image-uploader": "/components/image-uploader/index"
+  },
+  "navigationBarTitleText": "巡检打卡"
+}

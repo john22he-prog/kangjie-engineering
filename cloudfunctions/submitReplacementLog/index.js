@@ -40,15 +40,17 @@ exports.main = async (event, context) => {
     }
 
     // ========== 2) 入参校验 ==========
-    const { assetId, type, locationId, selectedPartSkuIds, qtyMap, remark, images, clientOfflineId } = event
+    const { assetId, type, locationId, selectedPartSkuIds, qtyMap, remark, images, clientOfflineId, module: rawModule } = event
+    const module = ['equipment', 'facility', 'boiler'].includes(rawModule) ? rawModule : 'equipment'
+    const isNonEquipment = module === 'facility' || module === 'boiler'
 
     if (!clientOfflineId) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 clientOfflineId' } }
     }
-    if (!assetId || !type) {
+    if (!isNonEquipment && (!assetId || !type)) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段（设备ID和更换类型）' } }
     }
-    if (!['维修', '预防', '紧急'].includes(type)) {
+    if (!isNonEquipment && !['维修', '保养', '预防', '紧急'].includes(type)) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '更换类型无效' } }
     }
     if (!Array.isArray(selectedPartSkuIds) || selectedPartSkuIds.length === 0) {
@@ -64,7 +66,7 @@ exports.main = async (event, context) => {
         return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数量必须为正整数' } }
       }
     }
-    if (!Array.isArray(images) || images.length < 1) {
+    if (!isNonEquipment && (!Array.isArray(images) || images.length < 1)) {
       return { ok: false, error: { code: 'UPLOAD_REQUIRED', message: '至少上传 1 张照片' } }
     }
 
@@ -78,20 +80,23 @@ exports.main = async (event, context) => {
     }
 
     // ========== 4) 数据校验：设备必须存在，部位为可选 ==========
-    const { data: assets } = await db.collection('assets').where({ assetId, status: 'active' }).limit(1).get()
-    if (assets.length === 0) {
-      return { ok: false, error: { code: 'ASSET_NOT_FOUND', message: '设备不存在或已停用' } }
-    }
-    const asset = assets[0]
-
-    // 部位为可选：如果提供了 locationId 则校验，否则跳过
+    let asset = null
     let location = null
-    if (locationId) {
-      const { data: locs } = await db.collection('asset_locations').where({ locationId, assetId, active: true }).limit(1).get()
-      if (locs.length > 0) {
-        location = locs[0]
+    if (isNonEquipment) {
+      asset = { assetId: '', assetName: module === 'facility' ? '厂务' : '锅炉房', assetNo: '', factoryId: user.factoryId || null }
+    } else {
+      const { data: assets } = await db.collection('assets').where({ assetId, status: 'active' }).limit(1).get()
+      if (assets.length === 0) {
+        return { ok: false, error: { code: 'ASSET_NOT_FOUND', message: '设备不存在或已停用' } }
       }
-      // 部位不存在也不阻断，只是不记录部位快照
+      asset = assets[0]
+
+      if (locationId) {
+        const { data: locs } = await db.collection('asset_locations').where({ locationId, assetId, active: true }).limit(1).get()
+        if (locs.length > 0) {
+          location = locs[0]
+        }
+      }
     }
 
     // 查配件快照
@@ -121,6 +126,7 @@ exports.main = async (event, context) => {
 
     const logDoc = {
       logId,
+      module,
       factoryId,
       assetId: asset.assetId,
       assetNameSnapshot: asset.assetName,
@@ -129,20 +135,23 @@ exports.main = async (event, context) => {
       reporterNameSnapshot: user.displayName,
       ts: now,
       yearMonth,
-      type,
+      type: type || '维修',
       locationIdSnapshot: locationId || '',
       locationNameSnapshot: location ? location.locationName : '',
       items,
       remark: remark || '',
-      images,
+      images: images || [],
       clientOfflineId,
       createdAt: now
     }
 
     await db.collection('replacement_logs').add({ data: logDoc })
 
-    // ========== 6) 更新月度用量 & 检查阈值 ==========
+    // ========== 6) 更新月度用量 & 检查阈值（仅设备模块） ==========
     const createdAlerts = []
+    if (isNonEquipment) {
+      // 厂务/锅炉房不做月度用量统计和阈值报警，直接跳到库存扣减
+    } else {
     for (const item of items) {
       // upsert monthly_part_usage
       const usageKey = { factoryId, assetId: asset.assetId, partSkuId: item.partSkuId, yearMonth }
@@ -203,6 +212,7 @@ exports.main = async (event, context) => {
         }
       }
     }
+    } // end if (!isNonEquipment) for threshold checks
 
     // ========== 7) 自动出库：扣减库存 + 记录出库 + 低库存报警 ==========
     let totalRepairCost = 0

@@ -277,6 +277,46 @@ const mockApi = {
   async listParts() { await delay(); return { ok: true, data: { list: clone(mockParts) } } },
   async createPart(data) { await delay(); const exists = mockParts.find(p => p.partCode === data.partCode); if (exists) return { ok: false, error: { code: 'DUPLICATE', message: '配件编号已存在' } }; const part = { partSkuId: data.partSkuId || genId('SKU'), partName: data.partName, partCode: data.partCode, unit: data.unit, specModel: data.specModel || '', active: true, source: 'manual', updatedAt: Date.now() }; mockParts.push(part); return { ok: true, data: { partSkuId: part.partSkuId } } },
   async updatePart(partSkuId, data) { await delay(); const part = mockParts.find(p => p.partSkuId === partSkuId); if (!part) return { ok: false, error: { code: 'NOT_FOUND', message: '配件不存在' } }; Object.assign(part, data, { updatedAt: Date.now() }); return { ok: true, data: {} } },
+  async deletePart(partSkuId) {
+    await delay()
+    const idx = mockParts.findIndex(p => p.partSkuId === partSkuId)
+    if (idx === -1) return { ok: false, error: { code: 'NOT_FOUND', message: '配件不存在' } }
+    mockParts.splice(idx, 1)
+    return { ok: true, data: { partSkuId, removed: 1 } }
+  },
+  async batchSetPartsActive(partSkuIds, active) {
+    await delay()
+    if (!Array.isArray(partSkuIds) || partSkuIds.length === 0) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少一个配件' } }
+    }
+    let updated = 0
+    partSkuIds.forEach(id => {
+      const part = mockParts.find(p => p.partSkuId === id)
+      if (part) {
+        part.active = !!active
+        part.updatedAt = Date.now()
+        updated++
+      }
+    })
+    return { ok: true, data: { requested: partSkuIds.length, updated, active: !!active } }
+  },
+  async batchDeleteParts(partSkuIds) {
+    await delay()
+    if (!Array.isArray(partSkuIds) || partSkuIds.length === 0) {
+      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少一个配件' } }
+    }
+    let deleted = 0
+    const errors = []
+    partSkuIds.forEach(id => {
+      const idx = mockParts.findIndex(p => p.partSkuId === id)
+      if (idx === -1) errors.push({ partSkuId: id, message: '配件不存在' })
+      else {
+        mockParts.splice(idx, 1)
+        deleted++
+      }
+    })
+    return { ok: true, data: { requested: partSkuIds.length, deleted, failed: errors.length, errors } }
+  },
   async importPartsPreview(rows) { await delay(500); const errors = []; const valid = []; rows.forEach((row, idx) => { const lineNo = idx + 2; if (!row.partSkuId) { errors.push({ line: lineNo, msg: 'partSkuId 必填' }); return } if (!row.partName) { errors.push({ line: lineNo, msg: 'partName 必填' }); return } if (!row.partCode) { errors.push({ line: lineNo, msg: 'partCode 必填' }); return } if (!row.unit) { errors.push({ line: lineNo, msg: 'unit 必填' }); return } valid.push({ ...row, _line: lineNo }) }); return { ok: true, data: { valid: valid.length, errors, total: rows.length } } },
   async importPartsCommit(rows) { await delay(800); let created = 0, updated = 0; rows.forEach(row => { const existing = mockParts.find(p => p.partSkuId === row.partSkuId); if (existing) { Object.assign(existing, row, { source: 'Excel', updatedAt: Date.now() }); updated++ } else { mockParts.push({ ...row, active: true, source: 'Excel', updatedAt: Date.now() }); created++ } }); return { ok: true, data: { created, updated } } },
 
@@ -285,7 +325,9 @@ const mockApi = {
   async batchUpsertThresholds(items) { await delay(500); let count = 0; for (const item of items) { await api.upsertThreshold(item); count++ } return { ok: true, data: { count } } },
   async deleteThreshold(thresholdId) { await delay(); const th = mockThresholds.find(t => t.thresholdId === thresholdId); if (!th) return { ok: false, error: { code: 'NOT_FOUND', message: '阈值不存在' } }; th.active = false; return { ok: true, data: {} } },
 
-  async listReplacementLogs({ factoryId, yearMonth, assetId, userId, page = 1, pageSize = 20 } = {}) { await delay(); let list = clone(mockReplacementLogs); if (factoryId) list = list.filter(l => l.factoryId === factoryId); if (yearMonth) list = list.filter(l => l.yearMonth === yearMonth); if (assetId) list = list.filter(l => l.assetId === assetId); if (userId) list = list.filter(l => l.reporterUserIdSnapshot === userId); list.sort((a, b) => b.ts - a.ts); const total = list.length; const start = (page - 1) * pageSize; list = list.slice(start, start + pageSize); return { ok: true, data: { list, total, page, pageSize } } },
+  async listReplacementLogs({ factoryId, yearMonth, assetId, userId, module: moduleFilter, page = 1, pageSize = 20 } = {}) { await delay(); let list = clone(mockReplacementLogs); if (factoryId) list = list.filter(l => l.factoryId === factoryId); if (yearMonth) list = list.filter(l => l.yearMonth === yearMonth); if (assetId) list = list.filter(l => l.assetId === assetId); if (userId) list = list.filter(l => l.reporterUserIdSnapshot === userId); if (moduleFilter === 'facility' || moduleFilter === 'boiler') { list = list.filter(l => l.module === moduleFilter) } else if (moduleFilter === 'equipment') { list = list.filter(l => !l.module || l.module === 'equipment') } list.sort((a, b) => b.ts - a.ts); const total = list.length; const start = (page - 1) * pageSize; list = list.slice(start, start + pageSize); return { ok: true, data: { list, total, page, pageSize } } },
+
+  async submitFacilityLog(data) { await delay(); return { ok: true, data: { logId: genId('log'), yearMonth: dayjs().format('YYYY-MM') } } },
 
   async listAlerts({ factoryId, status, yearMonth, assetId, page = 1, pageSize = 20 } = {}) { await delay(); let list = clone(mockAlerts); if (factoryId) list = list.filter(a => a.factoryId === factoryId); if (status) list = list.filter(a => a.status === status); if (yearMonth) list = list.filter(a => a.yearMonth === yearMonth); if (assetId) list = list.filter(a => a.assetId === assetId); list.sort((a, b) => b.createdAt - a.createdAt); list = list.map(a => ({ ...a, assetName: getAssetName(a.assetId), partName: getPartName(a.partSkuId), partCode: getPartCode(a.partSkuId), ackByName: a.ackByUserId ? getUserName(a.ackByUserId) : '' })); const total = list.length; const start = (page - 1) * pageSize; list = list.slice(start, start + pageSize); return { ok: true, data: { list, total, page, pageSize } } },
 

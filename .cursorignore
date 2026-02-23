@@ -1,0 +1,33 @@
+# PC 端代码（小程序开发时排除，减少 AI 上下文干扰）
+pc-admin/
+pc-server/
+
+# 构建产物和依赖
+node_modules/
+**/node_modules/
+miniprogram_npm/
+miniprogram/miniprogram_npm/
+dist/
+**/dist/
+
+# 大文件和二进制文件
+*.pdf
+*.xls
+*.xlsx
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.zip
+
+# 文档（需要时手动 @ 引用即可）
+docs/
+*.md
+# 但不排除 rules（cursor 自己管理）
+!.cursor/rules/*.mdc
+
+# 微信开发者工具生成的文件
+project.private.config.json
+
+# Git
+.git/

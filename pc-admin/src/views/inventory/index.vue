@@ -34,42 +34,6 @@
       </div>
     </div>
 
-    <!-- 库存表格 -->
-    <el-table :data="list" v-loading="loading" stripe>
-      <el-table-column prop="partNameSnapshot" label="配件名称" min-width="130" />
-      <el-table-column prop="partCodeSnapshot" label="配件编号" width="140" />
-      <el-table-column prop="specModelSnapshot" label="规格型号" width="120" />
-      <el-table-column prop="unitSnapshot" label="单位" width="60" />
-      <el-table-column label="库存数量" width="120">
-        <template #default="{ row }">
-          <span :class="{ 'low-stock': row.currentQty <= row.lowStockThreshold }">
-            {{ row.currentQty }}
-          </span>
-          <el-tag v-if="row.currentQty <= row.lowStockThreshold" type="danger" size="small" class="low-tag">低</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="平均单价" width="100">
-        <template #default="{ row }">
-          ¥{{ row.avgUnitCost?.toFixed(2) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="库存价值" width="120">
-        <template #default="{ row }">
-          ¥{{ row.totalCostValue?.toFixed(2) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="低库存阈值" width="110">
-        <template #default="{ row }">
-          {{ row.lowStockThreshold }}
-        </template>
-      </el-table-column>
-      <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="editThreshold(row)">设置阈值</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-
     <!-- 当月配件使用金额（从高到低） -->
     <div class="cost-section" v-if="usageCostList.length > 0">
       <h3 class="section-title">当月配件使用金额（从高到低）</h3>
@@ -98,6 +62,80 @@
         总使用金额: <strong>¥{{ totalUsageCost.toLocaleString() }}</strong>
       </div>
     </div>
+
+    <!-- 搜索 / 筛选 / 排序 -->
+    <div class="filter-bar">
+      <el-input v-model="searchText" placeholder="搜索配件名称/编号" clearable style="width: 240px" prefix-icon="Search" />
+      <el-select v-model="filterLowStock" placeholder="库存状态" clearable style="width: 140px">
+        <el-option label="低库存" value="low" />
+        <el-option label="正常" value="normal" />
+      </el-select>
+      <el-select v-model="sortField" placeholder="排序方式" clearable style="width: 160px">
+        <el-option label="库存数量（升序）" value="qty_asc" />
+        <el-option label="库存数量（降序）" value="qty_desc" />
+        <el-option label="库存价值（升序）" value="value_asc" />
+        <el-option label="库存价值（降序）" value="value_desc" />
+      </el-select>
+    </div>
+
+    <!-- 库存表格 -->
+    <el-table :data="filteredList" v-loading="loading" stripe :row-class-name="tableRowClassName">
+      <el-table-column prop="partNameSnapshot" label="配件名称" min-width="130" />
+      <el-table-column prop="partCodeSnapshot" label="配件编号" width="140" />
+      <el-table-column prop="specModelSnapshot" label="规格型号" width="120" />
+      <el-table-column prop="unitSnapshot" label="单位" width="60" />
+      <el-table-column label="库存数量" width="120">
+        <template #default="{ row }">
+          <span :class="{ 'low-stock-text': isLowStock(row) }">
+            {{ row.currentQty }}
+          </span>
+          <el-tag v-if="isLowStock(row)" type="danger" size="small" class="low-tag">低</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="平均单价" width="100">
+        <template #default="{ row }">
+          ¥{{ row.avgUnitCost?.toFixed(2) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="库存价值" width="120">
+        <template #default="{ row }">
+          ¥{{ row.totalCostValue?.toFixed(2) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="低库存阈值" width="110">
+        <template #default="{ row }">
+          {{ row.lowStockThreshold }}
+        </template>
+      </el-table-column>
+      <el-table-column v-if="canEdit" label="操作" width="180" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" type="primary" link @click="openEditPart(row)">编辑</el-button>
+          <el-button size="small" link @click="editThreshold(row)">设置阈值</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <!-- 编辑配件弹窗 -->
+    <el-dialog v-model="editPartDialogVisible" title="编辑配件" width="480px">
+      <el-form :model="editPartForm" label-width="100px">
+        <el-form-item label="配件编号">
+          <span class="readonly-text">{{ editPartForm.partCode }}</span>
+        </el-form-item>
+        <el-form-item label="配件名称">
+          <el-input v-model="editPartForm.partName" placeholder="请输入配件名称" />
+        </el-form-item>
+        <el-form-item label="规格型号">
+          <el-input v-model="editPartForm.specModel" placeholder="请输入规格型号" />
+        </el-form-item>
+        <el-form-item label="单位">
+          <el-input v-model="editPartForm.unit" placeholder="如：个、根、套" style="width: 120px" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editPartDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editPartSaving" @click="saveEditPart">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 设置阈值弹窗 -->
     <el-dialog v-model="thresholdDialogVisible" title="设置低库存阈值" width="400px">
@@ -136,6 +174,43 @@ const newThreshold = ref(10)
 const usageCostList = ref([])
 const totalUsageCost = ref(0)
 
+const searchText = ref('')
+const filterLowStock = ref('')
+const sortField = ref('')
+
+const editPartDialogVisible = ref(false)
+const editPartSaving = ref(false)
+const editPartForm = ref({ partSkuId: '', partCode: '', partName: '', specModel: '', unit: '' })
+
+function isLowStock(row) {
+  return row.lowStockThreshold > 0 && row.currentQty <= row.lowStockThreshold
+}
+
+function tableRowClassName({ row }) {
+  return isLowStock(row) ? 'low-stock-row' : ''
+}
+
+const filteredList = computed(() => {
+  let result = [...list.value]
+  if (searchText.value) {
+    const s = searchText.value.toLowerCase()
+    result = result.filter(r =>
+      (r.partNameSnapshot || '').toLowerCase().includes(s) ||
+      (r.partCodeSnapshot || '').toLowerCase().includes(s)
+    )
+  }
+  if (filterLowStock.value === 'low') {
+    result = result.filter(r => isLowStock(r))
+  } else if (filterLowStock.value === 'normal') {
+    result = result.filter(r => !isLowStock(r))
+  }
+  if (sortField.value === 'qty_asc') result.sort((a, b) => a.currentQty - b.currentQty)
+  else if (sortField.value === 'qty_desc') result.sort((a, b) => b.currentQty - a.currentQty)
+  else if (sortField.value === 'value_asc') result.sort((a, b) => (a.totalCostValue || 0) - (b.totalCostValue || 0))
+  else if (sortField.value === 'value_desc') result.sort((a, b) => (b.totalCostValue || 0) - (a.totalCostValue || 0))
+  return result
+})
+
 async function loadData() {
   loading.value = true
   try {
@@ -158,6 +233,38 @@ async function loadData() {
 
 function sortByCost(a, b) {
   return b.totalCost - a.totalCost
+}
+
+function openEditPart(row) {
+  editPartForm.value = {
+    partSkuId: row.partSkuId,
+    partCode: row.partCodeSnapshot || '',
+    partName: row.partNameSnapshot || '',
+    specModel: row.specModelSnapshot || '',
+    unit: row.unitSnapshot || '',
+  }
+  editPartDialogVisible.value = true
+}
+
+async function saveEditPart() {
+  const { partSkuId, partName, specModel, unit } = editPartForm.value
+  if (!partName.trim()) {
+    ElMessage.warning('配件名称不能为空')
+    return
+  }
+  editPartSaving.value = true
+  try {
+    const res = await api.updatePart(partSkuId, { partName: partName.trim(), specModel: specModel.trim(), unit: unit.trim() })
+    if (res.ok) {
+      ElMessage.success('配件信息已更新')
+      editPartDialogVisible.value = false
+      loadData()
+    } else {
+      ElMessage.error(res.error?.message || '更新失败')
+    }
+  } finally {
+    editPartSaving.value = false
+  }
 }
 
 function editThreshold(row) {
@@ -217,9 +324,16 @@ onMounted(loadData)
 .summary-red { color: #F56C6C; }
 .summary-warn { color: #E6A23C; }
 
-.low-stock {
-  color: #F56C6C;
-  font-weight: 600;
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.low-stock-text {
+  color: #fff;
+  font-weight: 700;
 }
 
 .low-tag {
@@ -228,6 +342,7 @@ onMounted(loadData)
 
 .cost-section {
   margin-top: 32px;
+  margin-bottom: 24px;
   background: #fff;
   border-radius: 8px;
   padding: 20px;
@@ -255,6 +370,30 @@ onMounted(loadData)
   strong {
     font-size: 18px;
     color: #303133;
+  }
+}
+
+.readonly-text {
+  color: #909399;
+  font-size: 14px;
+}
+
+:deep(.low-stock-row) {
+  td.el-table__cell {
+    background-color: #fde2e2 !important;
+  }
+
+  &:hover > td.el-table__cell {
+    background-color: #fbc4c4 !important;
+  }
+
+  .low-stock-text {
+    color: #c45656;
+    font-weight: 700;
+  }
+
+  .el-tag--danger {
+    font-weight: 700;
   }
 }
 </style>

@@ -1,25 +1,110 @@
 <template>
   <el-container class="main-layout">
-    <!-- 侧边栏（PC 显示，移动端隐藏由抽屉替代） -->
+    <!-- 侧边栏（PC） -->
     <el-aside v-if="!isMobile" :width="sidebarCollapsed ? '64px' : '220px'" class="sidebar">
       <div class="logo-area">
         <img src="/vite.svg" class="logo-icon" />
-        <span v-show="!sidebarCollapsed" class="logo-text">康洁工程部</span>
+        <span v-show="!sidebarCollapsed" class="logo-text">云南康洁</span>
       </div>
       <el-menu
         :default-active="activeMenu"
+        :default-openeds="defaultOpeneds"
         :collapse="sidebarCollapsed"
-        :router="true"
+        :router="false"
         background-color="#1d1e1f"
         text-color="#bfcbd9"
         active-text-color="#ffffff"
         class="sidebar-menu"
+        @select="onMenuSelect"
       >
-        <template v-for="route in menuRoutes" :key="route.path">
-          <el-menu-item :index="'/' + route.path">
-            <el-icon><component :is="route.meta.icon" /></el-icon>
-            <template #title>{{ route.meta.title }}</template>
+        <template v-if="isGroupedSidebar">
+          <!-- 总览 -->
+          <el-menu-item index="/company">
+            <el-icon><HomeFilled /></el-icon>
+            <template #title>总览</template>
           </el-menu-item>
+
+          <!-- 工程部 -->
+          <el-sub-menu index="dept-eng">
+            <template #title>
+              <el-icon><Monitor /></el-icon>
+              <span>工程部</span>
+            </template>
+            <el-menu-item index="/dashboard">数据看板</el-menu-item>
+            <el-menu-item index="/records">更换记录</el-menu-item>
+            <el-menu-item index="/alerts">报警管理</el-menu-item>
+            <el-menu-item index="/assets">设备管理</el-menu-item>
+            <el-menu-item index="/parts">配件字典</el-menu-item>
+            <el-menu-item index="/thresholds">阈值管理</el-menu-item>
+            <el-menu-item index="/inventory">库存管理</el-menu-item>
+          </el-sub-menu>
+
+          <!-- 锅炉房 -->
+          <el-sub-menu index="dept-boiler" disabled>
+            <template #title>
+              <el-icon><Sunrise /></el-icon>
+              <span>锅炉房</span>
+              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
+            </template>
+          </el-sub-menu>
+
+
+          <!-- 生产部 -->
+          <el-sub-menu index="dept-prod" disabled>
+            <template #title>
+              <el-icon><SetUp /></el-icon>
+              <span>生产部</span>
+              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
+            </template>
+          </el-sub-menu>
+
+          <!-- 运输部 -->
+          <el-sub-menu index="dept-trans" disabled>
+            <template #title>
+              <el-icon><Van /></el-icon>
+              <span>运输部</span>
+              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
+            </template>
+          </el-sub-menu>
+
+          <!-- 综合办 -->
+          <el-sub-menu index="dept-admin" disabled>
+            <template #title>
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>综合办</span>
+              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
+            </template>
+          </el-sub-menu>
+
+          <!-- 财务 -->
+          <el-sub-menu index="dept-finance" disabled>
+            <template #title>
+              <el-icon><Coin /></el-icon>
+              <span>财务</span>
+              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
+            </template>
+          </el-sub-menu>
+
+          <!-- 系统管理 -->
+          <el-sub-menu index="system">
+            <template #title>
+              <el-icon><Setting /></el-icon>
+              <span>系统管理</span>
+            </template>
+            <el-menu-item index="/users">用户管理</el-menu-item>
+            <el-menu-item index="/factories">工厂管理</el-menu-item>
+            <el-menu-item index="/settings/ai">AI 设置</el-menu-item>
+          </el-sub-menu>
+        </template>
+
+        <!-- 非管理层：扁平菜单 -->
+        <template v-else>
+          <template v-for="route in flatMenuRoutes" :key="route.path">
+            <el-menu-item :index="'/' + route.path">
+              <el-icon><component :is="route.meta.icon" /></el-icon>
+              <template #title>{{ route.meta.title }}</template>
+            </el-menu-item>
+          </template>
         </template>
       </el-menu>
     </el-aside>
@@ -36,22 +121,101 @@
       <div class="drawer-sidebar">
         <div class="logo-area">
           <img src="/vite.svg" class="logo-icon" />
-          <span class="logo-text">康洁工程部</span>
+          <span class="logo-text">云南康洁</span>
         </div>
         <el-menu
           :default-active="activeMenu"
-          :router="true"
+          :default-openeds="defaultOpeneds"
+          :router="false"
           background-color="#1d1e1f"
           text-color="#bfcbd9"
           active-text-color="#ffffff"
           class="sidebar-menu"
-          @select="drawerVisible = false"
+          @select="(idx) => { onMenuSelect(idx); drawerVisible = false }"
         >
-          <template v-for="route in menuRoutes" :key="route.path">
-            <el-menu-item :index="'/' + route.path">
-              <el-icon><component :is="route.meta.icon" /></el-icon>
-              <template #title>{{ route.meta.title }}</template>
+          <template v-if="isGroupedSidebar">
+            <el-menu-item index="/company">
+              <el-icon><HomeFilled /></el-icon>
+              <template #title>总览</template>
             </el-menu-item>
+
+            <el-sub-menu index="dept-eng">
+              <template #title>
+                <el-icon><Monitor /></el-icon>
+                <span>工程部</span>
+              </template>
+              <el-menu-item index="/dashboard">数据看板</el-menu-item>
+              <el-menu-item index="/records">更换记录</el-menu-item>
+              <el-menu-item index="/alerts">报警管理</el-menu-item>
+              <el-menu-item index="/assets">设备管理</el-menu-item>
+              <el-menu-item index="/parts">配件字典</el-menu-item>
+              <el-menu-item index="/thresholds">阈值管理</el-menu-item>
+              <el-menu-item index="/inventory">库存管理</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu index="dept-boiler" disabled>
+              <template #title>
+                <el-icon><Sunrise /></el-icon>
+                <span>锅炉房</span>
+                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
+              </template>
+            </el-sub-menu>
+
+
+            <!-- 生产部 -->
+            <el-sub-menu index="dept-prod" disabled>
+              <template #title>
+                <el-icon><SetUp /></el-icon>
+                <span>生产部</span>
+                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
+              </template>
+            </el-sub-menu>
+
+            <!-- 运输部 -->
+            <el-sub-menu index="dept-trans" disabled>
+              <template #title>
+                <el-icon><Van /></el-icon>
+                <span>运输部</span>
+                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
+              </template>
+            </el-sub-menu>
+
+            <!-- 综合办 -->
+            <el-sub-menu index="dept-admin" disabled>
+              <template #title>
+                <el-icon><OfficeBuilding /></el-icon>
+                <span>综合办</span>
+                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
+              </template>
+            </el-sub-menu>
+
+            <!-- 财务 -->
+            <el-sub-menu index="dept-finance" disabled>
+              <template #title>
+                <el-icon><Coin /></el-icon>
+                <span>财务</span>
+                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
+              </template>
+            </el-sub-menu>
+
+            <el-sub-menu index="system">
+              <template #title>
+                <el-icon><Setting /></el-icon>
+                <span>系统管理</span>
+              </template>
+              <el-menu-item index="/users">用户管理</el-menu-item>
+              <el-menu-item index="/factories">工厂管理</el-menu-item>
+              <el-menu-item index="/settings/ai">AI 设置</el-menu-item>
+            </el-sub-menu>
+          </template>
+
+          <template v-else>
+            <template v-for="route in flatMenuRoutes" :key="route.path">
+              <el-menu-item :index="'/' + route.path">
+                <el-icon><component :is="route.meta.icon" /></el-icon>
+                <template #title>{{ route.meta.title }}</template>
+              </el-menu-item>
+            </template>
           </template>
         </el-menu>
       </div>
@@ -59,7 +223,6 @@
 
     <!-- 右侧内容区 -->
     <el-container class="right-container">
-      <!-- 顶部栏 -->
       <el-header class="header" :class="{ 'header-mobile': isMobile }">
         <div class="header-left">
           <el-icon v-if="isMobile" class="collapse-btn" @click="drawerVisible = true">
@@ -72,15 +235,19 @@
             </el-icon>
           </template>
           <el-breadcrumb v-show="!isMobile" separator="/">
-            <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item v-if="currentRoute.meta?.title">
+            <el-breadcrumb-item :to="{ path: isGroupedSidebar ? '/company' : '/' }">
+              {{ isGroupedSidebar ? '总览' : '首页' }}
+            </el-breadcrumb-item>
+            <el-breadcrumb-item v-if="currentGroup && currentRoute.path !== '/company'">
+              {{ currentGroup }}
+            </el-breadcrumb-item>
+            <el-breadcrumb-item v-if="currentRoute.meta?.title && currentRoute.path !== '/company'">
               {{ currentRoute.meta.title }}
             </el-breadcrumb-item>
           </el-breadcrumb>
           <span v-show="isMobile" class="mobile-title">{{ currentRoute.meta?.title || '首页' }}</span>
         </div>
         <div class="header-right">
-          <!-- 工厂选择器（管理员可切换，含全部工厂汇总选项） -->
           <el-select
             v-if="appStore.factories.length > 0"
             :model-value="appStore.currentFactoryId"
@@ -126,7 +293,6 @@
         </div>
       </el-header>
 
-      <!-- 主内容 -->
       <el-main class="main-content">
         <router-view />
       </el-main>
@@ -139,7 +305,10 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { Menu, Fold, Expand, ArrowDown, SwitchButton } from '@element-plus/icons-vue'
+import {
+  Menu, Fold, Expand, ArrowDown, SwitchButton,
+  HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin,
+} from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -165,20 +334,54 @@ onBeforeUnmount(() => {
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const currentRoute = computed(() => route)
-const activeMenu = computed(() => '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/'))
 
-// 过滤出菜单路由（排除 hidden 的）
-const menuRoutes = computed(() => {
+const isGroupedSidebar = computed(() => {
+  const role = authStore.user?.role
+  return role === 'Admin' || role === 'Management'
+})
+
+// 工程部路由路径
+const engPaths = ['/dashboard', '/records', '/alerts', '/assets', '/parts', '/thresholds', '/inventory']
+// 系统管理路由路径
+const sysPaths = ['/users', '/factories', '/settings']
+
+const activeMenu = computed(() => {
+  const p = '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/')
+  // 把 /settings 下的路由映射成完整路径
+  if (route.path.startsWith('/settings/')) return route.path
+  return p
+})
+
+const defaultOpeneds = computed(() => {
+  const p = activeMenu.value
+  const opened = []
+  if (engPaths.some(ep => p.startsWith(ep))) opened.push('dept-eng')
+  if (sysPaths.some(sp => p.startsWith(sp))) opened.push('system')
+  return opened
+})
+
+const currentGroup = computed(() => {
+  const p = activeMenu.value
+  if (engPaths.some(ep => p.startsWith(ep))) return '工程部'
+  if (sysPaths.some(sp => p.startsWith(sp))) return '系统管理'
+  return ''
+})
+
+// 非管理层的扁平菜单
+const flatMenuRoutes = computed(() => {
   const mainRoute = router.options.routes.find(r => r.path === '/')
   if (!mainRoute?.children) return []
-  return mainRoute.children.filter(r => !r.meta?.hidden).filter(r => {
-    // 角色过滤
-    if (r.meta?.roles) {
-      return r.meta.roles.includes(authStore.user?.role)
-    }
-    return true
-  })
+  return mainRoute.children
+    .filter(r => !r.meta?.hidden && r.path !== 'company')
+    .filter(r => {
+      if (r.meta?.roles) return r.meta.roles.includes(authStore.user?.role)
+      return true
+    })
 })
+
+function onMenuSelect(index) {
+  if (index.startsWith('/')) router.push(index)
+}
 
 const roleLabel = computed(() => {
   const map = { Admin: '管理员', Supervisor: '主管', Management: '管理层', Engineer: '工程师', Viewer: '查看员' }
@@ -192,7 +395,6 @@ const roleTagType = computed(() => {
 
 function onFactoryChange(factoryId) {
   if (factoryId === '') {
-    // 选择了「全部工厂（汇总）」
     appStore.setCurrentFactory('', '全部工厂')
     router.go(0)
   } else {
@@ -210,7 +412,6 @@ function handleCommand(cmd) {
     router.push('/login')
   }
 }
-
 </script>
 
 <style lang="scss" scoped>
@@ -259,7 +460,27 @@ function handleCommand(cmd) {
     :deep(.el-menu-item:hover) {
       background: #333 !important;
     }
+
+    :deep(.el-sub-menu__title:hover) {
+      background: #333 !important;
+    }
+
+    :deep(.el-sub-menu .el-menu-item) {
+      padding-left: 52px !important;
+      min-width: 0;
+    }
+
+    :deep(.el-sub-menu.is-disabled .el-sub-menu__title) {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
   }
+}
+
+.menu-tag {
+  margin-left: 8px;
+  vertical-align: middle;
+  transform: scale(0.85);
 }
 
 .right-container {
@@ -324,7 +545,6 @@ function handleCommand(cmd) {
   overflow-y: auto;
 }
 
-// 移动端顶栏
 .header-mobile {
   padding: 0 12px;
 
@@ -351,7 +571,6 @@ function handleCommand(cmd) {
   }
 }
 
-// 移动端抽屉内侧栏样式
 .mobile-drawer :deep(.el-drawer__body) {
   padding: 0;
   overflow: hidden;
@@ -392,6 +611,16 @@ function handleCommand(cmd) {
     }
     :deep(.el-menu-item:hover) {
       background: #333 !important;
+    }
+    :deep(.el-sub-menu__title:hover) {
+      background: #333 !important;
+    }
+    :deep(.el-sub-menu .el-menu-item) {
+      padding-left: 52px !important;
+    }
+    :deep(.el-sub-menu.is-disabled .el-sub-menu__title) {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
   }
 }

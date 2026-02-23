@@ -1,0 +1,93 @@
+<view class="page-container">
+  <!-- 加载中 -->
+  <view class="empty-state" wx:if="{{loading}}">加载中...</view>
+
+  <!-- 未配置巡检计划 -->
+  <view wx:elif="{{!plan}}" class="empty-state">
+    <view>暂未配置巡检计划</view>
+    <view style="margin-top:16rpx;font-size:24rpx;">请联系管理员设置巡检设备清单</view>
+    <button class="btn-primary" style="margin-top:32rpx;width:320rpx;" wx:if="{{canManage}}" bindtap="onConfigPlan">配置巡检计划</button>
+  </view>
+
+  <!-- 正常显示 -->
+  <block wx:else>
+    <!-- 今日进度卡片 -->
+    <view class="card progress-card">
+      <view class="progress-title">今日巡检进度</view>
+      <view class="progress-date">{{inspectDate}}</view>
+      <view class="progress-nums">
+        <text class="progress-done">{{completed}}</text>
+        <text class="progress-sep"> / </text>
+        <text class="progress-total">{{total}}</text>
+      </view>
+      <view class="progress-bar-bg">
+        <view class="progress-bar-fill" style="width:{{progress}}%"></view>
+      </view>
+      <view class="progress-pct">{{progress}}%</view>
+    </view>
+
+    <!-- 扫码按钮 -->
+    <view class="card" wx:if="{{canWrite && completed < total}}">
+      <button class="btn-primary scan-btn" bindtap="onScanInspect">扫码巡检</button>
+    </view>
+
+    <!-- 全部完成提示 -->
+    <view class="card all-done-card" wx:if="{{completed >= total && total > 0}}">
+      <text class="all-done-icon">✓</text>
+      <text class="all-done-text">今日巡检已全部完成</text>
+    </view>
+
+    <!-- 待巡检 -->
+    <view wx:if="{{pendingAssets.length > 0}}">
+      <view class="section-title">待巡检 ({{pendingAssets.length}})</view>
+      <view class="card asset-list">
+        <view class="asset-item" wx:for="{{pendingAssets}}" wx:key="assetId"
+              data-assetid="{{item.assetId}}" data-done="{{false}}" bindtap="onAssetTap">
+          <view class="asset-status pending">○</view>
+          <view class="asset-info">
+            <view class="asset-name">{{item.assetName}}</view>
+            <view class="asset-no">{{item.assetNo}}</view>
+          </view>
+          <view class="asset-arrow" wx:if="{{canWrite}}">›</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 已完成 -->
+    <view wx:if="{{doneAssets.length > 0}}">
+      <view class="section-title">已完成 ({{doneAssets.length}})</view>
+      <view class="card asset-list">
+        <view class="asset-item done-item" wx:for="{{doneAssets}}" wx:key="assetId">
+          <view class="asset-status done">✓</view>
+          <view class="asset-info">
+            <view class="asset-name">{{item.assetName}}</view>
+            <view class="asset-meta">
+              <text>{{item.assetNo}}</text>
+              <text class="meta-sep">·</text>
+              <text>{{item.log.userDisplayName}}</text>
+            </view>
+            <!-- 缩略图 -->
+            <view class="thumb-row" wx:if="{{item.log.images.length > 0}}">
+              <image wx:for="{{item.log.images}}" wx:for-item="img" wx:for-index="imgIdx" wx:key="imgIdx"
+                     class="thumb-img" src="{{img}}" mode="aspectFill"
+                     data-urls="{{item.log.images}}" data-current="{{img}}" bindtap="onPreviewImage" />
+            </view>
+            <view class="asset-remark" wx:if="{{item.log.remark}}">{{item.log.remark}}</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 底部操作 -->
+    <view class="card bottom-actions">
+      <view class="action-item" bindtap="onViewHistory">
+        <text>查看历史记录</text>
+        <text class="me-cell-arrow">›</text>
+      </view>
+      <view class="action-item" bindtap="onConfigPlan" wx:if="{{canManage}}">
+        <text>配置巡检计划</text>
+        <text class="me-cell-arrow">›</text>
+      </view>
+    </view>
+  </block>
+</view>

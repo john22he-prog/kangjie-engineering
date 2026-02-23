@@ -1,0 +1,50 @@
+<view class="page-container">
+  <view class="empty-state" wx:if="{{loading}}">加载中...</view>
+
+  <block wx:else>
+    <!-- 计划名称 -->
+    <view class="card">
+      <view class="form-row">
+        <text class="form-label">计划名称</text>
+        <input class="form-input" value="{{planName}}" bindinput="onPlanNameInput" placeholder="日常巡检" />
+      </view>
+    </view>
+
+    <!-- 操作栏 -->
+    <view class="card toolbar">
+      <text class="toolbar-info">已选 {{selectedCount}} / {{allAssets.length}} 台设备</text>
+      <view class="toolbar-btns">
+        <text class="toolbar-link" bindtap="onSelectAll">全选</text>
+        <text class="toolbar-link" bindtap="onDeselectAll">取消全选</text>
+      </view>
+    </view>
+
+    <!-- 设备列表 -->
+    <view class="card device-list" wx:if="{{allAssets.length > 0}}">
+      <view class="device-item" wx:for="{{allAssets}}" wx:key="assetId"
+            data-assetid="{{item.assetId}}" bindtap="onToggleAsset">
+        <view class="checkbox {{selectedIds[item.assetId] ? 'checked' : ''}}">
+          <text wx:if="{{selectedIds[item.assetId]}}">✓</text>
+        </view>
+        <view class="device-info">
+          <view class="device-name">{{item.assetName}}</view>
+          <view class="device-no">{{item.assetNo}} {{item.workshop ? '· ' + item.workshop : ''}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty-state" wx:if="{{allAssets.length === 0}}">
+      暂无设备数据，请先添加设备
+    </view>
+
+    <!-- 保存按钮 -->
+    <view class="save-bar">
+      <button class="btn-primary save-btn"
+              disabled="{{selectedCount === 0 || submitting}}"
+              loading="{{submitting}}"
+              bindtap="onSave">
+        保存巡检计划
+      </button>
+    </view>
+  </block>
+</view>

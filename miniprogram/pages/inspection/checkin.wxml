@@ -1,0 +1,52 @@
+<view class="page-container">
+  <!-- 设备信息（只读） -->
+  <view class="card">
+    <view class="form-row readonly">
+      <text class="form-label">设备名称</text>
+      <text class="form-value">{{assetName}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">设备编号</text>
+      <text class="form-value">{{assetNo}}</text>
+    </view>
+    <view class="form-row readonly">
+      <text class="form-label">巡检人</text>
+      <text class="form-value">{{reporterName}}</text>
+    </view>
+  </view>
+
+  <!-- 拍照上传 -->
+  <view class="card">
+    <view class="form-section-title required">现场照片（至少1张）</view>
+    <image-uploader
+      minCount="{{1}}"
+      maxCount="{{9}}"
+      value="{{images}}"
+      readonly="{{false}}"
+      bind:change="onImageChange"
+    />
+  </view>
+
+  <!-- 备注 -->
+  <view class="card">
+    <view class="form-section-title">备注（选填）</view>
+    <textarea
+      class="form-textarea"
+      placeholder="设备运行状况、异常情况等"
+      value="{{remark}}"
+      bindinput="onRemarkInput"
+      maxlength="500"
+    />
+  </view>
+
+  <!-- 提交栏 -->
+  <view class="submit-bar">
+    <view class="abandon-link" bindtap="onAbandonTap">放弃并返回</view>
+    <button
+      class="btn-primary submit-btn"
+      disabled="{{!canSubmit || submitting}}"
+      loading="{{submitting}}"
+      bindtap="onSubmit"
+    >提交打卡</button>
+  </view>
+</view>

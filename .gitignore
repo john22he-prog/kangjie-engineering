@@ -17,6 +17,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# Cursor（rules 需要提交，不要忽略 .cursor/rules/）
+# .cursor/rules/ 是项目规范，应该提交到 Git
+.cursor/settings/
+.cursor/chat/
+
 # 环境变量文件
 .env
 .env.local

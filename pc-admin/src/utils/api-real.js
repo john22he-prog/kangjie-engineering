@@ -121,6 +121,10 @@ export const realApi = {
   async importPartsCommit(rows, factoryId) { return call('importPartsCommit', { rows, factoryId: factoryId || undefined }) },
   async cleanupParts(factoryId) { return call('cleanupParts', { factoryId: factoryId || undefined }) },
   async migratePartsToFactory(factoryId) { return call('migratePartsToFactory', { factoryId }) },
+  async deletePart(partSkuId) { return call('deletePart', { partSkuId }) },
+  async batchSetPartsActive(partSkuIds, active) { return call('batchSetPartsActive', { partSkuIds, active }) },
+  async batchDeleteParts(partSkuIds) { return call('batchDeleteParts', { partSkuIds }) },
+  async submitFacilityLog(data) { return call('submitFacilityLog', data) },
 
   // ===== 阈值管理 =====
   async batchUpsertThresholds(items) { return call('batchUpsertThresholds', { items }) },

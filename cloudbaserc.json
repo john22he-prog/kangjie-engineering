@@ -17,6 +17,12 @@
     { "name": "adminInventoryManage", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
     { "name": "adminInventoryInbound", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
     { "name": "exportData", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
-    { "name": "importData", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } }
+    { "name": "importData", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "getDashboard", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "adminDashboard", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 15, "installDependency": true } },
+    { "name": "getInspectionPlan", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "submitInspectionLog", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "listInspectionHistory", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } },
+    { "name": "setInspectionPlan", "config": { "runtime": "Nodejs16.13", "handler": "index.main", "timeout": 10, "installDependency": true } }
   ]
 }

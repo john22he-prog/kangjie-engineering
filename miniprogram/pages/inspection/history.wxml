@@ -1,0 +1,47 @@
+<view class="page-container">
+  <view class="empty-state" wx:if="{{loading && list.length === 0}}">加载中...</view>
+
+  <view class="empty-state" wx:elif="{{!loading && list.length === 0}}">暂无巡检记录</view>
+
+  <block wx:else>
+    <view class="card history-card" wx:for="{{list}}" wx:key="inspectDate">
+      <!-- 日期行（可展开） -->
+      <view class="date-row" bindtap="onToggleDate" data-date="{{item.inspectDate}}">
+        <view class="date-left">
+          <text class="date-text">{{item.inspectDate}}</text>
+          <view class="tag {{item.completed >= item.total ? 'tag-active' : 'tag-open'}}">
+            {{item.completed}}/{{item.total}}
+          </view>
+        </view>
+        <text class="expand-arrow {{expandedDate === item.inspectDate ? 'expanded' : ''}}">›</text>
+      </view>
+
+      <!-- 展开的详情 -->
+      <view class="detail-panel" wx:if="{{expandedDate === item.inspectDate}}">
+        <view class="log-item" wx:for="{{item.logs}}" wx:for-item="log" wx:key="assetId">
+          <view class="log-header">
+            <text class="log-asset-name">{{log.assetName}}</text>
+            <text class="log-asset-no">{{log.assetNo}}</text>
+          </view>
+          <view class="log-meta">
+            <text>{{log.userDisplayName}}</text>
+          </view>
+          <!-- 缩略图 -->
+          <view class="thumb-row" wx:if="{{log.images.length > 0}}">
+            <image wx:for="{{log.images}}" wx:for-item="img" wx:for-index="imgIdx" wx:key="imgIdx"
+                   class="thumb-img" src="{{img}}" mode="aspectFill"
+                   data-urls="{{log.images}}" data-current="{{img}}" bindtap="onPreviewImage" />
+          </view>
+          <view class="log-remark" wx:if="{{log.remark}}">{{log.remark}}</view>
+        </view>
+
+        <view class="no-logs" wx:if="{{item.logs.length === 0}}">
+          <text>当日无打卡记录</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="load-more" wx:if="{{loading && list.length > 0}}">加载中...</view>
+    <view class="load-more" wx:elif="{{!hasMore && list.length > 0}}">没有更多了</view>
+  </block>
+</view>

@@ -21,14 +21,7 @@
         <template v-if="!isAdmin && currentFactoryId">
           <el-tag type="info" style="margin-left: 8px;">{{ currentFactoryName }}</el-tag>
         </template>
-        <el-date-picker
-          v-model="selectedMonth"
-          type="month"
-          placeholder="选择月份"
-          format="YYYY年MM月"
-          value-format="YYYY-MM"
-          style="width: 150px; margin-left: 12px;"
-        />
+        <TimeRangeSelector v-model="timeRange" style="margin-left: 12px;" />
         <!-- 报告类型 -->
         <el-select v-model="promptType" placeholder="报告类型" style="width: 130px; margin-left: 8px;">
           <el-option label="月度总结" value="monthly_summary" />
@@ -114,7 +107,7 @@
       <el-card class="summary-card" shadow="never">
         <template #header>
           <div class="card-header-flex">
-            <span>{{ report.factoryLabel }} · {{ selectedMonth }} 报告摘要</span>
+            <span>{{ report.factoryLabel }} · {{ timeRange.label }} 报告摘要</span>
             <el-tag v-if="!report.llmContent" type="info" size="small" effect="plain">规则模板</el-tag>
           </div>
         </template>
@@ -285,8 +278,10 @@ import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Refresh } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { marked } from 'marked'
+import TimeRangeSelector from '@/components/TimeRangeSelector.vue'
+import dayjs from 'dayjs'
 
 // 配置 marked
 marked.setOptions({
@@ -299,7 +294,7 @@ const isAdmin = computed(() => authStore.user?.role === 'Admin')
 const currentFactoryId = computed(() => authStore.user?.role === 'Supervisor' ? authStore.user?.factoryId : null)
 
 const loading = ref(false)
-const selectedMonth = ref(new Date().toISOString().slice(0, 7))
+const timeRange = ref({ mode: 'month', yearMonths: [dayjs().format('YYYY-MM')], label: dayjs().format('YYYY年MM月') })
 const reportScope = ref('factory')
 const selectedFactoryId = ref('')
 const factoryOptions = ref([])
@@ -379,8 +374,10 @@ async function loadReport() {
   try {
     const actualScope = isAdmin.value ? reportScope.value : 'factory'
     const actualFid = actualScope === 'summary' ? undefined : (fid || undefined)
+    const t = timeRange.value
+    const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
     const res = await api.getAIReport({
-      yearMonth: selectedMonth.value,
+      ...tp,
       factoryId: actualFid,
       scope: actualScope,
       promptType: promptType.value,
@@ -547,7 +544,7 @@ function handleExportPDF() {
   const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>${escapeHtml(report.value.factoryLabel)} - ${selectedMonth.value} ${ptLabel}</title>
+<title>${escapeHtml(report.value.factoryLabel)} - ${timeRange.value.label} ${ptLabel}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; color: #303133; padding: 30px 40px; font-size: 14px; line-height: 1.6; }
@@ -577,7 +574,7 @@ function handleExportPDF() {
 </style>
 </head><body>
 
-<h1>${escapeHtml(report.value.factoryLabel)} · ${selectedMonth.value} ${ptLabel}</h1>
+<h1>${escapeHtml(report.value.factoryLabel)} · ${timeRange.value.label} ${ptLabel}</h1>
 <div class="subtitle">生成时间：${new Date().toLocaleString('zh-CN')} &nbsp;|&nbsp; 更换环比 ${logsPct >= 0 ? '+' : ''}${logsPct}% &nbsp;|&nbsp; 配件环比 ${partsPct >= 0 ? '+' : ''}${partsPct}%</div>
 
 <div class="stat-row">${statCardsHtml}</div>
@@ -670,7 +667,7 @@ async function viewHistoryReport(row) {
     if (res.ok && res.data?.reportData) {
       report.value = res.data.reportData
       // 更新当前选择器状态以匹配历史报告
-      selectedMonth.value = row.yearMonth
+      timeRange.value = { mode: 'month', yearMonths: [row.yearMonth], label: row.yearMonth }
       promptType.value = row.promptType
       if (row.scope === 'summary') {
         reportScope.value = 'summary'

@@ -1,0 +1,45 @@
+---
+description: 工程部小程序分包 - 编码规范
+globs: miniprogram/packages/engineering/**/*,miniprogram/pages/scan/**/*,miniprogram/pages/record/**/*,miniprogram/pages/alerts/**/*,miniprogram/pages/dashboard/**/*,miniprogram/pages/me/**/*,miniprogram/pages/bind/**/*,miniprogram/pages/replace/**/*,miniprogram/pages/asset/**/*,miniprogram/pages/ai-report/**/*,miniprogram/pages/data-manage/**/*
+alwaysApply: false
+---
+
+# 工程部分包规范
+
+## 技术栈
+
+- 数据库：CloudBase **NoSQL**（13 个集合）
+- UI 组件库：**WeUI**（通过 useExtendedLib 引入，不占体积）
+- 云函数：**24 个独立函数**，每个函数单一职责
+- Node.js：升级目标 18.15（当前 16.13）
+
+## 数据库操作 - 必须用 NoSQL API
+
+```javascript
+// ✅ 正确：工程部用 NoSQL
+const db = wx.cloud.database()
+const res = await db.collection('assets').where({ factoryId }).get()
+
+// ❌ 错误：不要在工程部代码中写 SQL
+const res = await mysql.query('SELECT * FROM assets')
+```
+
+## 云函数调用方式
+
+```javascript
+// 工程部：直接调用独立云函数
+wx.cloud.callFunction({ name: 'listAssets', data: { factoryId } })
+wx.cloud.callFunction({ name: 'submitReplacementLog', data: { ... } })
+wx.cloud.callFunction({ name: 'listAlerts', data: { page, pageSize } })
+```
+
+## 角色体系
+
+Engineer / Viewer / Supervisor / Management / Admin
+- 权限判断用 utils/auth.js 中的 canWrite()、canAck()、canManage() 等函数
+
+## NoSQL 集合清单
+
+users, assets, parts, replacement_logs, alerts, asset_part_thresholds,
+monthly_part_usage, factories, asset_locations, location_part_map,
+inventory_records, inventory_inbound, offline_queue

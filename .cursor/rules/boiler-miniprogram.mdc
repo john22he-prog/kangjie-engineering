@@ -1,0 +1,54 @@
+---
+description: 锅炉房小程序分包 - 编码规范
+globs: miniprogram/packages/boiler/**/*,cloudfunctions/boiler-*/**/*
+alwaysApply: false
+---
+
+# 锅炉房分包规范
+
+## 技术栈
+
+- 数据库：**MySQL** TDSQL-C Serverless 8.0（16 张表）
+- UI 组件库：**Vant Weapp**（npm 安装到分包内）
+- 云函数：**3 个合并函数**（boiler-core / boiler-analysis / boiler-auth）
+- Node.js：18.15
+- MySQL 连接：serverless-mysql
+
+## 数据库操作 - 必须用 MySQL
+
+```javascript
+// ✅ 正确：锅炉房用 MySQL
+const [rows] = await mysql.query('SELECT * FROM daily_record WHERE factory_id = ?', [factoryId])
+
+// ❌ 错误：不要在锅炉房代码中写 NoSQL
+const res = await db.collection('daily_record').get()
+```
+
+## 云函数调用方式 - module + action 路由
+
+```javascript
+// 锅炉房：通过 module + action 路由到具体处理函数
+wx.cloud.callFunction({
+  name: 'boiler-core',
+  data: { module: 'record', action: 'create', ...formData }
+})
+
+wx.cloud.callFunction({
+  name: 'boiler-analysis',
+  data: { module: 'statistics', action: 'overview', factoryId, date }
+})
+```
+
+## 角色体系
+
+admin / viewer / operator
+- 三层中间件：auth.js → role.js → dataScope.js
+- operator 只能录入今天/昨天数据，截止次日 12:00
+- operator 数据自动按 factory_id 隔离
+
+## MySQL 表清单（16 张）
+
+factory, boiler, steam_customer, app_user, daily_record, boiler_data,
+customer_steam_data, price_config, daily_derived_metrics, alert_rule,
+alert_log, ai_analysis, ai_chat_history, extended_field,
+extended_field_value, operation_log
