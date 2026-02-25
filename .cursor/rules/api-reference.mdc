@@ -1,0 +1,92 @@
+---
+description: 全部云函数 API 接口速查
+alwaysApply: false
+globs: cloudfunctions/**/*,miniprogram/**/*.js,pc-admin/src/**/*
+---
+
+# 云函数 API 速查
+
+统一返回：工程部 `{ok,data,error}`，锅炉房 `{code:0,data}` 或 `{code:错误码,message}`
+
+## 一、工程部（独立函数，14个）
+
+| 函数 | 入参 | 用途 |
+|------|------|------|
+| getMe | 无(openid自动) | 当前用户信息+权限 |
+| bindUser | username,password | 小程序绑定微信账号 |
+| getFactories | 无 | 可访问工厂列表 |
+| listAssets | 无(按factoryId过滤) | 设备列表 |
+| getAssetByQr | assetId | 扫码获取设备+部位+近期记录 |
+| getLocationsAndParts | assetId | 部位配件映射(录入用) |
+| submitReplacementLog | assetId,type,locationId,selectedPartSkuIds[],qtyMap,remark,images[],clientOfflineId,module | 提交更换→更新月度汇总→检查阈值报警→扣库存 |
+| listReplacementLogs | factoryId?,yearMonth?,assetId?,userId?,page,pageSize | 更换记录列表 |
+| listAlerts | factoryId?,status?,yearMonth?,assetId?,page,pageSize | 报警列表 |
+| getAlertDetail | alertId | 报警详情 |
+| ackAlert | alertId,ackNote | 确认报警(Supervisor+) |
+| getAssetAlerts | assetId,yearMonth | 设备报警下钻 |
+| getDashboard | yearMonth,yearMonths? | 小程序看板数据 |
+| getPartUsageDetail | partSkuId,yearMonth | 配件按设备分布下钻 |
+| getAssetUsageDetail | assetId,yearMonth | 设备按配件分布下钻 |
+
+## 二、巡检打卡（5个）
+
+| 函数 | 入参 | 用途 |
+|------|------|------|
+| getInspectionPlan | 无 | 今日巡检计划+进度 |
+| submitInspectionLog | assetId,images[],condition?,remark? | 提交巡检打卡 |
+| listInspectionHistory | startDate?,endDate?,page,pageSize | 巡检历史 |
+| setInspectionPlan | assetIds[],planName? | 设置巡检计划(Supervisor+) |
+| getInspectionStats | 无 | 巡检统计(完成率/连续天数/排名) |
+
+## 三、管理函数（6个）
+
+| 函数 | 入参 | 用途 |
+|------|------|------|
+| adminPcLogin | username,password | PC端登录→返回JWT |
+| pcGateway | token,action,data | PC端统一入口(60+actions) |
+| adminDashboard | action(monthlyCostRanking/assetCostDetail/getAIReport),data | 成本排名/AI报告 |
+| adminFactoryManage | action(list/create/update),data | 工厂CRUD |
+| adminInventoryManage | action(listInventory/listInboundLogs/listOutboundLogs/summary/updateThreshold/listInventoryAlerts),data | 库存管理 |
+| adminInventoryInbound | factoryId,partSkuId,qty,unitPrice,supplier?,batchNo? | 配件入库 |
+
+## 四、数据导入导出（3个）
+
+| 函数 | 入参 | 用途 |
+|------|------|------|
+| exportData | exportMode(month/year),yearMonth?,year? | 导出Excel(6个Sheet)到云存储 |
+| importData | fileID,importType(parts/thresholds/logs) | 导入数据(去重) |
+| initMockData | 无 | 灌入测试种子数据 |
+
+## 五、锅炉房（3个合并函数）
+
+### boiler-core 路由
+- `factory.list/detail/create/update` — 工厂管理
+- `boiler.list/detail/create/update` — 锅炉管理
+- `customer.list/detail/create/update` — 客户管理
+- `record.create/list/detail` — 每日运行记录(operator限今天/昨天,截止次日12:00)
+
+### boiler-analysis 路由
+- `statistics.overview/trend/compare` — 数据统计
+- `alert.list/resolve/acknowledge` — 预警管理
+- `ai.dailyReport/diagnosis/forecast/chat` — AI分析(待开发)
+
+### boiler-auth 路由
+- `login.getOpenId/checkLogin` — 登录(无需鉴权)
+- `user.list/create/update/detail` — 用户管理(admin)
+- `config.listPrices/setPrice/listAlertRules/setAlertRule` — 配置(admin)
+
+## 六、pcGateway 主要 Actions（60+）
+
+设备: listAssets, createAsset, updateAsset, setAssetStatus
+部位: listLocations, upsertLocation, deleteLocation, copyLocations
+映射: listLocationPartMap, upsertLocationPartMap, deleteLocationPartMap
+配件: listParts, createPart, updatePart, deletePart, batchSetPartsActive, batchDeleteParts, importPartsPreview, importPartsCommit
+阈值: listThresholds, upsertThreshold, batchUpsertThresholds, deleteThreshold
+报警: listAlerts, ackAlert
+记录: listReplacementLogs, toggleLogStatus, editReplacementLogItems, submitFacilityLog
+看板: getDashboardStats, getDashboardPartDetail/AssetDetail/AssetAlerts, getAIReport, getAIConfig, setAIConfig
+工厂: getFactories, createFactory, updateFactory
+库存: listInventory, inventoryInbound, listInboundLogs, listOutboundLogs, listInventoryAlerts, updateInventoryThreshold, getInventorySummary, getInventoryTrend
+巡检: getInspectionDashboard, getInspectionPlan, listInspectionHistory, setInspectionPlan
+锅炉代理: boilerGetOverview, boilerListBoilers, boilerListCustomers, boilerCreateRecord, boilerListRecords, boilerGetRecordDetail, boilerGetTrend, boilerListAlerts, boilerAcknowledgeAlert, boilerResolveAlert
+用户: listUsers, createUser, updateUser, disableUser, deleteUser, bindOpenid, unbindOpenid

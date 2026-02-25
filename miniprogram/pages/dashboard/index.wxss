@@ -1,5 +1,31 @@
 /* pages/dashboard/index.wxss */
 
+/* 工厂切换栏 */
+.factory-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 32rpx;
+  margin: 0 24rpx 8rpx;
+  background: var(--weui-BG-2);
+  border-radius: 12rpx;
+}
+
+.factory-name {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--weui-FG-0);
+}
+
+.factory-switch {
+  font-size: 24rpx;
+  color: var(--weui-BRAND);
+}
+
+.factory-bar:active {
+  opacity: 0.7;
+}
+
 /* 月份选择器 */
 .month-picker {
   display: flex;
@@ -370,4 +396,123 @@
   margin: 0 -24rpx;
   padding: 12rpx 24rpx;
   border-radius: 8rpx;
+}
+
+/* ========== 巡检概况卡片 ========== */
+.inspect-card {
+  background: linear-gradient(135deg, #f0faff 0%, #fff 100%);
+}
+
+.inspect-stats {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 0;
+}
+
+.inspect-stat {
+  flex: 1;
+  text-align: center;
+}
+
+.inspect-num {
+  font-size: 44rpx;
+  font-weight: 700;
+  color: var(--weui-FG-0);
+  line-height: 1.3;
+}
+
+.inspect-num.green { color: #07C160; }
+.inspect-num.orange { color: #ED6A0C; }
+
+.inspect-label {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.inspect-divider {
+  width: 1rpx;
+  height: 56rpx;
+  background: var(--weui-BG-1);
+}
+
+/* 7天日历条 */
+.inspect-week {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--weui-BG-1);
+}
+
+.iw-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.iw-dot {
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  background: var(--weui-BG-1);
+}
+
+.iw-dot.lv1 { background: #b8e6c9; }
+.iw-dot.lv2 { background: #5bc77e; }
+.iw-dot.lv3 { background: #07C160; }
+
+.iw-day {
+  font-size: 20rpx;
+  color: var(--weui-FG-2);
+}
+
+.iw-col.is-today .iw-day {
+  color: var(--weui-BRAND);
+  font-weight: 600;
+}
+
+.iw-col.is-today .iw-dot {
+  box-shadow: 0 0 0 3rpx rgba(7, 193, 96, 0.3);
+}
+
+.inspect-empty {
+  text-align: center;
+  padding: 32rpx 0;
+  color: var(--weui-FG-2);
+  font-size: 26rpx;
+}
+
+/* 首屏加载状态 */
+.loading-container {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.loading-container .loading-spinner {
+  width: 64rpx;
+  height: 64rpx;
+  border: 6rpx solid var(--weui-BG-2);
+  border-top-color: var(--weui-BRAND);
+  border-radius: 50%;
+  animation: dashboard-spin 0.8s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-container .loading-text {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
 }

@@ -1,0 +1,121 @@
+<!-- 加载中 -->
+<view class="page" wx:if="{{loading}}">
+  <view class="loading-wrap">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中...</text>
+  </view>
+</view>
+
+<!-- 未登录 -->
+<view class="page" wx:elif="{{!loggedIn}}">
+  <view class="empty-wrap">
+    <view class="empty-icon">🔒</view>
+    <text class="empty-title">暂无权限</text>
+    <text class="empty-desc">您尚未注册锅炉房系统，请联系管理员开通权限</text>
+    <view class="btn-retry" bindtap="refresh">重新检查</view>
+  </view>
+</view>
+
+<!-- 主内容 -->
+<view class="page" wx:else>
+  <!-- 错误提示 -->
+  <view class="error-bar" wx:if="{{error}}">
+    <text>{{error}}</text>
+    <text class="error-retry" bindtap="refresh">重试</text>
+  </view>
+
+  <!-- 头部信息 -->
+  <view class="header">
+    <view class="header-date">{{today}}</view>
+    <view class="header-factory" wx:if="{{user.factory_name}}">{{user.factory_name}}</view>
+    <view class="header-overview-date" wx:if="{{overview.date}}">数据日期：{{overview.date}}</view>
+  </view>
+
+  <!-- 核心指标 -->
+  <view class="stats-grid">
+    <view class="stat-card highlight">
+      <text class="stat-label">总产汽量</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.totalSteam || '--'}}</text>
+        <text class="stat-unit">吨</text>
+      </view>
+    </view>
+    <view class="stat-card highlight">
+      <text class="stat-label">能源总成本</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.totalCost || '--'}}</text>
+        <text class="stat-unit">元</text>
+      </view>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">用电量</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.totalElectricity || '--'}}</text>
+        <text class="stat-unit">度</text>
+      </view>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">汽损率</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.steamLossRate || '--'}}</text>
+        <text class="stat-unit">%</text>
+      </view>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">吨汽成本</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.costPerSteam || '--'}}</text>
+        <text class="stat-unit">元/吨</text>
+      </view>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">燃料库存</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.fuelStock || '--'}}</text>
+        <text class="stat-unit">吨</text>
+      </view>
+      <text class="stat-sub" wx:if="{{overview.fuelStockDays && overview.fuelStockDays != '--'}}">约可用 {{overview.fuelStockDays}} 天</text>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">用水量</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.totalWater || '--'}}</text>
+        <text class="stat-unit">吨</text>
+      </view>
+    </view>
+    <view class="stat-card">
+      <text class="stat-label">燃料消耗</text>
+      <view class="stat-value-row">
+        <text class="stat-value">{{overview.totalFuel || '--'}}</text>
+        <text class="stat-unit">吨</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 快捷操作 -->
+  <view class="actions">
+    <view class="action-btn primary" bindtap="goToEntry">
+      <text class="action-icon">✏️</text>
+      <text class="action-text">去录入</text>
+    </view>
+    <view class="action-btn secondary" bindtap="goToHistory">
+      <text class="action-icon">📋</text>
+      <text class="action-text">历史记录</text>
+    </view>
+  </view>
+
+  <view class="actions">
+    <view class="action-btn outline" bindtap="goToTrend">
+      <text class="action-icon">📈</text>
+      <text class="action-text">趋势分析</text>
+    </view>
+    <view class="action-btn outline" bindtap="goToAlerts">
+      <text class="action-icon">🔔</text>
+      <text class="action-text">预警信息</text>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>
+
+<tab-bar active="{{0}}" />

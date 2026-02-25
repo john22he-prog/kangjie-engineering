@@ -1,26 +1,54 @@
 <!-- pages/scan/index.wxml -->
+<custom-nav title="{{isLoggedIn ? '扫码录入' : '设备服务'}}" />
 <view class="page-container">
-  <!-- 离线提示 -->
-  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
 
-  <!-- 扫码大按钮 -->
-  <view class="scan-hero">
-    <view class="scan-btn" bindtap="onScan">
-      <image class="scan-icon" src="/images/tab/scan.png" mode="aspectFit" />
-      <text class="scan-text">扫码录入</text>
+  <!-- ========== 已登录用户：完整功能 ========== -->
+  <block wx:if="{{isLoggedIn}}">
+    <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+    <view class="scan-hero">
+      <view class="scan-btn" bindtap="onScan">
+        <text class="scan-text">扫码录入</text>
+      </view>
+      <text class="scan-hint">扫描设备二维码，巡检 · 维修 · 保养</text>
     </view>
-    <text class="scan-hint">扫描设备二维码，快速录入更换记录</text>
-  </view>
 
-  <!-- 开发模式快捷入口（正式上线删除） -->
-  <view class="card dev-entry" wx:if="{{devMode}}">
-    <view class="section-title">开发调试 · 快速跳转</view>
-    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-001">ZB-001 隧道式洗衣龙1号</view>
-    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-002">ZB-002 隧道式洗衣龙2号</view>
-    <view class="dev-btn" bindtap="onDevJump" data-id="ZB-003">ZB-003 烘干机1号</view>
-  </view>
+    <!-- 故障申报快捷入口（已登录用户也能看到） -->
+    <view class="card" style="margin-top: 20rpx;">
+      <view class="fault-entry" bindtap="onFaultReport">
+        <view>
+          <text class="fault-entry-title">故障申报</text>
+          <text class="fault-entry-desc">快速上报设备故障，通知工程部处理</text>
+        </view>
+        <text class="fault-entry-arrow">›</text>
+      </view>
+    </view>
 
-  <!-- 最近设备 -->
-  <view class="section-title" wx:if="{{lastAsset}}">最近扫描的设备</view>
-  <asset-card wx:if="{{lastAsset}}" asset="{{lastAsset}}" clickable="{{true}}" bind:tap="onAssetTap" />
+    <view class="card dev-entry" wx:if="{{devMode}}">
+      <view class="section-title">开发调试 · 快速跳转</view>
+      <view class="dev-btn" bindtap="onDevJump" data-id="ZB-001">ZB-001 隧道式洗衣龙1号</view>
+      <view class="dev-btn" bindtap="onDevJump" data-id="ZB-002">ZB-002 隧道式洗衣龙2号</view>
+      <view class="dev-btn" bindtap="onDevJump" data-id="ZB-003">ZB-003 烘干机1号</view>
+    </view>
+
+    <view class="section-title" wx:if="{{lastAsset}}">最近扫描的设备</view>
+    <asset-card wx:if="{{lastAsset}}" asset="{{lastAsset}}" clickable="{{true}}" bind:tap="onAssetTap" />
+  </block>
+
+  <!-- ========== 未登录用户：只显示故障申报 ========== -->
+  <block wx:if="{{!isLoggedIn}}">
+    <view class="anon-hero">
+      <view class="anon-title">云南康洁</view>
+      <view class="anon-subtitle">设备服务平台</view>
+    </view>
+
+    <view class="anon-main-btn" bindtap="onFaultReport">
+      <text class="anon-btn-text">故障申报</text>
+      <text class="anon-btn-hint">扫描设备二维码 · 拍照上报故障</text>
+    </view>
+
+    <view class="anon-login-link" bindtap="onGoBind">
+      <text>工程部员工？点击绑定账号 ›</text>
+    </view>
+  </block>
 </view>

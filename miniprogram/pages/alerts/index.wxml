@@ -1,4 +1,5 @@
 <!-- pages/alerts/index.wxml -->
+<custom-nav title="阈值报警" />
 <view class="page-container">
   <!-- 报警类型切换 -->
   <view class="type-bar">

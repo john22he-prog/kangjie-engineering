@@ -1,0 +1,14 @@
+<view class="nav-wrap" style="padding-top:{{statusBarHeight}}px;">
+  <view class="nav-bar" style="height:{{navHeight}}px;">
+    <view class="nav-left" wx:if="{{showHome}}" bindtap="onHomeTap">
+      <view class="nav-home-btn">
+        <text class="nav-home-icon">⌂</text>
+      </view>
+    </view>
+    <view class="nav-left" wx:else></view>
+    <text class="nav-title">{{title}}</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+<!-- 占位，防止页面内容被导航栏遮挡 -->
+<view style="height:{{statusBarHeight + navHeight}}px;"></view>

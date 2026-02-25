@@ -28,7 +28,10 @@ const genId = (prefix) => `${prefix}-${String(++idCounter).padStart(3, '0')}`
 const clone = (obj) => JSON.parse(JSON.stringify(obj))
 
 // AI 分析配置（模拟 system_config，仅 Admin 可改）
-const _aiConfig = { apiKey: '', model: 'gpt-4o-mini' }
+const _aiConfig = { apiKey: "", model: "gpt-4o-mini", prompts: {} }
+// AI 报告历史：工程部与锅炉房完全独立存储，数据不串联
+let _aiReportHistoryEng = []
+let _aiReportHistoryBoiler = []
 const AI_MODEL_OPTIONS = [
   'gpt-4o',
   'gpt-4o-mini',
@@ -86,11 +89,20 @@ function aggregateMonthForFactory(factoryId, ym) {
   if (factoryId) outbounds = outbounds.filter(l => l.factoryId === factoryId)
   const totalUsageCost = outbounds.reduce((s, l) => s + l.totalCost, 0)
 
+  const totalAssets = factoryId ? mockAssets.filter(a => a.factoryId === factoryId).length : mockAssets.length
+  const inspectionPlanned = Math.max(totalAssets, 1)
+  const inspectionCompleted = Math.round(inspectionPlanned * (0.6 + Math.random() * 0.35))
+  const inspectionRate = inspectionPlanned > 0 ? Math.round(inspectionCompleted / inspectionPlanned * 100) : 0
+  const inspectionAnomalies = Math.floor(Math.random() * 5)
+  const inspectionCoveredAssets = Math.min(inspectionCompleted, totalAssets)
+
   return {
     yearMonth: ym, totalLogs: logs.length, totalPartsQty, openAlerts: openAlerts.length,
     totalAlerts: alertsList.length, typeCount, topParts, topAssets, engineerWorkload,
     alertsByAsset, totalInvValue: Math.round(totalInvValue * 100) / 100,
     lowStockCount, totalUsageCost: Math.round(totalUsageCost * 100) / 100,
+    inspectionRate, inspectionAnomalies, inspectionCoveredAssets,
+    inspectionPlanned, inspectionCompleted,
   }
 }
 
@@ -158,6 +170,24 @@ function buildFullReport(current, prev, factoryLabel, scope, byFactory) {
     sections.push({ title: '人员与负荷', items: pItems })
   }
 
+  const inspItems = []
+  inspItems.push({ text: `本月巡检执行率 ${current.inspectionRate || 0}%（已完成 ${current.inspectionCompleted || 0} / 计划 ${current.inspectionPlanned || 0}），覆盖设备 ${current.inspectionCoveredAssets || 0} 台。` })
+  if ((current.inspectionRate || 0) >= 90) inspItems.push({ text: '✓ 巡检执行率优秀（≥90%），巡检计划落实到位。' })
+  else if ((current.inspectionRate || 0) >= 70) inspItems.push({ text: '巡检执行率良好，仍有提升空间，建议关注未覆盖设备。' })
+  else inspItems.push({ text: `⚠ 巡检执行率偏低（${current.inspectionRate || 0}%），建议加强巡检计划执行，避免设备隐患遗漏。` })
+  if ((current.inspectionAnomalies || 0) > 0) {
+    inspItems.push({ text: `本月巡检发现异常 ${current.inspectionAnomalies} 项，需跟进维修闭环。` })
+    if ((current.inspectionAnomalies || 0) > 3) inspItems.push({ text: '⚠ 巡检异常数较多，建议安排专项排查。' })
+  } else {
+    inspItems.push({ text: '✓ 本月巡检未发现异常，设备运行状态良好。' })
+  }
+  const prevInspRate = prev.inspectionRate || 0
+  const inspRateDiff = (current.inspectionRate || 0) - prevInspRate
+  if (Math.abs(inspRateDiff) > 5) {
+    inspItems.push({ text: `巡检执行率环比${inspRateDiff > 0 ? '提升' : '下降'} ${Math.abs(inspRateDiff)} 个百分点（上月 ${prevInspRate}%）。` })
+  }
+  sections.push({ title: '巡检执行分析', items: inspItems })
+
   if (current.openAlerts > 0 && current.alertsByAsset?.length) {
     const aItems = current.alertsByAsset.slice(0, 5).map(a => ({
       text: `${a.assetName} 有 ${a.openCount} 条待处理报警，建议尽快 ACK 或现场排查。`,
@@ -182,7 +212,7 @@ function buildFullReport(current, prev, factoryLabel, scope, byFactory) {
     if (logsPct > 20) summaryText += ` 较上月整体上升 ${logsPct}%。`
     else if (logsPct < -20) summaryText += ` 较上月整体下降 ${Math.abs(logsPct)}%。`
   } else {
-    summaryText = `${factoryLabel} 本月更换 ${current.totalLogs} 次，配件消耗 ${current.totalPartsQty} 件，紧急占比 ${urgentRate}%，待处理报警 ${current.openAlerts} 条。`
+    summaryText = `${factoryLabel} 本月更换 ${current.totalLogs} 次，配件消耗 ${current.totalPartsQty} 件，紧急占比 ${urgentRate}%，待处理报警 ${current.openAlerts} 条，巡检执行率 ${current.inspectionRate || 0}%。`
     if (logsPct > 0 && prev.totalLogs > 0) summaryText += ` 较上月增长 ${logsPct}%。`
     else if (logsPct < 0 && prev.totalLogs > 0) summaryText += ` 较上月下降 ${Math.abs(logsPct)}%。`
     if (current.openAlerts > 0) summaryText += ' 存在未处理报警，建议优先处理。'
@@ -238,13 +268,16 @@ const mockApi = {
     await delay()
     const raw = _aiConfig
     const apiKeyMasked = raw.apiKey ? (raw.apiKey.slice(0, 6) + '***' + raw.apiKey.slice(-4)) : ''
-    return { ok: true, data: { apiKeyMasked, model: raw.model || 'gpt-4o-mini', models: AI_MODEL_OPTIONS } }
+    return { ok: true, data: { apiKeyMasked, apiBase: raw.apiBase || '', model: raw.model || 'gpt-4o-mini', customModel: raw.customModel || '', models: AI_MODEL_OPTIONS, prompts: raw.prompts || {}, defaultPrompts: {}, apiBaseHints: { 'OpenAI': 'https://api.openai.com/v1', 'DeepSeek': 'https://api.deepseek.com/v1', '通义千问': 'https://dashscope.aliyuncs.com/compatible-mode/v1', '智谱GLM': 'https://open.bigmodel.cn/api/paas/v4', 'Kimi': 'https://api.moonshot.cn/v1' }, enabled: !!raw.apiKey } }
   },
 
-  async setAIConfig({ apiKey, model }) {
+  async setAIConfig(data) {
     await delay()
-    if (apiKey !== undefined) _aiConfig.apiKey = apiKey
-    if (model !== undefined) _aiConfig.model = model
+    if (data.apiKey !== undefined && data.apiKey !== '') _aiConfig.apiKey = data.apiKey
+    if (data.apiBase !== undefined) _aiConfig.apiBase = data.apiBase
+    if (data.model !== undefined) _aiConfig.model = data.model
+    if (data.customModel !== undefined) _aiConfig.customModel = data.customModel
+    if (data.prompts !== undefined) _aiConfig.prompts = data.prompts
     return { ok: true, data: {} }
   },
 
@@ -335,7 +368,11 @@ const mockApi = {
 
   async getDashboardStats(opts) { const { yearMonth: yearMonthArg, factoryId, workshop } = typeof opts === 'object' ? opts : { yearMonth: opts, factoryId: null, workshop: null }; await delay(400); const ym = yearMonthArg || dayjs().format('YYYY-MM'); let logs = mockReplacementLogs.filter(l => l.yearMonth === ym); let alerts = mockAlerts.filter(a => a.yearMonth === ym); if (workshop) { const allowedAssetIds = new Set(mockAssets.filter(a => a.workshop === workshop).map(a => a.assetId)); logs = logs.filter(l => allowedAssetIds.has(l.assetId)); alerts = alerts.filter(a => allowedAssetIds.has(a.assetId)) } else if (factoryId) { logs = logs.filter(l => l.factoryId === factoryId); alerts = alerts.filter(a => a.factoryId === factoryId) } const openAlerts = alerts.filter(a => a.status === 'OPEN'); let totalPartsQty = 0; logs.forEach(l => l.items.forEach(item => { totalPartsQty += item.qty })); const partUsageMap = {}; logs.forEach(l => { l.items.forEach(item => { if (!partUsageMap[item.partSkuId]) partUsageMap[item.partSkuId] = { partSkuId: item.partSkuId, partName: item.partNameSnapshot, partCode: item.partCodeSnapshot, totalQty: 0 }; partUsageMap[item.partSkuId].totalQty += item.qty }) }); const topParts = Object.values(partUsageMap).sort((a, b) => b.totalQty - a.totalQty).slice(0, 5); const assetCountMap = {}; logs.forEach(l => { if (!assetCountMap[l.assetId]) assetCountMap[l.assetId] = { assetId: l.assetId, assetName: l.assetNameSnapshot, assetNo: l.assetNoSnapshot, logCount: 0 }; assetCountMap[l.assetId].logCount++ }); const topAssets = Object.values(assetCountMap).sort((a, b) => b.logCount - a.logCount).slice(0, 5); const engineerMap = {}; logs.forEach(l => { if (!engineerMap[l.reporterUserIdSnapshot]) engineerMap[l.reporterUserIdSnapshot] = { userId: l.reporterUserIdSnapshot, name: l.reporterNameSnapshot, logCount: 0 }; engineerMap[l.reporterUserIdSnapshot].logCount++ }); const engineerWorkload = Object.values(engineerMap).sort((a, b) => b.logCount - a.logCount); const today = dayjs(); const dailyTrend = []; for (let i = 6; i >= 0; i--) { const d = today.subtract(i, 'day'); const dateStr = d.format('YYYY-MM-DD'); const count = logs.filter(l => dayjs(l.ts).format('YYYY-MM-DD') === dateStr).length; dailyTrend.push({ date: dateStr, label: d.format('MM-DD'), count }) } const alertAssetMap = {}; openAlerts.forEach(a => { if (!alertAssetMap[a.assetId]) alertAssetMap[a.assetId] = { assetId: a.assetId, assetName: getAssetName(a.assetId), workshop: mockAssets.find(x => x.assetId === a.assetId)?.workshop || '', openCount: 0 }; alertAssetMap[a.assetId].openCount++ }); const alertsByAsset = Object.values(alertAssetMap).sort((a, b) => b.openCount - a.openCount); return { ok: true, data: { yearMonth: ym, totalLogs: logs.length, totalPartsQty, openAlerts: openAlerts.length, totalAlerts: alerts.length, topParts, topAssets, engineerWorkload, dailyTrend, alertsByAsset } } },
 
-  async getAIReport(opts) { const { yearMonth, factoryId, scope = 'factory' } = opts || {}; await delay(500); const ym = yearMonth || dayjs().format('YYYY-MM'); const prevYm = dayjs(ym + '-01').subtract(1, 'month').format('YYYY-MM'); let current, prev; let byFactory = []; if (scope === 'summary') { current = aggregateMonthForFactory(null, ym); prev = aggregateMonthForFactory(null, prevYm); for (const f of mockFactories) { const fc = aggregateMonthForFactory(f.factoryId, ym); byFactory.push({ factoryId: f.factoryId, factoryName: f.factoryName, ...fc }) } } else { current = aggregateMonthForFactory(factoryId, ym); prev = aggregateMonthForFactory(factoryId, prevYm) } const fLabel = scope === 'summary' ? '全部工厂' : (mockFactories.find(f => f.factoryId === factoryId)?.factoryName || '当前工厂'); const report = buildFullReport(current, prev, fLabel, scope, byFactory); return { ok: true, data: { ...report, stats: current, prevStats: prev, byFactory: scope === 'summary' ? byFactory : undefined, factoryLabel: fLabel } } },
+  async getAIReport(opts) { const { yearMonth, factoryId, scope = 'factory', promptType = 'monthly_summary', timeRangeLabel } = opts || {}; await delay(500); const ym = yearMonth || (opts?.yearMonths?.[0]) || dayjs().format('YYYY-MM'); const prevYm = dayjs(ym + '-01').subtract(1, 'month').format('YYYY-MM'); let current, prev; let byFactory = []; if (scope === 'summary') { current = aggregateMonthForFactory(null, ym); prev = aggregateMonthForFactory(null, prevYm); for (const f of mockFactories) { const fc = aggregateMonthForFactory(f.factoryId, ym); byFactory.push({ factoryId: f.factoryId, factoryName: f.factoryName, ...fc }) } } else { current = aggregateMonthForFactory(factoryId, ym); prev = aggregateMonthForFactory(factoryId, prevYm) } const fLabel = scope === 'summary' ? '全部工厂' : (mockFactories.find(f => f.factoryId === factoryId)?.factoryName || '当前工厂'); const report = buildFullReport(current, prev, fLabel, scope, byFactory); const payload = { ...report, stats: current, prevStats: prev, byFactory: scope === 'summary' ? byFactory : undefined, factoryLabel: fLabel }; const reportId = genId('rpt'); _aiReportHistoryEng.push({ reportId, department: 'engineering', yearMonth: ym, timeRangeLabel: timeRangeLabel || ym, factoryId: factoryId || '', factoryLabel: fLabel, scope, promptType, reportData: payload, hasLLM: false, llmError: null, createdAt: Date.now() }); return { ok: true, data: payload }; },
+  async listAIReports(opts) { const { page = 1, pageSize = 10, yearMonth, promptType, department = 'engineering' } = opts || {}; await delay(200); const store = (department === 'boiler') ? _aiReportHistoryBoiler : _aiReportHistoryEng; let list = [...store]; if (yearMonth) list = list.filter(r => r.yearMonth === yearMonth); if (promptType) list = list.filter(r => r.promptType === promptType); list = list.sort((a, b) => b.createdAt - a.createdAt); const total = list.length; const start = (page - 1) * pageSize; list = list.slice(start, start + pageSize); return { ok: true, data: { list, total } }; },
+  async getAIReportDetail(reportId) { await delay(100); const isBoiler = String(reportId).startsWith('brpt-'); const store = isBoiler ? _aiReportHistoryBoiler : _aiReportHistoryEng; const row = store.find(r => r.reportId === reportId); if (!row) return { ok: false, error: { message: '报告不存在' } }; return { ok: true, data: { reportData: row.reportData } }; },
+  async deleteAIReport(reportId) { await delay(100); const isBoiler = String(reportId).startsWith('brpt-'); const store = isBoiler ? _aiReportHistoryBoiler : _aiReportHistoryEng; const idx = store.findIndex(r => r.reportId === reportId); if (idx >= 0) store.splice(idx, 1); return { ok: true, data: {} }; },
+  async saveBoilerAIReport(opts) { const { factoryId, factoryLabel, yearMonth, promptType, reportData } = opts || {}; await delay(200); const reportId = genId('brpt'); _aiReportHistoryBoiler.push({ reportId, department: 'boiler', yearMonth: yearMonth || dayjs().format('YYYY-MM'), timeRangeLabel: yearMonth || dayjs().format('YYYY-MM'), factoryId: factoryId || '', factoryLabel: factoryLabel || '锅炉房', scope: 'factory', promptType: promptType || 'daily_report', reportData, hasLLM: false, llmError: null, createdAt: Date.now() }); return { ok: true, data: { reportId } }; },
 
   async getDashboardPartDetail(partSkuId, yearMonth, workshop) { await delay(300); return { ok: true, data: { partSkuId, partName: getPartName(partSkuId), byAsset: [] } } },
   async getDashboardAssetDetail(assetId, yearMonth, workshop) { await delay(300); return { ok: true, data: { assetId, assetName: getAssetName(assetId), byPart: [] } } },
@@ -356,7 +393,111 @@ const mockApi = {
   async getPartUsageCostList(factoryId, yearMonth) { await delay(); return { ok: true, data: { yearMonth: yearMonth || dayjs().format('YYYY-MM'), totalCost: 0, list: [] } } },
   async getAssetCostDetail(factoryId, assetId, yearMonth) { await delay(); return { ok: true, data: { assetId, yearMonth: yearMonth || dayjs().format('YYYY-MM'), totalCost: 0, partList: [] } } },
   async getInventoryTrend(factoryId, months) { await delay(); return { ok: true, data: { months: [], inventoryByMonth: [], inboundByMonth: [], outboundByMonth: [] } } },
+  async getInspectionDashboard() { return { ok: true, data: { hasPlan: false } } },
+  async getInspectionPlan() { await delay(); return { ok: true, data: { plan: null, assets: [], completed: 0, total: 0, inspectDate: dayjs().format("YYYY-MM-DD") } } },
+  async listInspectionHistory(params) { await delay(); return { ok: true, data: { list: [], total: 0, planTotal: 0 } } },
+  async setInspectionPlan(data) { await delay(); return { ok: true, data: { planId: "mock_plan", assetCount: data.assetIds?.length || 0, action: "created" } } },
   async getCostTrend(factoryId, months) { await delay(); return { ok: true, data: { months: [], totalByMonth: [], topAssets: [] } } },
+  // ====== 锅炉房模块 mock ======
+  async boilerGetOverview(params = {}) {
+    await delay(400)
+    const date = params.date || dayjs().format('YYYY-MM-DD')
+    return { ok: true, data: { date, record: {
+      total_steam_production: 42.8, total_steam_usage: 38.5, total_electricity: 1250,
+      total_water: 85, total_fuel_consumed: 12.6, fuel_intake: 20,
+      fuel_cost: 8820, electricity_cost: 1000, water_cost: 340, total_cost: 10160,
+      cost_per_steam: 237.38, steam_loss_rate: 10.05,
+      fuel_stock_estimate: 156.4, fuel_stock_days: 12.4,
+      electricity_per_steam: 29.21, fuel_per_steam: 0.29, water_per_steam: 1.99,
+    } } }
+  },
+  async boilerListBoilers(factoryId) {
+    await delay()
+    return { ok: true, data: [
+      { id: 1, name: '1#锅炉', model: 'SZL10-1.25-AII', rated_capacity: 10, fuel_type: '生物质' },
+      { id: 2, name: '2#锅炉', model: 'SZL6-1.25-AII', rated_capacity: 6, fuel_type: '生物质' },
+    ] }
+  },
+  async boilerListCustomers(factoryId) {
+    await delay()
+    return { ok: true, data: [
+      { id: 1, name: '云南白药' }, { id: 2, name: '昆明制药' }, { id: 3, name: '滇虹药业' },
+    ] }
+  },
+  async boilerCreateRecord(data) {
+    await delay(500)
+    return { ok: true, data: { id: Math.floor(Math.random() * 1000) + 100 } }
+  },
+  async boilerListRecords(params = {}) {
+    await delay(400)
+    const today = dayjs()
+    const list = []
+    for (let i = 0; i < 15; i++) {
+      const d = today.subtract(i, 'day')
+      list.push({
+        id: 100 + i, record_date: d.format('YYYY-MM-DD'),
+        total_water: 80 + Math.round(Math.random() * 20),
+        total_fuel_consumed: +(10 + Math.random() * 5).toFixed(1),
+        fuel_intake: Math.random() > 0.6 ? Math.round(Math.random() * 30) : 0,
+        total_steam_production: +(38 + Math.random() * 10).toFixed(1),
+        total_cost: 8000 + Math.round(Math.random() * 4000),
+        fuel_stock_estimate: 100 + Math.round(Math.random() * 100),
+        fuel_stock_days: +(8 + Math.random() * 10).toFixed(1),
+      })
+    }
+    const page = params.page || 1, pageSize = params.pageSize || 20, start = (page - 1) * pageSize
+    return { ok: true, data: { list: list.slice(start, start + pageSize), total: list.length, page, pageSize } }
+  },
+  async boilerGetRecordDetail(recordId) {
+    await delay(300)
+    return { ok: true, data: {
+      id: recordId, record_date: dayjs().format('YYYY-MM-DD'), total_water: 85,
+      total_fuel_consumed: 12.6, fuel_intake: 20,
+      boiler_data: [
+        { id: 1, boiler_id: 1, boiler_name: '1#锅炉', start_time: '06:00', end_time: '22:00', running_hours: 16, steam_production: 28.5, electricity: 820, steam_pressure: 1.2, steam_temperature: 194 },
+        { id: 2, boiler_id: 2, boiler_name: '2#锅炉', start_time: '08:00', end_time: '20:00', running_hours: 12, steam_production: 14.3, electricity: 430, steam_pressure: 1.1, steam_temperature: 191 },
+      ],
+      customer_steam_data: [
+        { id: 1, customer_id: 1, customer_name: '云南白药', steam_usage: 18.2 },
+        { id: 2, customer_id: 2, customer_name: '昆明制药', steam_usage: 12.5 },
+        { id: 3, customer_id: 3, customer_name: '滇虹药业', steam_usage: 7.8 },
+      ],
+      daily_derived_metrics: {
+        total_steam_production: 42.8, total_steam_usage: 38.5, total_electricity: 1250,
+        steam_loss_rate: 10.05, fuel_cost: 8820, electricity_cost: 1000, water_cost: 340,
+        total_cost: 10160, cost_per_steam: 237.38, fuel_stock_estimate: 156.4, fuel_stock_days: 12.4,
+      },
+    } }
+  },
+  async boilerGetTrend(params = {}) {
+    await delay(400)
+    const { metric = 'total_steam_production', startDate, endDate } = params
+    const start = startDate ? dayjs(startDate) : dayjs().subtract(6, 'day')
+    const end = endDate ? dayjs(endDate) : dayjs()
+    const days = end.diff(start, 'day') + 1
+    const baseMap = { total_steam_production: 40, total_cost: 9000, total_electricity: 1200, steam_loss_rate: 9, cost_per_steam: 220, fuel_stock_estimate: 150, fuel_stock_days: 12 }
+    const base = baseMap[metric] || 40
+    const data = []
+    for (let i = 0; i < days; i++) {
+      data.push({ date: start.add(i, 'day').format('YYYY-MM-DD'), value: +(base + (Math.random() - 0.5) * base * 0.3).toFixed(2) })
+    }
+    return { ok: true, data }
+  },
+  async boilerListAlerts(params = {}) {
+    await delay()
+    const list = [
+      { id: 1, rule_name: '蒸汽损耗率偏高', rule_metric: 'steam_loss_rate', rule_operator: '>', rule_threshold: 15, rule_severity: 'warning', status: 'triggered', triggered_at: dayjs().subtract(2, 'hour').toISOString(), metric_value: 16.2 },
+      { id: 2, rule_name: '燃料库存不足', rule_metric: 'fuel_stock_days', rule_operator: '<', rule_threshold: 5, rule_severity: 'critical', status: 'triggered', triggered_at: dayjs().subtract(1, 'day').toISOString(), metric_value: 3.8 },
+      { id: 3, rule_name: '日成本超标', rule_metric: 'total_cost', rule_operator: '>', rule_threshold: 12000, rule_severity: 'warning', status: 'acknowledged', triggered_at: dayjs().subtract(3, 'day').toISOString(), metric_value: 13500 },
+      { id: 4, rule_name: '吨汽成本异常', rule_metric: 'cost_per_steam', rule_operator: '>', rule_threshold: 280, rule_severity: 'info', status: 'resolved', triggered_at: dayjs().subtract(5, 'day').toISOString(), metric_value: 295, resolved_at: dayjs().subtract(4, 'day').toISOString() },
+    ]
+    let filtered = [...list]
+    if (params.status) filtered = filtered.filter(a => a.status === params.status)
+    return { ok: true, data: { list: filtered, pagination: { page: 1, pageSize: 20, total: filtered.length } } }
+  },
+  async boilerAcknowledgeAlert(alertId) { await delay(); return { ok: true, data: { alertId, status: 'acknowledged' } } },
+  async boilerResolveAlert(alertId, resolveNote) { await delay(); return { ok: true, data: { alertId, status: 'resolved' } } },
+  async getFacilityOutboundSummary() { await delay(); return { ok: true, data: { totalQty: 0, totalCost: 0 } } },
 }
 
 // 模式选择：http > cloud > real > mock

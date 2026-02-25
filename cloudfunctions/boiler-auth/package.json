@@ -1,0 +1,10 @@
+{
+  "name": "boiler-auth",
+  "version": "1.0.0",
+  "description": "锅炉房模块 — 认证与系统管理",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "serverless-mysql": "^1.5.5"
+  }
+}

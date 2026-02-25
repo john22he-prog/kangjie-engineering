@@ -31,23 +31,35 @@
               <span>工程部</span>
             </template>
             <el-menu-item index="/dashboard">数据看板</el-menu-item>
+            <el-menu-item index="/daily-timeline">24小时事件记录</el-menu-item>
             <el-menu-item index="/records">更换记录</el-menu-item>
             <el-menu-item index="/alerts">报警管理</el-menu-item>
             <el-menu-item index="/assets">设备管理</el-menu-item>
             <el-menu-item index="/parts">配件字典</el-menu-item>
             <el-menu-item index="/thresholds">阈值管理</el-menu-item>
             <el-menu-item index="/inventory">库存管理</el-menu-item>
+            <el-menu-item index="/inspection">巡检管理</el-menu-item>
+            <el-menu-item index="/dashboard/ai-report">AI 分析</el-menu-item>
+            <el-menu-item index="/boiler-parts">锅炉房记录</el-menu-item>
+            <el-menu-item index="/facility">厂务记录</el-menu-item>
           </el-sub-menu>
 
           <!-- 锅炉房 -->
-          <el-sub-menu index="dept-boiler" disabled>
+          <el-sub-menu index="dept-boiler">
             <template #title>
               <el-icon><Sunrise /></el-icon>
               <span>锅炉房</span>
-              <el-tag v-if="!sidebarCollapsed" size="small" type="info" class="menu-tag">即将接入</el-tag>
             </template>
+            <el-menu-item index="/boiler">数据看板</el-menu-item>
+            <el-menu-item index="/boiler/records">运行记录</el-menu-item>
+            <el-menu-item index="/boiler/trend">趋势分析</el-menu-item>
+            <el-menu-item index="/boiler/alerts">预警管理</el-menu-item>
+            <el-menu-item index="/boiler/customers">客户用汽</el-menu-item>
+            <el-menu-item index="/boiler/monthly">月度报表</el-menu-item>
+            <el-menu-item index="/boiler/fuel">燃料管理</el-menu-item>
+            <el-menu-item index="/boiler/settings">设备配置</el-menu-item>
+            <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
           </el-sub-menu>
-
 
           <!-- 生产部 -->
           <el-sub-menu index="dept-prod" disabled>
@@ -145,20 +157,31 @@
                 <span>工程部</span>
               </template>
               <el-menu-item index="/dashboard">数据看板</el-menu-item>
+            <el-menu-item index="/daily-timeline">24小时事件记录</el-menu-item>
               <el-menu-item index="/records">更换记录</el-menu-item>
               <el-menu-item index="/alerts">报警管理</el-menu-item>
               <el-menu-item index="/assets">设备管理</el-menu-item>
               <el-menu-item index="/parts">配件字典</el-menu-item>
               <el-menu-item index="/thresholds">阈值管理</el-menu-item>
               <el-menu-item index="/inventory">库存管理</el-menu-item>
+            <el-menu-item index="/inspection">巡检管理</el-menu-item>
+              <el-menu-item index="/dashboard/ai-report">AI 分析</el-menu-item>
             </el-sub-menu>
 
-            <el-sub-menu index="dept-boiler" disabled>
+            <el-sub-menu index="dept-boiler">
               <template #title>
                 <el-icon><Sunrise /></el-icon>
                 <span>锅炉房</span>
-                <el-tag size="small" type="info" class="menu-tag">即将接入</el-tag>
               </template>
+              <el-menu-item index="/boiler">数据看板</el-menu-item>
+              <el-menu-item index="/boiler/records">运行记录</el-menu-item>
+              <el-menu-item index="/boiler/trend">趋势分析</el-menu-item>
+              <el-menu-item index="/boiler/alerts">预警管理</el-menu-item>
+              <el-menu-item index="/boiler/customers">客户用汽</el-menu-item>
+              <el-menu-item index="/boiler/monthly">月度报表</el-menu-item>
+              <el-menu-item index="/boiler/fuel">燃料管理</el-menu-item>
+              <el-menu-item index="/boiler/settings">设备配置</el-menu-item>
+              <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
             </el-sub-menu>
 
 
@@ -249,7 +272,7 @@
         </div>
         <div class="header-right">
           <el-select
-            v-if="appStore.factories.length > 0"
+            v-if="appStore.factories.length > 0 && !isBoilerRoute"
             :model-value="appStore.currentFactoryId"
             @change="onFactoryChange"
             :disabled="!authStore.canSwitchFactory"
@@ -266,7 +289,7 @@
             <el-option
               v-for="f in appStore.factories"
               :key="f.factoryId"
-              :label="f.factoryName"
+              :label="getFactoryLabel(f)"
               :value="f.factoryId"
             />
           </el-select>
@@ -304,7 +327,9 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { PERMISSIONS } from '@/utils/permissions'
 import { useAppStore } from '@/stores/app'
+import { api } from '@/utils/api'
 import {
   Menu, Fold, Expand, ArrowDown, SwitchButton,
   HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin,
@@ -314,6 +339,27 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+
+const boilerParkNames = ref({})
+async function loadBoilerParks() {
+  try {
+    const res = await api.boilerListParks()
+    if (res.ok && res.data) {
+      for (const p of res.data) {
+        if (p.parkName) boilerParkNames.value[p.factoryId] = p.parkName
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+const isBoilerRoute = computed(() => route.path.startsWith('/boiler'))
+
+function getFactoryLabel(f) {
+  if (isBoilerRoute.value && boilerParkNames.value[f.factoryId]) {
+    return boilerParkNames.value[f.factoryId]
+  }
+  return f.factoryName
+}
 
 const MOBILE_BREAKPOINT = 768
 const isMobile = ref(window.innerWidth < MOBILE_BREAKPOINT)
@@ -326,6 +372,7 @@ function checkMobile() {
 onMounted(() => {
   window.addEventListener('resize', checkMobile)
   appStore.loadFactories()
+  loadBoilerParks()
 })
 
 onBeforeUnmount(() => {
@@ -336,19 +383,20 @@ const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const currentRoute = computed(() => route)
 
 const isGroupedSidebar = computed(() => {
-  const role = authStore.user?.role
-  return role === 'Admin' || role === 'Management'
+  return authStore.hasPermission(PERMISSIONS.MODULE_COMPANY)
 })
 
 // 工程部路由路径
-const engPaths = ['/dashboard', '/records', '/alerts', '/assets', '/parts', '/thresholds', '/inventory']
+const engPaths = ['/dashboard', '/daily-timeline', '/records', '/alerts', '/assets', '/parts', '/thresholds', '/inventory']
+const boilerPaths = ['/boiler']
 // 系统管理路由路径
 const sysPaths = ['/users', '/factories', '/settings']
 
 const activeMenu = computed(() => {
-  const p = '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/')
-  // 把 /settings 下的路由映射成完整路径
   if (route.path.startsWith('/settings/')) return route.path
+  if (route.path.startsWith('/dashboard/')) return route.path
+  if (route.path.startsWith('/boiler/')) return route.path
+  const p = '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/')
   return p
 })
 
@@ -356,6 +404,7 @@ const defaultOpeneds = computed(() => {
   const p = activeMenu.value
   const opened = []
   if (engPaths.some(ep => p.startsWith(ep))) opened.push('dept-eng')
+  if (boilerPaths.some(bp => p.startsWith(bp))) opened.push('dept-boiler')
   if (sysPaths.some(sp => p.startsWith(sp))) opened.push('system')
   return opened
 })
@@ -363,6 +412,7 @@ const defaultOpeneds = computed(() => {
 const currentGroup = computed(() => {
   const p = activeMenu.value
   if (engPaths.some(ep => p.startsWith(ep))) return '工程部'
+  if (boilerPaths.some(bp => p.startsWith(bp))) return '锅炉房'
   if (sysPaths.some(sp => p.startsWith(sp))) return '系统管理'
   return ''
 })
@@ -374,7 +424,7 @@ const flatMenuRoutes = computed(() => {
   return mainRoute.children
     .filter(r => !r.meta?.hidden && r.path !== 'company')
     .filter(r => {
-      if (r.meta?.roles) return r.meta.roles.includes(authStore.user?.role)
+      if (r.meta?.permission) return authStore.hasPermission(r.meta.permission)
       return true
     })
 })
@@ -423,7 +473,8 @@ function handleCommand(cmd) {
 .sidebar {
   background: #1d1e1f;
   transition: width 0.3s;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 
   .logo-area {
     height: 60px;
@@ -451,6 +502,8 @@ function handleCommand(cmd) {
 
   .sidebar-menu {
     border-right: none;
+    flex: 1;
+    overflow-y: auto;
 
     :deep(.el-menu-item.is-active) {
       background: var(--kj-primary) !important;

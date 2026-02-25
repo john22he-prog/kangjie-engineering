@@ -1,4 +1,4 @@
-// 云函数：adminDashboard — 成本排名 / 设备成本明细 / AI 报告
+// 云函数：adminDashboard — 成本排名 / 设备成本明细 / 数据分析报告
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -205,7 +205,7 @@ async function assetCostDetail(params, user) {
   }
 }
 
-// ========== AI 分析报告 ==========
+// ========== 数据分析报告 ==========
 async function getAIReport(params, user) {
   const yearMonth = params.yearMonth
   if (!yearMonth) {

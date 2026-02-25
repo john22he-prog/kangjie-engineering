@@ -1,5 +1,6 @@
 {
   "pages": [
+    "pages/company/index",
     "pages/scan/index",
     "pages/record/index",
     "pages/alerts/index",
@@ -18,12 +19,13 @@
     "pages/inspection/checkin",
     "pages/inspection/history",
     "pages/inspection/plan-config",
-    "pages/company/index"
+    "pages/fault-report/index",
+    "pages/device/index"
   ],
   "window": {
     "backgroundTextStyle": "light",
     "navigationBarBackgroundColor": "#07C160",
-    "navigationBarTitleText": "康洁工程部",
+    "navigationBarTitleText": "云南康洁",
     "navigationBarTextStyle": "white"
   },
   "tabBar": {
@@ -39,6 +41,20 @@
       {"pagePath": "pages/me/index", "text": "我的", "iconPath": "images/tab/me.png", "selectedIconPath": "images/tab/me-active.png"}
     ]
   },
+  "subPackages": [
+    {
+      "root": "packages/boiler",
+      "name": "boiler",
+      "pages": [
+        "pages/home/index",
+        "pages/entry/index",
+        "pages/history/index",
+        "pages/me/index",
+        "pages/alerts/index",
+        "pages/trend/index"
+      ]
+    }
+  ],
   "sitemapLocation": "sitemap.json",
   "useExtendedLib": {"weui": true},
   "cloud": true,

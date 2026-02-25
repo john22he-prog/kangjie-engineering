@@ -1,6 +1,9 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "custom-nav": "/components/custom-nav/index"
+  },
   "navigationBarTitleText": "看板",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true,
   "backgroundTextStyle": "dark"
 }

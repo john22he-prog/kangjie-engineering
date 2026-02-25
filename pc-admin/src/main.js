@@ -5,7 +5,7 @@ import 'element-plus/dist/index.css'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 
 import {
-  ArrowDown, ArrowRight, ArrowUp, Bell, Box, DataAnalysis,
+  ArrowDown, ArrowRight, ArrowUp, Bell, Box, Clock, DataAnalysis,
   Document, Download, Expand, Fold, House, InfoFilled,
   List, Loading, MagicStick, Menu, Monitor, Notebook,
   OfficeBuilding, Picture, Plus, Refresh, Right, Search,
@@ -21,7 +21,7 @@ import './assets/styles/global.scss'
 const app = createApp(App)
 
 const icons = {
-  ArrowDown, ArrowRight, ArrowUp, Bell, Box, DataAnalysis,
+  ArrowDown, ArrowRight, ArrowUp, Bell, Box, Clock, DataAnalysis,
   Document, Download, Expand, Fold, House, InfoFilled,
   List, Loading, MagicStick, Menu, Monitor, Notebook,
   OfficeBuilding, Picture, Plus, Refresh, Right, Search,

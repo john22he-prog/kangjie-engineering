@@ -1,0 +1,48 @@
+---
+description: 云函数部署与小程序发布流程
+alwaysApply: false
+globs: cloudfunctions/**/*,project.config.json,cloudbaserc.json
+---
+
+# 部署与发布流程
+
+## 云函数部署
+
+1. **单个云函数**：微信开发者工具 → 右键云函数目录 → 上传并部署（云端安装依赖）
+2. **批量部署**：使用 @cloudbase/cli
+
+```bash
+tcb functions deploy <functionName> --envId cloud1-0g0grbwt8c230b0d
+```
+
+## 部署前检查
+
+- [ ] 云函数 package.json 中的依赖版本是否正确
+- [ ] Node.js 运行时版本设置（目标 18.15，cloudbaserc.json 中配置）
+- [ ] 环境变量是否在云端控制台配置（MySQL 连接信息等）
+- [ ] 超时时间是否合理（默认 10s，导出类 120s）
+
+## 锅炉房云函数部署注意
+
+- boiler-core / boiler-analysis 依赖 serverless-mysql 和 dayjs
+- MySQL 环境变量：MYSQL_ADDRESS, MYSQL_PORT, MYSQL_USERNAME, MYSQL_PASSWORD, MYSQL_DBNAME
+- 部署后务必测试数据库连接
+
+## 小程序发布流程
+
+1. 微信开发者工具 → 上传代码 → 填写版本号
+2. 微信公众平台 → 版本管理 → 提交审核
+3. 审核通过后 → 发布上线
+
+## PC 管理端部署
+
+```bash
+cd pc-admin && npm run build
+# dist/ 目录部署到静态托管或 Nginx
+```
+
+## 常见问题排查
+
+- 云函数调用超时 → 检查 MySQL 连接（冷启动慢）或增加超时时间
+- npm 构建失败 → 微信开发者工具 → 工具 → 构建 npm
+- 分包体积超限 → 检查是否有大图片或未 tree-shaking 的依赖

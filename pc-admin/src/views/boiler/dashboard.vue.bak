@@ -1,0 +1,358 @@
+<template>
+  <div class="page-container boiler-dashboard">
+    <div class="page-header">
+      <h2>锅炉房看板</h2>
+      <div class="header-actions">
+        <el-date-picker v-model="selectedDate" type="date" placeholder="选择日期" value-format="YYYY-MM-DD" :clearable="false" style="width: 160px" @change="loadData" />
+        <el-button type="primary" @click="$router.push('/boiler/entry')">
+          <el-icon><Edit /></el-icon>录入数据
+        </el-button>
+      </div>
+    </div>
+
+    <div v-loading="loading">
+      <!-- 汇总统计卡片 -->
+      <el-row :gutter="16" class="stat-row">
+        <el-col :xs="12" :sm="8" :md="4" v-for="card in statCards" :key="card.key">
+          <div class="stat-card">
+            <div class="stat-icon" :style="{ background: card.bg, color: card.color }">
+              <el-icon :size="22"><component :is="card.icon" /></el-icon>
+            </div>
+            <div class="stat-value">{{ card.value }}</div>
+            <div class="stat-label">{{ card.label }}</div>
+            <div v-if="card.change != null" class="stat-change" :class="card.changeClass">
+              {{ card.change > 0 ? '↑' : '↓' }} {{ Math.abs(card.change) }}%
+              <span class="change-hint">vs 7日均值</span>
+            </div>
+            <div v-if="card.avg != null" class="stat-avg">均值 {{ card.avg }}</div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <!-- 锅炉明细 + 客户明细 -->
+      <el-row :gutter="16" class="detail-row">
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="detail-card">
+            <template #header><span class="card-title">锅炉运行明细</span></template>
+            <el-table :data="overview.boilers || []" stripe size="default" class="detail-table">
+              <el-table-column prop="name" label="锅炉" width="100" />
+              <el-table-column label="用电（度）" align="right">
+                <template #default="{ row }">
+                  <span>{{ row.electricity?.toLocaleString() ?? '--' }}</span>
+                  <span v-if="boilerElecAvg(row.name)" class="inline-avg">均{{ boilerElecAvg(row.name) }}</span>
+                  <span v-if="boilerElecChg(row.name) != null" class="inline-change" :class="boilerElecChg(row.name) > 15 ? 'change-bad' : 'change-ok'">
+                    {{ boilerElecChg(row.name) > 0 ? '+' : '' }}{{ boilerElecChg(row.name) }}%
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="steam_production" label="产汽（吨）" align="right">
+                <template #default="{ row }">{{ row.steam_production ?? '--' }}</template>
+              </el-table-column>
+            </el-table>
+            <div class="detail-footer" v-if="s">
+              <span>合计产汽：<b>{{ s.total_steam_production }} 吨</b></span>
+              <span>合计用电：<b>{{ s.total_electricity?.toLocaleString() }} 度</b></span>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="detail-card">
+            <template #header><span class="card-title">客户用汽明细</span></template>
+            <el-table :data="overview.customers || []" stripe size="default" class="detail-table">
+              <el-table-column prop="name" label="客户" width="100" />
+              <el-table-column label="用汽（吨）" align="right">
+                <template #default="{ row }">
+                  <span>{{ row.steam_usage ?? '--' }}</span>
+                  <span v-if="custAvg(row.name)" class="inline-avg">均{{ custAvg(row.name) }}</span>
+                  <span v-if="custChg(row.name) != null" class="inline-change" :class="custChg(row.name) > 15 ? 'change-bad' : 'change-ok'">
+                    {{ custChg(row.name) > 0 ? '+' : '' }}{{ custChg(row.name) }}%
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="启停时间" align="center" width="140">
+                <template #default="{ row }">{{ row.start_time ?? '--' }} — {{ row.end_time ?? '--' }}</template>
+              </el-table-column>
+            </el-table>
+            <div class="detail-footer" v-if="s">
+              <span>合计用汽：<b>{{ s.total_steam_usage }} 吨</b></span>
+              <span v-if="s.steam_loss_rate != null">损耗率：<b :class="{ 'text-danger': s.steam_loss_rate > 5 }">{{ s.steam_loss_rate }}%</b></span>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 燃料 / 水 / 库存 -->
+      <el-row :gutter="16" class="resource-row">
+        <el-col :xs="24" :md="8">
+          <el-card shadow="never" class="resource-card">
+            <div class="res-item"><span class="res-label">当日燃料消耗</span><span class="res-value">{{ s?.fuel_consumed ?? '--' }} 吨</span></div>
+            <div class="res-item"><span class="res-label">当日进柴</span><span class="res-value">{{ s?.fuel_intake || '无' }} {{ s?.fuel_intake ? '吨' : '' }}</span></div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="8">
+          <el-card shadow="never" class="resource-card">
+            <div class="res-item"><span class="res-label">当日用水</span><span class="res-value">{{ s?.water_usage ?? '--' }} 吨</span></div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="8">
+          <el-card shadow="never" class="resource-card" :class="{ 'card-warning': s?.fuel_stock_days < 5 }">
+            <div class="res-item"><span class="res-label">燃料库存估算</span><span class="res-value">{{ s?.fuel_stock_estimate ?? '--' }} 吨</span></div>
+            <div class="res-item"><span class="res-label">预计可用</span><span class="res-value" :class="{ 'text-danger': s?.fuel_stock_days < 5 }">{{ s?.fuel_stock_days ?? '--' }} 天</span></div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 成本核算 -->
+      <el-row v-if="cost" :gutter="16" class="cost-row">
+        <el-col :xs="24" :md="16">
+          <el-card shadow="never" class="detail-card">
+            <template #header><span class="card-title">成本分析</span></template>
+            <div class="cost-grid">
+              <div class="cost-item"><span class="cost-label">燃料成本</span><span class="cost-val">¥{{ cost.fuelCost.toLocaleString() }}</span></div>
+              <div class="cost-item"><span class="cost-label">电力成本</span><span class="cost-val">¥{{ cost.elecCost.toLocaleString() }}</span></div>
+              <div class="cost-item"><span class="cost-label">水费成本</span><span class="cost-val">¥{{ cost.waterCost.toLocaleString() }}</span></div>
+              <div class="cost-item cost-total"><span class="cost-label">总成本</span><span class="cost-val">¥{{ cost.total.toLocaleString() }}</span></div>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="8">
+          <el-card shadow="never" class="detail-card ton-cost-card">
+            <div class="ton-cost-value">¥{{ cost.perSteam }}</div>
+            <div class="ton-cost-label">吨汽成本</div>
+            <div class="ton-cost-hint">总成本 ÷ 总产汽量</div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 趋势图 -->
+      <el-card shadow="never" class="chart-card">
+        <template #header><span class="card-title">近7天产汽趋势</span></template>
+        <div ref="chartRef" class="chart-box"></div>
+      </el-card>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useAppStore } from '@/stores/app'
+import { api } from '@/utils/api'
+import echarts from '@/utils/echarts'
+import dayjs from 'dayjs'
+import { Edit, Histogram, Odometer, Coin, DataLine, Warning, Timer } from '@element-plus/icons-vue'
+
+const appStore = useAppStore()
+const loading = ref(false)
+const overview = ref({})
+const recentRecords = ref([])
+const prices = ref({ fuel: 0, electricity: 0, water: 0 })
+const selectedDate = ref(dayjs().format('YYYY-MM-DD'))
+const chartRef = ref(null)
+let chartInstance = null
+
+const s = computed(() => overview.value.summary)
+
+const cost = computed(() => {
+  const sum = s.value
+  const p = prices.value
+  if (!sum || (!p.fuel && !p.electricity && !p.water)) return null
+  const fuelCost = (sum.fuel_consumed || 0) * (p.fuel || 0)
+  const elecCost = (sum.total_electricity || 0) * (p.electricity || 0)
+  const waterCost = (sum.water_usage || 0) * (p.water || 0)
+  const total = fuelCost + elecCost + waterCost
+  const perSteam = sum.total_steam_production > 0 ? total / sum.total_steam_production : 0
+  return { fuelCost: Math.round(fuelCost), elecCost: Math.round(elecCost), waterCost: Math.round(waterCost), total: Math.round(total), perSteam: +perSteam.toFixed(1) }
+})
+
+function avg(arr) {
+  if (!arr.length) return null
+  return arr.reduce((a, b) => a + b, 0) / arr.length
+}
+
+const avgSummary = computed(() => {
+  const recs = recentRecords.value
+  if (!recs.length) return null
+  return {
+    total_steam_production: avg(recs.map(r => r.total_steam_production).filter(v => v != null)),
+    total_electricity: avg(recs.map(r => r.total_electricity).filter(v => v != null)),
+    fuel_consumed: avg(recs.map(r => r.fuel_consumed).filter(v => v != null)),
+    water_usage: avg(recs.map(r => r.water_usage).filter(v => v != null)),
+  }
+})
+
+function pctVsAvg(curr, avgVal) {
+  if (curr == null || avgVal == null || avgVal === 0) return null
+  return Math.round(((curr - avgVal) / avgVal) * 100)
+}
+
+function fmtAvg(val) {
+  if (val == null) return null
+  return val >= 100 ? Math.round(val).toLocaleString() : +val.toFixed(1)
+}
+
+function boilerElecAvg(name) {
+  const recs = recentRecords.value
+  const vals = recs.map(r => r.boilers?.find(b => b.name === name)?.electricity).filter(v => v != null)
+  if (!vals.length) return null
+  return fmtAvg(avg(vals))
+}
+
+function boilerElecChg(name) {
+  const curr = overview.value.boilers?.find(b => b.name === name)?.electricity
+  const recs = recentRecords.value
+  const vals = recs.map(r => r.boilers?.find(b => b.name === name)?.electricity).filter(v => v != null)
+  if (!vals.length || curr == null) return null
+  return pctVsAvg(curr, avg(vals))
+}
+
+function custAvg(name) {
+  const recs = recentRecords.value
+  const vals = recs.map(r => r.customers?.find(c => c.name === name)?.steam_usage).filter(v => v != null)
+  if (!vals.length) return null
+  return fmtAvg(avg(vals))
+}
+
+function custChg(name) {
+  const curr = overview.value.customers?.find(c => c.name === name)?.steam_usage
+  const recs = recentRecords.value
+  const vals = recs.map(r => r.customers?.find(c => c.name === name)?.steam_usage).filter(v => v != null)
+  if (!vals.length || curr == null) return null
+  return pctVsAvg(curr, avg(vals))
+}
+
+const statCards = computed(() => {
+  const sum = s.value
+  const a = avgSummary.value
+  const chSteam = pctVsAvg(sum?.total_steam_production, a?.total_steam_production)
+  const chElec = pctVsAvg(sum?.total_electricity, a?.total_electricity)
+  const chFuel = pctVsAvg(sum?.fuel_consumed, a?.fuel_consumed)
+  const chWater = pctVsAvg(sum?.water_usage, a?.water_usage)
+  return [
+    { key: 'steam', icon: Histogram, bg: '#ecf5ff', color: '#409EFF', value: sum?.total_steam_production ?? '--', label: '总产汽量（吨）', change: chSteam, changeClass: '', avg: fmtAvg(a?.total_steam_production) },
+    { key: 'elec', icon: Odometer, bg: '#fdf6ec', color: '#E6A23C', value: sum?.total_electricity?.toLocaleString() ?? '--', label: '总用电量（度）', change: chElec, changeClass: chElec > 15 ? 'change-bad' : '', avg: fmtAvg(a?.total_electricity) },
+    { key: 'fuel', icon: Coin, bg: '#fef0f0', color: '#F56C6C', value: sum?.fuel_consumed ?? '--', label: '当日燃料（吨）', change: chFuel, changeClass: chFuel > 15 ? 'change-bad' : '', avg: fmtAvg(a?.fuel_consumed) },
+    { key: 'water', icon: DataLine, bg: '#f0f9eb', color: '#67C23A', value: sum?.water_usage ?? '--', label: '当日用水（吨）', change: chWater, changeClass: chWater > 15 ? 'change-bad' : '', avg: fmtAvg(a?.water_usage) },
+    { key: 'intake', icon: Timer, bg: '#f4ecff', color: '#9B59B6', value: sum?.fuel_intake || '无', label: '当日进柴（吨）', change: null, avg: null },
+    { key: 'stock', icon: Warning, bg: sum?.fuel_stock_days < 5 ? '#fef0f0' : '#e8f8f5', color: sum?.fuel_stock_days < 5 ? '#F56C6C' : '#1ABC9C', value: sum?.fuel_stock_days ?? '--', label: '燃料可用（天）', change: null, avg: null },
+  ]
+})
+
+async function loadData() {
+  loading.value = true
+  try {
+    const factoryId = appStore.currentFactoryId || undefined
+    const [ovRes, recRes, trendRes, cfgRes] = await Promise.all([
+      api.boilerGetOverview({ date: selectedDate.value, factoryId }),
+      api.boilerListRecords({ page: 1, pageSize: 8, factoryId }),
+      api.boilerGetTrend({ metric: 'total_steam_production', factoryId }),
+      api.boilerGetConfig(factoryId || ''),
+    ])
+    if (ovRes.ok) overview.value = ovRes.data || {}
+    if (recRes.ok) {
+      const allRecs = recRes.data?.list || []
+      recentRecords.value = allRecs.filter(r => r.record_date !== selectedDate.value).slice(0, 7)
+    }
+    if (cfgRes.ok && cfgRes.data?.prices) prices.value = cfgRes.data.prices
+    if (trendRes.ok) {
+      await nextTick()
+      renderChart(trendRes.data)
+    }
+  } finally { loading.value = false }
+}
+
+function renderChart(data) {
+  if (!chartRef.value) return
+  if (!chartInstance) chartInstance = echarts.init(chartRef.value)
+  const values = data.map(d => d.value)
+  const avgVal = values.length ? +(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : 0
+  chartInstance.setOption({
+    tooltip: { trigger: 'axis', formatter(params) {
+      const p = params[0]
+      return `${p.name}<br/>产汽量：${p.value} 吨<br/>7日均值：${avgVal} 吨`
+    }},
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: data.map(d => d.date.slice(5)) },
+    yAxis: { type: 'value', name: '吨' },
+    series: [{
+      type: 'line', data: values, smooth: true,
+      areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: 'rgba(64,158,255,0.25)' }, { offset: 1, color: 'rgba(64,158,255,0.02)' }
+      ]) },
+      lineStyle: { color: '#409EFF', width: 2 }, itemStyle: { color: '#409EFF' },
+      markLine: {
+        silent: true,
+        data: [{ yAxis: avgVal, label: { formatter: '均值 {c}', position: 'insideEndTop', fontSize: 11 }, lineStyle: { color: '#E6A23C', type: 'dashed', width: 1 } }],
+      },
+    }],
+  })
+}
+
+watch(() => appStore.currentFactoryId, () => loadData())
+function onResize() { chartInstance?.resize() }
+onMounted(() => { loadData(); window.addEventListener('resize', onResize) })
+onBeforeUnmount(() => { window.removeEventListener('resize', onResize); chartInstance?.dispose() })
+</script>
+
+<style lang="scss" scoped>
+.boiler-dashboard {
+  .header-actions { display: flex; gap: 12px; align-items: center; }
+
+  .stat-row { margin-bottom: 16px; .el-col { margin-bottom: 12px; } }
+  .stat-card {
+    background: #fff; border-radius: 12px; padding: 20px 16px; text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06); transition: box-shadow .2s;
+    &:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+  }
+  .stat-icon { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+  .stat-value { font-size: 24px; font-weight: 700; color: #303133; line-height: 1.2; }
+  .stat-label { font-size: 13px; color: #909399; margin-top: 4px; }
+  .stat-change { font-size: 12px; margin-top: 6px; color: #67C23A; line-height: 1.4; }
+  .stat-avg { font-size: 11px; color: #b0b4bb; margin-top: 2px; }
+  .change-hint { color: #b0b4bb; font-weight: 400; }
+  .change-bad { color: #F56C6C !important; font-weight: 600; }
+  .change-ok { color: #67C23A; }
+
+  .detail-row { margin-bottom: 16px; .el-col { margin-bottom: 12px; } }
+  .detail-card { border-radius: 12px; }
+  .card-title { font-weight: 600; font-size: 15px; }
+  .detail-table { width: 100%; }
+  .detail-footer {
+    display: flex; justify-content: space-between; padding: 12px 4px 0; font-size: 14px; color: #606266;
+    b { color: #303133; }
+  }
+  .inline-avg { font-size: 11px; color: #b0b4bb; margin-left: 4px; }
+  .inline-change { font-size: 11px; margin-left: 4px; padding: 1px 5px; border-radius: 3px; }
+  .inline-change.change-bad { background: #fef0f0; color: #F56C6C; }
+  .inline-change.change-ok { background: #f0f9eb; color: #67C23A; }
+
+  .resource-row { margin-bottom: 16px; .el-col { margin-bottom: 12px; } }
+  .resource-card { border-radius: 12px; &.card-warning { border-left: 3px solid #F56C6C; } }
+  .res-item {
+    display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px;
+    & + .res-item { border-top: 1px solid #f0f0f0; }
+  }
+  .res-label { color: #606266; }
+  .res-value { font-weight: 600; color: #303133; font-size: 16px; }
+  .text-danger { color: #F56C6C !important; }
+
+  .cost-row { margin-bottom: 16px; .el-col { margin-bottom: 12px; } }
+  .cost-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .cost-item {
+    display: flex; justify-content: space-between; padding: 10px 12px;
+    background: #fafbfc; border-radius: 6px; font-size: 14px;
+    .cost-label { color: #606266; }
+    .cost-val { font-weight: 600; color: #303133; }
+    &.cost-total { grid-column: 1 / -1; background: #fff7e6; .cost-val { color: #E65100; font-size: 16px; } }
+  }
+  .ton-cost-card {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 160px; border-radius: 12px;
+    .ton-cost-value { font-size: 36px; font-weight: 700; color: #E65100; }
+    .ton-cost-label { font-size: 15px; color: #303133; margin-top: 4px; font-weight: 600; }
+    .ton-cost-hint { font-size: 12px; color: #b0b4bb; margin-top: 4px; }
+  }
+
+  .chart-card { border-radius: 12px; }
+  .chart-box { height: 280px; }
+}
+</style>

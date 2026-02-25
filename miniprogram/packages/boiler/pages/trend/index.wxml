@@ -1,0 +1,72 @@
+<!-- 趋势分析页 -->
+<view class="page-container">
+
+  <!-- 筛选栏 -->
+  <view class="filter-bar">
+    <picker range="{{metricOptions}}" range-key="label" value="{{metricIndex}}" bindchange="onMetricChange">
+      <view class="filter-btn primary-filter">
+        <text class="filter-text">{{currentMetric.label}}</text>
+        <text class="filter-arrow">▾</text>
+      </view>
+    </picker>
+    <picker range="{{rangeOptions}}" range-key="label" value="{{rangeIndex}}" bindchange="onRangeChange">
+      <view class="filter-btn">
+        <text class="filter-text">{{rangeOptions[rangeIndex].label}}</text>
+        <text class="filter-arrow">▾</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading-state" wx:if="{{loading}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中...</text>
+  </view>
+
+  <!-- 图表区域 -->
+  <view class="chart-section" wx:elif="{{trendData.length > 0}}">
+    <!-- 图表标题 -->
+    <view class="chart-header">
+      <text class="chart-title">{{currentMetric.label}}</text>
+      <text class="chart-unit">单位：{{currentMetric.unit}}</text>
+    </view>
+
+    <!-- 最大值参考线 -->
+    <view class="chart-max">
+      <text class="chart-max-label">峰值 {{maxValue}}</text>
+    </view>
+
+    <!-- 柱状图 -->
+    <scroll-view scroll-x class="chart-scroll">
+      <view class="chart-bars">
+        <view class="bar-group" wx:for="{{trendData}}" wx:key="fullDate" bindtap="onTapBar" data-item="{{item}}">
+          <text class="bar-value" wx:if="{{item.value !== '' && item.value !== undefined}}">{{item.displayValue}}</text>
+          <view class="bar-wrapper">
+            <view class="bar" style="height: {{item.barHeight}}%"></view>
+          </view>
+          <text class="bar-label">{{item.date}}</text>
+        </view>
+      </view>
+    </scroll-view>
+
+    <!-- 数据表格 -->
+    <view class="data-table card">
+      <view class="table-header">
+        <text class="table-cell date-cell">日期</text>
+        <text class="table-cell value-cell">{{currentMetric.label}} ({{currentMetric.unit}})</text>
+      </view>
+      <view class="table-row" wx:for="{{trendData}}" wx:key="fullDate">
+        <text class="table-cell date-cell">{{item.fullDate}}</text>
+        <text class="table-cell value-cell">{{item.displayValue}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:elif="{{!loading && trendData.length === 0}}">
+    <view class="empty-icon">📊</view>
+    <text class="empty-title">暂无数据</text>
+    <text class="empty-desc">所选时间范围内没有记录数据</text>
+  </view>
+
+</view>

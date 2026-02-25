@@ -22,6 +22,7 @@
         <el-option label="维修" value="维修" />
         <el-option label="预防" value="预防" />
         <el-option label="紧急" value="紧急" />
+        <el-option label="简单处理" value="简单处理" />
       </el-select>
       <el-select v-model="filterStatus" placeholder="状态" clearable style="width: 120px" @change="loadList">
         <el-option label="启用" value="active" />
@@ -56,7 +57,11 @@
       </el-table-column>
       <el-table-column label="配件明细" min-width="220">
         <template #default="{ row }">
-          <div v-for="item in row.items" :key="item.partSkuId" class="item-line">
+          <div v-if="row.noParts" class="no-parts-tag">
+            <el-tag type="warning" size="small" effect="plain">无需换件</el-tag>
+            <span v-if="row.fixType" class="fix-type-text">{{ row.fixType }}</span>
+          </div>
+          <div v-else v-for="item in row.items" :key="item.partSkuId" class="item-line">
             <span>{{ item.partNameSnapshot }}</span>
             <span v-if="item.specModelSnapshot" class="spec-text">{{ item.specModelSnapshot }}</span>
             <el-tag size="small" type="info" class="qty-tag">x{{ item.qty }}</el-tag>
@@ -89,6 +94,7 @@
       <el-table-column v-if="canEdit" label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button
+            v-if="!row.noParts"
             type="primary"
             size="small"
             text
@@ -238,7 +244,7 @@ function formatTime(ts) {
 }
 
 function typeTagType(type) {
-  return { '维修': '', '预防': 'success', '紧急': 'danger' }[type] || 'info'
+  return { '维修': '', '预防': 'success', '紧急': 'danger', '简单处理': 'warning' }[type] || 'info'
 }
 
 function rowClassName({ row }) {
@@ -310,7 +316,7 @@ async function handleExport() {
 
     const exportRows = []
     logs.forEach(log => {
-      (log.items || []).forEach(item => {
+      if (log.noParts) {
         exportRows.push({
           '状态': log.disabled ? '停用' : '启用',
           '日期时间': dayjs(log.ts).format('YYYY-MM-DD HH:mm'),
@@ -319,13 +325,30 @@ async function handleExport() {
           '设备编号': log.assetNoSnapshot,
           '部位': log.locationNameSnapshot || '',
           '更换类型': log.type,
-          '配件名称': item.partNameSnapshot,
-          '配件编号': item.partCodeSnapshot,
-          '数量': item.qty,
+          '配件名称': '无需换件（' + (log.fixType || '简单处理') + '）',
+          '配件编号': '-',
+          '数量': 0,
           '填报人': log.reporterNameSnapshot,
           '备注': log.remark || '',
         })
-      })
+      } else {
+        (log.items || []).forEach(item => {
+          exportRows.push({
+            '状态': log.disabled ? '停用' : '启用',
+            '日期时间': dayjs(log.ts).format('YYYY-MM-DD HH:mm'),
+            '月份': log.yearMonth,
+            '设备名称': log.assetNameSnapshot,
+            '设备编号': log.assetNoSnapshot,
+            '部位': log.locationNameSnapshot || '',
+            '更换类型': log.type,
+            '配件名称': item.partNameSnapshot,
+            '配件编号': item.partCodeSnapshot,
+            '数量': item.qty,
+            '填报人': log.reporterNameSnapshot,
+            '备注': log.remark || '',
+          })
+        })
+      }
     })
 
     const ws = XLSX.utils.json_to_sheet(exportRows)
@@ -475,6 +498,17 @@ onMounted(async () => {
 
 .no-img {
   color: #c0c4cc;
+}
+
+.no-parts-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .fix-type-text {
+    color: #e6a23c;
+    font-size: 13px;
+  }
 }
 
 .pagination-wrap {

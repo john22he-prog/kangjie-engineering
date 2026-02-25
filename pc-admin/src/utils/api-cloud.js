@@ -161,4 +161,9 @@ export const cloudApi = {
   getAssetCostDetail: notImplemented,
   getInventoryTrend: notImplemented,
   getCostTrend: notImplemented,
+
+  async getDailyTimeline(date, factoryId) {
+    return call("getDailyTimeline", { date, factoryId: factoryId || undefined })
+  },
+
 }

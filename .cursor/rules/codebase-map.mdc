@@ -1,0 +1,90 @@
+---
+description: 代码地图 - 快速定位文件和模块
+alwaysApply: true
+---
+
+# 代码地图
+
+## 小程序前端 (miniprogram/)
+
+### 主包页面 (pages/)
+| 路径 | 用途 |
+|------|------|
+| pages/company/ | 公司总览（多工厂入口） |
+| pages/scan/ | 扫码录入更换记录 |
+| pages/record/ | 更换记录列表 |
+| pages/alerts/ | 阈值报警管理 |
+| pages/dashboard/ | 数据看板 |
+| pages/me/ | 个人中心 |
+| pages/ai-report/ | AI分析报告 |
+| pages/asset/ | 设备详情 |
+| pages/replace/ | 更换配件选择 |
+| pages/bind/ | 用户绑定 |
+| pages/inspection/ | 巡检打卡 |
+| pages/data-manage/ | 数据导入导出 |
+
+### 锅炉房分包 (packages/boiler/)
+| 路径 | 用途 |
+|------|------|
+| packages/boiler/pages/home/ | 锅炉房首页/看板 |
+| packages/boiler/pages/entry/ | 日报录入 |
+| packages/boiler/pages/history/ | 历史记录 |
+| packages/boiler/pages/me/ | 个人中心 |
+| packages/boiler/pages/alerts/ | 预警管理 |
+| packages/boiler/pages/trend/ | 趋势分析 |
+
+### 公共模块 (utils/ & components/)
+| 文件 | 用途 |
+|------|------|
+| utils/api.js | API 封装层（所有云函数调用） |
+| utils/auth.js | 认证+权限判断(canWrite/canAck/canManage) |
+| utils/permissions.js | 权限常量定义 |
+| utils/offline-queue.js | 离线队列(enqueue/syncAll) |
+| utils/constants.js | 全局常量 |
+| utils/util.js | 通用工具函数 |
+| components/asset-card/ | 设备卡片 |
+| components/image-uploader/ | 图片上传 |
+| components/offline-banner/ | 离线提示横幅 |
+| components/sku-multi-select/ | 配件多选 |
+| components/custom-nav/ | 自定义导航栏 |
+| components/home-btn/ | 首页按钮 |
+
+## 云函数 (cloudfunctions/)
+
+### 工程部（24个独立函数）
+核心流程: getMe → listAssets → getAssetByQr → getLocationsAndParts → submitReplacementLog
+看板: getDashboard, getPartUsageDetail, getAssetUsageDetail
+报警: listAlerts, getAlertDetail, ackAlert, getAssetAlerts
+巡检: getInspectionPlan, submitInspectionLog, listInspectionHistory, setInspectionPlan, getInspectionStats
+管理: adminPcLogin, pcGateway, adminDashboard, adminFactoryManage, adminInventoryManage, adminInventoryInbound
+数据: exportData, importData, initMockData
+通用: bindUser, getFactories
+
+### 锅炉房（3个合并函数）
+- boiler-core/: 工厂+锅炉+客户+日报 CRUD
+- boiler-analysis/: 统计+预警+AI
+- boiler-auth/: 登录+用户+配置
+
+## PC管理后台 (pc-admin/)
+
+### 核心文件
+| 文件 | 用途 |
+|------|------|
+| src/main.js | 入口(Vue3+ElementPlus+Pinia) |
+| src/router/index.js | 路由+权限守卫 |
+| src/layouts/MainLayout.vue | 侧边栏布局 |
+| src/stores/auth.js | 认证状态(Pinia) |
+| src/stores/app.js | 应用状态 |
+| src/utils/api.js | API统一入口(mock/real/cloud/http 四模式) |
+| src/utils/api-real.js | 通过pc-server网关调用 |
+| src/utils/api-cloud.js | @cloudbase/js-sdk直连 |
+| src/utils/api-http.js | HTTP访问服务 |
+| src/utils/permissions.js | 权限常量 |
+| src/utils/echarts.js | ECharts按需注册 |
+| src/utils/mock-data.js | Mock测试数据 |
+
+### 页面模块
+views/login/, views/company/, views/dashboard/, views/records/, views/alerts/, views/assets/, views/parts/, views/thresholds/, views/users/, views/factories/, views/inventory/, views/inspection/, views/settings/ai, views/boiler/(dashboard/records/trend/alerts)
+
+## PC网关 (pc-server/)
+index.js — Express网关，管理access_token，转发到adminPcLogin/pcGateway

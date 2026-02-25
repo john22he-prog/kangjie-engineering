@@ -1,0 +1,69 @@
+<!-- 历史记录页 -->
+<view class="page-container">
+
+  <!-- 记录列表 -->
+  <view class="record-list" wx:if="{{records.length > 0}}">
+    <view class="record-card card" wx:for="{{records}}" wx:key="_id"
+      bindtap="onTapRecord" data-id="{{item._id}}">
+
+      <!-- 卡片头部 -->
+      <view class="record-header">
+        <view class="record-date-badge">
+          <text class="date-day">{{item.displayDate}}</text>
+        </view>
+        <view class="record-meta">
+          <view class="record-summary-row">
+            <text class="metric-inline">产汽 {{item.totalSteam}}吨</text>
+            <text class="metric-inline">成本 {{item.totalCost}}元</text>
+          </view>
+        </view>
+        <view class="expand-arrow {{expandedId === item._id ? 'expanded' : ''}}">▸</view>
+      </view>
+
+      <!-- 概览指标 -->
+      <view class="record-metrics">
+        <view class="metric-item">
+          <text class="metric-value">{{item.total_water || '-'}}</text>
+          <text class="metric-label">用水(吨)</text>
+        </view>
+        <view class="metric-item">
+          <text class="metric-value">{{item.total_fuel_consumed || '-'}}</text>
+          <text class="metric-label">燃料(吨)</text>
+        </view>
+        <view class="metric-item">
+          <text class="metric-value">{{item.fuel_intake || '-'}}</text>
+          <text class="metric-label">进柴(吨)</text>
+        </view>
+      </view>
+
+      <!-- 查看完整详情 -->
+      <view class="detail-action" wx:if="{{expandedId === item._id}}" catchtap="showDetail" data-id="{{item._id}}">
+        <text class="detail-action-text">查看完整详情</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:if="{{!loading && records.length === 0}}">
+    <view class="empty-icon">📋</view>
+    <text class="empty-title">暂无记录</text>
+    <text class="empty-desc">数据录入后将在此显示</text>
+  </view>
+
+  <!-- 加载更多 -->
+  <view class="loading-more" wx:if="{{loading && records.length > 0}}">
+    <text>加载更多...</text>
+  </view>
+
+  <!-- 初始加载 -->
+  <view class="loading-state" wx:if="{{loading && records.length === 0}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中...</text>
+  </view>
+
+  <!-- 没有更多 -->
+  <view class="no-more" wx:if="{{!hasMore && records.length > 0}}">
+    <text>— 没有更多了 —</text>
+  </view>
+
+</view>

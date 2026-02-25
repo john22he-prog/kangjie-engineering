@@ -78,3 +78,60 @@
   height: 88rpx;
   line-height: 88rpx;
 }
+
+/* 设备状况选择 */
+.condition-bar {
+  display: flex;
+  gap: 24rpx;
+}
+
+.cond-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 24rpx 0;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  border: 2rpx solid #dcdfe6;
+  color: #606266;
+  transition: all 0.2s;
+}
+
+.cond-btn:active {
+  opacity: 0.8;
+}
+
+.cond-icon {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.cond-btn.active-normal {
+  border-color: #67c23a;
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.cond-btn.active-normal .cond-icon {
+  background: #67c23a;
+  color: #fff;
+}
+
+.cond-btn.active-abnormal {
+  border-color: #f56c6c;
+  background: #fef0f0;
+  color: #f56c6c;
+}
+
+.cond-btn.active-abnormal .cond-icon {
+  background: #f56c6c;
+  color: #fff;
+}

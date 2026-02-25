@@ -519,24 +519,26 @@ function getTimeParams() {
 async function refreshAll() {
   const isSupervisorWithFactory = authStore.user?.role === 'Supervisor' && authStore.user?.factoryId
   const tp = getTimeParams()
-  const res = await api.getDashboardStats({
-    ...tp,
-    factoryId: isSupervisorWithFactory ? authStore.user.factoryId : appStore.currentFactoryId,
-  })
-  if (!res.ok) return
-  Object.assign(stats, res.data)
+  const factoryId = isSupervisorWithFactory ? authStore.user.factoryId : appStore.currentFactoryId
 
+  const tasks = [
+    api.getDashboardStats({ ...tp, factoryId }),
+  ]
   if (canViewCost.value) {
-    const factoryId = appStore.currentFactoryId
-    const [sumRes, trendRes, rankRes] = await Promise.all([
+    tasks.push(
       api.getInventorySummary(factoryId, tp.yearMonth, tp.yearMonths),
       api.getInventoryTrend(factoryId, 12),
-      api.getMonthlyCostRanking(factoryId, tp.yearMonth, tp.yearMonths)
-    ])
-    if (sumRes.ok) Object.assign(inventorySummary, sumRes.data)
-    if (trendRes.ok) Object.assign(costTrendData, trendRes.data)
-    if (rankRes.ok) Object.assign(costRankingData, rankRes.data)
+      api.getMonthlyCostRanking(factoryId, tp.yearMonth, tp.yearMonths),
+    )
   }
+
+  const results = await Promise.all(tasks)
+  const [res, sumRes, trendRes, rankRes] = results
+
+  if (res?.ok) Object.assign(stats, res.data)
+  if (sumRes?.ok) Object.assign(inventorySummary, sumRes.data)
+  if (trendRes?.ok) Object.assign(costTrendData, trendRes.data)
+  if (rankRes?.ok) Object.assign(costRankingData, rankRes.data)
 
   await nextTick()
   renderCharts()

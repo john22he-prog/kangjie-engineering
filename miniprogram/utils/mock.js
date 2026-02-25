@@ -382,7 +382,7 @@ const mockApi = {
     })
   },
 
-  // AI 分析报告（规则+模板）。params: { yearMonth, workshop?, scope: 'workshop'|'summary' }
+  // 数据分析报告（规则+模板）。params: { yearMonth, workshop?, scope: 'workshop'|'summary' }
   getAIReport(params) {
     const ym = params.yearMonth || getCurrentYearMonth()
     // 小程序端：主管按 factoryId 看全厂，这里 mock 简单处理（所有设备属于 F-001）

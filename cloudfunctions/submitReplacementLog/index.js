@@ -40,34 +40,52 @@ exports.main = async (event, context) => {
     }
 
     // ========== 2) 入参校验 ==========
-    const { assetId, type, locationId, selectedPartSkuIds, qtyMap, remark, images, clientOfflineId, module: rawModule } = event
+    const { assetId, type, fixType, locationId, selectedPartSkuIds, qtyMap, remark, images, clientOfflineId, noParts, module: rawModule } = event
     const module = ['equipment', 'facility', 'boiler'].includes(rawModule) ? rawModule : 'equipment'
     const isNonEquipment = module === 'facility' || module === 'boiler'
 
     if (!clientOfflineId) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 clientOfflineId' } }
     }
-    if (!isNonEquipment && (!assetId || !type)) {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段（设备ID和更换类型）' } }
-    }
-    if (!isNonEquipment && !['维修', '保养', '预防', '紧急'].includes(type)) {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '更换类型无效' } }
-    }
-    if (!Array.isArray(selectedPartSkuIds) || selectedPartSkuIds.length === 0) {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少 1 个配件' } }
-    }
-    if (!qtyMap || typeof qtyMap !== 'object') {
-      return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少数量信息' } }
-    }
-    // 验证 qty
-    for (const skuId of selectedPartSkuIds) {
-      const qty = qtyMap[skuId]
-      if (!qty || !Number.isInteger(qty) || qty < 1) {
-        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数量必须为正整数' } }
+
+    if (noParts) {
+      // 无需换件模式：需要 fixType + remark + images
+      if (!assetId) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少设备ID' } }
       }
-    }
-    if (!isNonEquipment && (!Array.isArray(images) || images.length < 1)) {
-      return { ok: false, error: { code: 'UPLOAD_REQUIRED', message: '至少上传 1 张照片' } }
+      const validFixTypes = ['重启/复位', '简单调整', '清洁维护', '误报/虚报', '其他']
+      if (!fixType || !validFixTypes.includes(fixType)) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择故障处理类型' } }
+      }
+      if (!remark || !String(remark).trim()) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '无需换件时请填写处理说明' } }
+      }
+      if (!Array.isArray(images) || images.length < 1) {
+        return { ok: false, error: { code: 'UPLOAD_REQUIRED', message: '至少上传 1 张照片' } }
+      }
+    } else {
+      // 更换配件模式：原有校验逻辑
+      if (!isNonEquipment && (!assetId || !type)) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少必填字段（设备ID和更换类型）' } }
+      }
+      if (!isNonEquipment && !['维修', '保养', '预防', '紧急'].includes(type)) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '更换类型无效' } }
+      }
+      if (!Array.isArray(selectedPartSkuIds) || selectedPartSkuIds.length === 0) {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少 1 个配件' } }
+      }
+      if (!qtyMap || typeof qtyMap !== 'object') {
+        return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少数量信息' } }
+      }
+      for (const skuId of selectedPartSkuIds) {
+        const qty = qtyMap[skuId]
+        if (!qty || !Number.isInteger(qty) || qty < 1) {
+          return { ok: false, error: { code: 'VALIDATION_FAILED', message: '数量必须为正整数' } }
+        }
+      }
+      if (!isNonEquipment && (!Array.isArray(images) || images.length < 1)) {
+        return { ok: false, error: { code: 'UPLOAD_REQUIRED', message: '至少上传 1 张照片' } }
+      }
     }
 
     // ========== 3) 幂等检查 ==========
@@ -99,10 +117,11 @@ exports.main = async (event, context) => {
       }
     }
 
-    // 查配件快照
+    // 查配件快照（无需换件时跳过）
     const partsSnapshot = {}
-    for (let i = 0; i < selectedPartSkuIds.length; i += 20) {
-      const batch = selectedPartSkuIds.slice(i, i + 20)
+    const safeSkuIds = (noParts || !Array.isArray(selectedPartSkuIds)) ? [] : selectedPartSkuIds
+    for (let i = 0; i < safeSkuIds.length; i += 20) {
+      const batch = safeSkuIds.slice(i, i + 20)
       const { data: batchParts } = await db.collection('parts').where({ partSkuId: _.in(batch) }).get()
       batchParts.forEach(p => { partsSnapshot[p.partSkuId] = p })
     }
@@ -111,13 +130,13 @@ exports.main = async (event, context) => {
     const yearMonth = getYearMonth(now)
     const logId = `log_${now}_${Math.random().toString(36).slice(2, 8)}`
 
-    const items = selectedPartSkuIds.map(skuId => {
+    const items = safeSkuIds.map(skuId => {
       const part = partsSnapshot[skuId] || {}
       return {
         partSkuId: skuId,
         partNameSnapshot: part.partName || skuId,
         partCodeSnapshot: part.partCode || '',
-        qty: qtyMap[skuId]
+        qty: (qtyMap && qtyMap[skuId]) || 0
       }
     })
 
@@ -135,7 +154,9 @@ exports.main = async (event, context) => {
       reporterNameSnapshot: user.displayName,
       ts: now,
       yearMonth,
-      type: type || '维修',
+      noParts: !!noParts,
+      type: noParts ? '简单处理' : (type || '维修'),
+      fixType: noParts ? (fixType || '') : '',
       locationIdSnapshot: locationId || '',
       locationNameSnapshot: location ? location.locationName : '',
       items,
@@ -314,6 +335,80 @@ exports.main = async (event, context) => {
       }
     })
 
+    // ========== 8) 异步发送通知（不阻断主流程） ==========
+    try {
+      const fmtTime = formatTime(now)
+
+      // 处理通知
+      let description
+      if (noParts) {
+        description = `简单处理（${fixType || '无需换件'}）：${(remark || '').slice(0, 50)}`
+      } else {
+        const partNames = items.map(i => i.partNameSnapshot).join('、')
+        description = `更换${items.length}项配件：${partNames}`
+      }
+      await cloud.callFunction({
+        name: 'sendNotification',
+        data: {
+          type: 'REPLACEMENT',
+          factoryId,
+          excludeOpenid: openid,
+          data: {
+            logId,
+            description,
+            reporterName: user.displayName,
+            assetName: asset.assetName,
+            time: fmtTime,
+          }
+        }
+      })
+
+      // 超阈值报警通知
+      for (const alertId of createdAlerts) {
+        const { data: alertDocs } = await db.collection('alerts').where({ alertId }).limit(1).get()
+        if (alertDocs.length > 0) {
+          const alert = alertDocs[0]
+          await cloud.callFunction({
+            name: 'sendNotification',
+            data: {
+              type: 'THRESHOLD_ALERT',
+              factoryId,
+              data: {
+                factoryName: asset.factoryId || '',
+                target: `${alert.assetName} - ${alert.partName}`,
+                currentValue: alert.currentQty,
+                threshold: alert.thresholdValue,
+                time: fmtTime,
+              }
+            }
+          })
+        }
+      }
+
+      // 低库存报警通知
+      for (const warn of inventoryWarnings) {
+        if (warn.threshold !== undefined) {
+          const partSnap = partsSnapshot[warn.partSkuId] || {}
+          await cloud.callFunction({
+            name: 'sendNotification',
+            data: {
+              type: 'LOW_INVENTORY',
+              factoryId,
+              data: {
+                partName: partSnap.partName || warn.partSkuId,
+                currentQty: warn.currentQty,
+                alertType: '低库存预警',
+                time: fmtTime,
+                factoryName: factoryId || '',
+              }
+            }
+          })
+        }
+      }
+    } catch (notifyErr) {
+      console.warn('通知发送失败（不影响主流程）:', notifyErr.message || notifyErr)
+    }
+
     return {
       ok: true,
       data: { logId, yearMonth, createdAlerts, totalRepairCost, inventoryWarnings }
@@ -327,4 +422,10 @@ exports.main = async (event, context) => {
 function getYearMonth(ts) {
   const d = new Date(ts)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatTime(ts) {
+  const d = new Date(ts)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }

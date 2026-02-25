@@ -13,6 +13,25 @@
       <text class="form-label">巡检人</text>
       <text class="form-value">{{reporterName}}</text>
     </view>
+    <view class="form-row readonly">
+      <text class="form-label">巡检时间</text>
+      <text class="form-value">{{checkTime}}</text>
+    </view>
+  </view>
+
+  <!-- 设备状况 -->
+  <view class="card">
+    <view class="form-section-title required">设备状况</view>
+    <view class="condition-bar">
+      <view class="cond-btn {{condition === 'normal' ? 'active-normal' : ''}}" data-val="normal" bindtap="onConditionChange">
+        <text class="cond-icon">✓</text>
+        <text>正常</text>
+      </view>
+      <view class="cond-btn {{condition === 'abnormal' ? 'active-abnormal' : ''}}" data-val="abnormal" bindtap="onConditionChange">
+        <text class="cond-icon">!</text>
+        <text>异常</text>
+      </view>
+    </view>
   </view>
 
   <!-- 拍照上传 -->

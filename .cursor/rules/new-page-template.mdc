@@ -1,0 +1,81 @@
+---
+description: 新建小程序页面的标准模板和步骤
+globs: miniprogram/pages/**/*,miniprogram/packages/**/*
+alwaysApply: false
+---
+
+# 新建小程序页面模板
+
+## 工程部页面（WeUI 风格）
+
+```javascript
+// pages/xxx/index.js
+const app = getApp()
+const api = require('../../utils/api')
+
+Page({
+  data: {
+    loading: true,
+    list: [],
+  },
+
+  async onLoad(options) {
+    await app.waitLogin()
+    await this.loadData()
+  },
+
+  async loadData() {
+    this.setData({ loading: true })
+    try {
+      const res = await api.listXxx()
+      this.setData({ list: res, loading: false })
+    } catch (err) {
+      console.error('[loadData]', err)
+      wx.showToast({ title: '加载失败', icon: 'none' })
+      this.setData({ loading: false })
+    }
+  },
+})
+```
+
+## 锅炉房页面（Vant Weapp 风格）
+
+```javascript
+// packages/boiler/pages/xxx/index.js
+const app = getApp()
+
+Page({
+  data: {
+    loading: true,
+    list: [],
+  },
+
+  async onLoad(options) {
+    await app.waitLogin()
+    await this.loadData()
+  },
+
+  async loadData() {
+    this.setData({ loading: true })
+    try {
+      const { result } = await wx.cloud.callFunction({
+        name: 'boiler-core',
+        data: { module: 'xxx', action: 'list' }
+      })
+      if (result.ok) this.setData({ list: result.data, loading: false })
+    } catch (err) {
+      console.error('[loadData]', err)
+      wx.showToast({ title: '加载失败', icon: 'none' })
+      this.setData({ loading: false })
+    }
+  },
+})
+```
+
+## 新页面检查清单
+
+1. 创建 4 个文件：index.js / index.wxml / index.wxss / index.json
+2. 在 app.json 的 pages 或 subpackages 中注册路径
+3. index.json 中声明 usingComponents（组件引用）
+4. 如果需要导航栏标题，在 index.json 中设 navigationBarTitleText
+5. 确认跳转路径是否需要同步更新其他页面

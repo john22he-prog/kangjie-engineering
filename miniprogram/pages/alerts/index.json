@@ -1,5 +1,8 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "custom-nav": "/components/custom-nav/index"
+  },
   "navigationBarTitleText": "阈值报警",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true
 }

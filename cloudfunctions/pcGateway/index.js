@@ -4,6 +4,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
+const { migratePermissions, hasPermission, ACTION_PERMISSION_MAP, PERMISSIONS } = require('./permissions')
 
 function buildTimeQuery(data) {
   if (data.yearMonths === null || data.yearMonths === undefined) {
@@ -22,7 +23,9 @@ const ALL_COLLECTIONS = [
   'users', 'assets', 'parts', 'factories',
   'asset_locations', 'location_part_map', 'asset_part_thresholds',
   'replacement_logs', 'alerts', 'config', 'ai_reports',
-  'inventory', 'inventory_inbound_logs', 'inventory_outbound_logs'
+  'inventory', 'inventory_inbound_logs', 'inventory_outbound_logs',
+  'inspection_plans', 'inspection_logs',
+  'boiler_config', 'boiler_records', 'boiler_fuel_inbound'
 ]
 let _collectionsEnsured = false
 
@@ -75,14 +78,17 @@ async function getMe(db, userId) {
   const { data: users } = await db.collection('users').where({ userId, status: 'active' }).limit(1).get()
   if (users.length === 0) return { ok: false, error: { code: 'USER_NOT_FOUND', message: '用户不存在或已禁用' } }
   const u = users[0]
+  const permissions = migratePermissions(u)
   return {
     ok: true,
     data: {
       userId: u.userId,
       displayName: u.displayName || u.username,
       role: u.role,
+      permissions,
       status: u.status,
       factoryId: u.factoryId || null,
+      factoryIds: u.factoryIds || (u.factoryId ? [u.factoryId] : []),
     },
   }
 }
@@ -107,15 +113,17 @@ async function listReplacementLogs(db, data) {
   if (status === 'active') where.disabled = db.command.neq(true)
   else if (status === 'disabled') where.disabled = true
 
-  const countResult = await db.collection('replacement_logs').where(where).count()
+  const [countResult, listResult] = await Promise.all([
+    db.collection('replacement_logs').where(where).count(),
+    db.collection('replacement_logs')
+      .where(where)
+      .orderBy('ts', 'desc')
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .get(),
+  ])
   const total = countResult.total
-
-  const { data: list } = await db.collection('replacement_logs')
-    .where(where)
-    .orderBy('ts', 'desc')
-    .skip((page - 1) * pageSize)
-    .limit(pageSize)
-    .get()
+  const list = listResult.data
 
   // 为每条记录补充成本数据
   const logIds = list.map(l => l.logId).filter(Boolean)
@@ -135,30 +143,29 @@ async function listReplacementLogs(db, data) {
     }
   }
 
-  // 一次性查询全部配件表、库存表、入库日志（避免分批 _.in 的潜在问题）
+  // 只查当页记录涉及的配件，而非全量加载
+  const neededPartIds = [...new Set(list.flatMap(l => (l.items || []).map(i => i.partSkuId)).filter(Boolean))]
   const partsMap = {}
   const invMap = {}
   const ibCostMap = {}
-  try {
-    const { data: allParts } = await db.collection('parts').limit(1000).get()
-    allParts.forEach(p => { partsMap[p.partSkuId] = p })
-  } catch (e) { console.log('listReplacementLogs: parts query error', e.message) }
-  try {
-    const invWhere = {}
-    if (data.factoryId) invWhere.factoryId = data.factoryId
-    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
-    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
-  } catch (e) { console.log('listReplacementLogs: inventory query error', e.message) }
-  try {
-    const ibWhere = {}
-    if (data.factoryId) ibWhere.factoryId = data.factoryId
-    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
-    for (const log of ibAll) {
-      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
-      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
-      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+  if (neededPartIds.length > 0) {
+    const lookupTasks = []
+    for (let i = 0; i < neededPartIds.length; i += 20) {
+      const batch = neededPartIds.slice(i, i + 20)
+      lookupTasks.push(
+        db.collection('parts').where({ partSkuId: _.in(batch) }).get().then(r => r.data.forEach(p => { partsMap[p.partSkuId] = p })).catch(() => {}),
+        db.collection('inventory').where({ partSkuId: _.in(batch), ...(data.factoryId ? { factoryId: data.factoryId } : {}) }).get().then(r => r.data.forEach(inv => { invMap[inv.partSkuId] = inv })).catch(() => {}),
+        db.collection('inventory_inbound_logs').where({ partSkuId: _.in(batch), ...(data.factoryId ? { factoryId: data.factoryId } : {}) }).limit(500).get().then(r => {
+          for (const log of r.data) {
+            if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+            ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+            ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+          }
+        }).catch(() => {}),
+      )
     }
-  } catch (e) { console.log('listReplacementLogs: inbound_logs query error', e.message) }
+    await Promise.all(lookupTasks)
+  }
 
   // 辅助函数：获取某配件最优单价（完整回退链）
   function getBestPrice(partSkuId) {
@@ -731,17 +738,20 @@ async function listUsers(db, meUser) {
   const { data: list } = await db.collection('users').limit(1000).get()
   const safe = list.map(u => {
     const { pcPassword, passwordHash, ...rest } = u
+    rest.permissions = migratePermissions(u)
+    if (!rest.factoryIds) {
+      rest.factoryIds = rest.factoryId ? [rest.factoryId] : []
+    }
     return rest
   })
   return { ok: true, data: { list: safe } }
 }
 
 async function createUser(db, data) {
-  const { username, displayName, role, factoryId, password, canPcLogin } = data
+  const { username, displayName, role, factoryId, factoryIds, password, permissions } = data
   if (!username || !displayName || !role) {
     return { ok: false, error: { code: 'VALIDATION_FAILED', message: '用户名、姓名和角色为必填项' } }
   }
-  // 检查用户名是否已存在
   const { data: existing } = await db.collection('users').where({ username }).limit(1).get()
   if (existing.length > 0) {
     return { ok: false, error: { code: 'DUPLICATE', message: '用户名已存在' } }
@@ -749,12 +759,16 @@ async function createUser(db, data) {
   const userId = 'u-' + Date.now()
   const crypto = require('crypto')
   const hashedPassword = password ? crypto.createHash('sha256').update(password).digest('hex') : ''
+  const userPerms = Array.isArray(permissions) ? permissions : migratePermissions({ role })
+  const resolvedFactoryIds = Array.isArray(factoryIds) ? factoryIds : (factoryId ? [factoryId] : [])
   await db.collection('users').add({
     data: {
       userId, username, displayName, role,
-      factoryId: factoryId || '',
+      permissions: userPerms,
+      factoryId: resolvedFactoryIds[0] || '',
+      factoryIds: resolvedFactoryIds,
       pcPassword: hashedPassword,
-      canPcLogin: canPcLogin || false,
+      canPcLogin: userPerms.indexOf('pc:login') !== -1,
       status: 'active', openid: '',
       createdAt: Date.now(), updatedAt: Date.now(),
     },
@@ -763,13 +777,22 @@ async function createUser(db, data) {
 }
 
 async function updateUser(db, data) {
-  const { userId, displayName, role, factoryId, canPcLogin } = data
+  const { userId, displayName, role, factoryId, factoryIds, permissions } = data
   if (!userId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 userId' } }
   const updateData = { updatedAt: Date.now() }
   if (displayName !== undefined) updateData.displayName = displayName
   if (role !== undefined) updateData.role = role
-  if (factoryId !== undefined) updateData.factoryId = factoryId
-  if (canPcLogin !== undefined) updateData.canPcLogin = canPcLogin
+  if (Array.isArray(factoryIds)) {
+    updateData.factoryIds = factoryIds
+    updateData.factoryId = factoryIds[0] || ''
+  } else if (factoryId !== undefined) {
+    updateData.factoryId = factoryId
+    updateData.factoryIds = factoryId ? [factoryId] : []
+  }
+  if (Array.isArray(permissions)) {
+    updateData.permissions = permissions
+    updateData.canPcLogin = permissions.indexOf('pc:login') !== -1
+  }
   await db.collection('users').where({ userId }).update({ data: updateData })
   return { ok: true, data: {} }
 }
@@ -787,9 +810,9 @@ async function disableUser(db, data) {
 async function deleteUser(db, data, meUser) {
   const { userId } = data
   if (!userId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 userId' } }
-  // 只有管理员可以删除
-  if (meUser.role !== 'Admin') return { ok: false, error: { code: 'FORBIDDEN', message: '仅管理员可删除用户' } }
-  // 不能删除自己
+  if (!hasPermission(meUser.permissions, PERMISSIONS.USER_MANAGE)) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: '您没有用户管理权限' } }
+  }
   if (userId === meUser.userId) return { ok: false, error: { code: 'FORBIDDEN', message: '不能删除自己的账号' } }
   const { data: users } = await db.collection('users').where({ userId }).limit(1).get()
   if (users.length === 0) return { ok: false, error: { code: 'NOT_FOUND', message: '用户不存在' } }
@@ -872,8 +895,12 @@ async function getDashboardStats(db, data, meUser) {
   logWhere.disabled = _.neq(true)
   logWhere.module = _.or(_.eq('equipment'), _.exists(false))
   const queryLimit = data.yearMonths === null ? 5000 : 1000
-  const { data: logs } = await db.collection('replacement_logs').where(logWhere).limit(queryLimit).get()
-  const { data: alerts } = await db.collection('alerts').where(alertWhere).limit(queryLimit).get()
+  const [logsResult, alertsResult] = await Promise.all([
+    db.collection('replacement_logs').where(logWhere).limit(queryLimit).get(),
+    db.collection('alerts').where(alertWhere).limit(queryLimit).get(),
+  ])
+  const logs = logsResult.data
+  const alerts = alertsResult.data
 
   const openAlerts = alerts.filter(a => a.status === 'OPEN')
   let totalPartsQty = 0
@@ -1979,7 +2006,7 @@ function buildDataSummary(current, prev, factoryLabel, byFactory) {
   return s
 }
 
-// ====== AI 报告：聚合单月数据 ======
+// ====== 数据报告：聚合单月数据 ======
 async function aggregateMonthData(db, factoryId, yearMonth, yearMonthsArr) {
   const timeQ = yearMonthsArr ? buildTimeQuery({ yearMonths: yearMonthsArr }) : (yearMonth ? { yearMonth } : {})
   const logWhere = { ...timeQ, disabled: _.neq(true) }
@@ -2059,7 +2086,7 @@ async function aggregateMonthData(db, factoryId, yearMonth, yearMonthsArr) {
   }
 }
 
-// ====== AI 报告：根据数据生成文字分析 ======
+// ====== 数据报告：根据数据生成文字分析 ======
 function buildReport(current, prev, factoryLabel, scope, byFactory) {
   const sections = []
 
@@ -2860,31 +2887,28 @@ async function getInventorySummary(db, data) {
   const yearMonth = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
   const sumTimeQuery = buildTimeQuery(data)
   if (!sumTimeQuery.yearMonth && yearMonth) sumTimeQuery.yearMonth = yearMonth
-  const { data: invList } = await db.collection('inventory').where(where).limit(1000).get()
+  const ibAllWhere = {}
+  if (data.factoryId) ibAllWhere.factoryId = data.factoryId
+  const [invResult, partsResult, ibResult] = await Promise.all([
+    db.collection('inventory').where(where).limit(1000).get(),
+    db.collection('parts').limit(1000).get().catch(() => ({ data: [] })),
+    db.collection('inventory_inbound_logs').where(ibAllWhere).limit(2000).get().catch(() => ({ data: [] })),
+  ])
+  const invList = invResult.data
   const totalItems = invList.length
   const totalQty = invList.reduce((sum, inv) => sum + (inv.currentQty || 0), 0)
   const lowStockCount = invList.filter(inv => (inv.threshold > 0 || inv.lowStockThreshold > 0) && inv.currentQty <= (inv.lowStockThreshold || inv.threshold || 0)).length
 
-  // 查配件表 + 入库日志，与 listInventory 一致的成本逻辑
   const partsMap = {}
-  try {
-    const { data: parts } = await db.collection('parts').limit(1000).get()
-    parts.forEach(p => { partsMap[p.partSkuId] = p })
-  } catch (e) {}
+  partsResult.data.forEach(p => { partsMap[p.partSkuId] = p })
 
-  // 从入库日志回算缺失的 avgUnitCost
   const ibCostMap = {}
-  try {
-    const ibAllWhere = {}
-    if (data.factoryId) ibAllWhere.factoryId = data.factoryId
-    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibAllWhere).limit(2000).get()
-    for (const log of ibAll) {
-      const key = `${log.partSkuId}|${log.factoryId || ''}`
-      if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
-      ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
-      ibCostMap[key].totalQty += (log.qty || 0)
-    }
-  } catch (e) {}
+  for (const log of ibResult.data) {
+    const key = `${log.partSkuId}|${log.factoryId || ''}`
+    if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
+    ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+    ibCostMap[key].totalQty += (log.qty || 0)
+  }
 
   // 计算每条库存的实际单价并累加总价值
   let totalInventoryValue = 0
@@ -2973,35 +2997,25 @@ async function getMonthlyCostRanking(db, data, meUser) {
   if (!costTimeQuery.yearMonth && ym) costTimeQuery.yearMonth = ym
   const factoryId = data.factoryId || meUser.factoryId || null
 
-  // 1) 查配件表（获取名称、编号、规格、单位、参考单价）
+  const invWhere = {}
+  const ibWhere = {}
+  if (factoryId) { invWhere.factoryId = factoryId; ibWhere.factoryId = factoryId }
+  const [partsRes, invRes, ibRes] = await Promise.all([
+    db.collection('parts').limit(1000).get().catch(() => ({ data: [] })),
+    db.collection('inventory').where(invWhere).limit(1000).get().catch(() => ({ data: [] })),
+    db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get().catch(() => ({ data: [] })),
+  ])
   const partsMap = {}
-  try {
-    const { data: parts } = await db.collection('parts').limit(1000).get()
-    parts.forEach(p => { partsMap[p.partSkuId] = p })
-  } catch (e) {}
-
-  // 2) 查库存表（获取当前 avgUnitCost 作为成本来源）
+  partsRes.data.forEach(p => { partsMap[p.partSkuId] = p })
   const invMap = {}
-  try {
-    const invWhere = {}
-    if (factoryId) invWhere.factoryId = factoryId
-    const { data: invList } = await db.collection('inventory').where(invWhere).limit(1000).get()
-    invList.forEach(inv => { invMap[inv.partSkuId] = inv })
-  } catch (e) {}
-
-  // 3) 从入库日志回算均价（兜底）
+  invRes.data.forEach(inv => { invMap[inv.partSkuId] = inv })
   const ibCostMap = {}
-  try {
-    const ibWhere = {}
-    if (factoryId) ibWhere.factoryId = factoryId
-    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(2000).get()
-    for (const log of ibAll) {
-      const key = log.partSkuId
-      if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
-      ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
-      ibCostMap[key].totalQty += (log.qty || 0)
-    }
-  } catch (e) {}
+  for (const log of ibRes.data) {
+    const key = log.partSkuId
+    if (!ibCostMap[key]) ibCostMap[key] = { totalCost: 0, totalQty: 0 }
+    ibCostMap[key].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+    ibCostMap[key].totalQty += (log.qty || 0)
+  }
 
   // 辅助函数：获取某配件的最优单价
   function getBestUnitPrice(partSkuId) {
@@ -3017,15 +3031,16 @@ async function getMonthlyCostRanking(db, data, meUser) {
     return 0
   }
 
-  // 4) 从出库记录统计使用量和成本（排除厂务/锅炉房）
   const obWhere = { ...costTimeQuery }
   if (factoryId) obWhere.factoryId = factoryId
-  const { data: obLogsRaw } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
-  const obLogs = obLogsRaw.filter(ob => ob.assetNameSnapshot !== '厂务' && ob.assetNameSnapshot !== '锅炉房')
-
   const logWhere = { ...costTimeQuery, disabled: _.neq(true), module: _.or(_.eq('equipment'), _.exists(false)) }
   if (factoryId) logWhere.factoryId = factoryId
-  const { data: repLogs } = await db.collection('replacement_logs').where(logWhere).limit(1000).get()
+  const [obResult, repResult] = await Promise.all([
+    db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get(),
+    db.collection('replacement_logs').where(logWhere).limit(1000).get(),
+  ])
+  const obLogs = obResult.data.filter(ob => ob.assetNameSnapshot !== '厂务' && ob.assetNameSnapshot !== '锅炉房')
+  const repLogs = repResult.data
 
   const costMap = {}
 
@@ -3202,28 +3217,19 @@ async function getAssetCostDetail(db, data) {
 async function getInventoryTrend(db, data) {
   const { factoryId, months = 6 } = data
 
-  // 预加载配件表、库存表、入库日志（用于出库成本回退）
+  const [partsResult, invResult, ibResult] = await Promise.all([
+    db.collection('parts').limit(1000).get().catch(() => ({ data: [] })),
+    db.collection('inventory').where(factoryId ? { factoryId } : {}).limit(1000).get().catch(() => ({ data: [] })),
+    db.collection('inventory_inbound_logs').where(factoryId ? { factoryId } : {}).limit(2000).get().catch(() => ({ data: [] })),
+  ])
   const partsMap = {}, invMap = {}, ibCostMap = {}
-  try {
-    const { data: allParts } = await db.collection('parts').limit(1000).get()
-    allParts.forEach(p => { partsMap[p.partSkuId] = p })
-  } catch (e) {}
-  try {
-    const invWhere = {}
-    if (factoryId) invWhere.factoryId = factoryId
-    const { data: allInv } = await db.collection('inventory').where(invWhere).limit(1000).get()
-    allInv.forEach(inv => { invMap[inv.partSkuId] = inv })
-  } catch (e) {}
-  try {
-    const ibWhere2 = {}
-    if (factoryId) ibWhere2.factoryId = factoryId
-    const { data: ibAll } = await db.collection('inventory_inbound_logs').where(ibWhere2).limit(2000).get()
-    for (const log of ibAll) {
-      if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
-      ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
-      ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
-    }
-  } catch (e) {}
+  partsResult.data.forEach(p => { partsMap[p.partSkuId] = p })
+  invResult.data.forEach(inv => { invMap[inv.partSkuId] = inv })
+  ibResult.data.forEach(log => {
+    if (!ibCostMap[log.partSkuId]) ibCostMap[log.partSkuId] = { totalCost: 0, totalQty: 0 }
+    ibCostMap[log.partSkuId].totalCost += (log.totalPrice || (log.qty || 0) * (log.unitPrice || 0))
+    ibCostMap[log.partSkuId].totalQty += (log.qty || 0)
+  })
   function getBestPrice(partSkuId) {
     const inv = invMap[partSkuId]
     if (inv && inv.avgUnitCost > 0) return inv.avgUnitCost
@@ -3236,58 +3242,50 @@ async function getInventoryTrend(db, data) {
 
   const now = new Date()
   const monthsList = []
-  const inventoryByMonth = []
-  const inboundByMonth = []
-  const outboundByMonth = []
-  let cumulativeInbound = 0, cumulativeOutbound = 0
-
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const ym = d.toISOString().slice(0, 7)
-    monthsList.push(ym)
+    monthsList.push(d.toISOString().slice(0, 7))
+  }
 
-    // 查询入库
+  const monthResults = await Promise.all(monthsList.map(async (ym) => {
     const ibWhere = { yearMonth: ym }
-    if (factoryId) ibWhere.factoryId = factoryId
-    let inboundValue = 0, outboundValue = 0
-    try {
-      const { data: ibLogs } = await db.collection('inventory_inbound_logs').where(ibWhere).limit(1000).get()
-      inboundValue = ibLogs.reduce((s, l) => s + (l.totalPrice || 0), 0)
-    } catch (e) { /* ignore */ }
-
-    // 查询出库：先查出库日志，无则从更换记录统计
     const obWhere = { yearMonth: ym }
-    if (factoryId) obWhere.factoryId = factoryId
-    try {
-      const { data: obLogs } = await db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get()
-      if (obLogs.length > 0) {
-        for (const ob of obLogs) {
-          let cost = ob.totalCost || 0
-          if (!cost) cost = (ob.qty || 0) * getBestPrice(ob.partSkuId)
+    if (factoryId) { ibWhere.factoryId = factoryId; obWhere.factoryId = factoryId }
+
+    const [ibData, obData] = await Promise.all([
+      db.collection('inventory_inbound_logs').where(ibWhere).limit(1000).get().catch(() => ({ data: [] })),
+      db.collection('inventory_outbound_logs').where(obWhere).limit(1000).get().catch(() => ({ data: [] })),
+    ])
+
+    const inboundValue = ibData.data.reduce((s, l) => s + (l.totalPrice || 0), 0)
+    let outboundValue = 0
+
+    if (obData.data.length > 0) {
+      for (const ob of obData.data) {
+        outboundValue += ob.totalCost || (ob.qty || 0) * getBestPrice(ob.partSkuId)
+      }
+    } else {
+      const repWhere = { yearMonth: ym, disabled: db.command.neq(true) }
+      if (factoryId) repWhere.factoryId = factoryId
+      const { data: repLogs } = await db.collection('replacement_logs').where(repWhere).limit(1000).get().catch(() => ({ data: [] }))
+      for (const log of (repLogs || [])) {
+        for (const item of (log.items || [])) {
+          const cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0)) || (item.qty || 0) * getBestPrice(item.partSkuId)
           outboundValue += cost
         }
-      } else {
-        // 无出库日志 → 从更换记录统计
-        const repWhere = { yearMonth: ym, disabled: db.command.neq(true) }
-        if (factoryId) repWhere.factoryId = factoryId
-        const { data: repLogs } = await db.collection('replacement_logs').where(repWhere).limit(1000).get()
-        for (const log of repLogs) {
-          for (const item of (log.items || [])) {
-            let cost = item.itemCost || ((item.qty || 0) * (item.unitCost || 0))
-            if (!cost) cost = (item.qty || 0) * getBestPrice(item.partSkuId)
-            outboundValue += cost
-          }
-        }
       }
-    } catch (e) { /* ignore */ }
+    }
+    return { ym, inboundValue, outboundValue }
+  }))
 
-    cumulativeInbound += inboundValue
-    cumulativeOutbound += outboundValue
-    const inventoryValue = Math.round((cumulativeInbound - cumulativeOutbound) * 100) / 100
-
-    inboundByMonth.push(Math.round(inboundValue * 100) / 100)
-    outboundByMonth.push(Math.round(outboundValue * 100) / 100)
-    inventoryByMonth.push(Math.max(0, inventoryValue))
+  const inventoryByMonth = [], inboundByMonth = [], outboundByMonth = []
+  let cumulativeInbound = 0, cumulativeOutbound = 0
+  for (const r of monthResults) {
+    cumulativeInbound += r.inboundValue
+    cumulativeOutbound += r.outboundValue
+    inboundByMonth.push(Math.round(r.inboundValue * 100) / 100)
+    outboundByMonth.push(Math.round(r.outboundValue * 100) / 100)
+    inventoryByMonth.push(Math.max(0, Math.round((cumulativeInbound - cumulativeOutbound) * 100) / 100))
   }
   return { ok: true, data: { months: monthsList, inventoryByMonth, inboundByMonth, outboundByMonth } }
 }
@@ -3377,6 +3375,1065 @@ async function bindOpenid(db, data) {
 
 // ====== 主入口 ======
 
+
+// ====== 巡检管理 ======
+
+function getTodayStr() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+
+async function pcGetInspectionDashboard(db, data, meUser) {
+  const factoryId = data.factoryId || meUser.factoryId || null
+
+  const planWhere = { status: 'active' }
+  if (factoryId) planWhere.factoryId = factoryId
+  const { data: plans } = await db.collection('inspection_plans').where(planWhere).limit(1).get()
+
+  if (plans.length === 0) {
+    return { ok: true, data: { hasPlan: false } }
+  }
+
+  const plan = plans[0]
+  const planAssets = plan.assets || []
+  const planTotal = planAssets.length
+  const planId = plan._id
+
+  const today = getTodayStr()
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+
+  const days90ago = new Date(d)
+  days90ago.setDate(days90ago.getDate() - 89)
+  const startDate90 = `${days90ago.getFullYear()}-${pad(days90ago.getMonth()+1)}-${pad(days90ago.getDate())}`
+
+  const logWhere = { planId }
+  if (factoryId) logWhere.factoryId = factoryId
+  logWhere.inspectDate = _.gte(startDate90)
+
+  let allLogs = []
+  let skip = 0
+  while (true) {
+    const { data: batch } = await db.collection('inspection_logs')
+      .where(logWhere).skip(skip).limit(1000)
+      .orderBy('inspectDate', 'desc').get()
+    allLogs = allLogs.concat(batch)
+    if (batch.length < 1000) break
+    skip += 1000
+  }
+
+  const byDate = {}
+  const byUser = {}
+  const byAsset = {}
+  const byHour = {}
+
+  allLogs.forEach(log => {
+    const dt = log.inspectDate
+    if (!byDate[dt]) byDate[dt] = new Set()
+    byDate[dt].add(log.assetId)
+
+    const uKey = log.userDisplayName || log.userId || 'unknown'
+    byUser[uKey] = (byUser[uKey] || 0) + 1
+
+    byAsset[log.assetId] = (byAsset[log.assetId] || 0) + 1
+
+    if (log.createdAt) {
+      const h = new Date(log.createdAt).getHours()
+      byHour[h] = (byHour[h] || 0) + 1
+    }
+  })
+
+  // --- stats cards ---
+  const todayCompleted = byDate[today] ? byDate[today].size : 0
+
+  const weekStart = new Date(d)
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1)
+  let weekDone = 0, weekTotal = 0
+  for (let i = 0; i < 7; i++) {
+    const wd = new Date(weekStart)
+    wd.setDate(wd.getDate() + i)
+    const wds = `${wd.getFullYear()}-${pad(wd.getMonth()+1)}-${pad(wd.getDate())}`
+    if (wds > today) break
+    weekTotal += planTotal
+    weekDone += byDate[wds] ? Math.min(byDate[wds].size, planTotal) : 0
+  }
+  const weekRate = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0
+
+  const monthKey = `${d.getFullYear()}-${pad(d.getMonth()+1)}`
+  let monthCount = 0
+  Object.keys(byDate).forEach(dt => {
+    if (dt.startsWith(monthKey)) monthCount += byDate[dt].size
+  })
+
+  let streak = 0
+  for (let i = 0; i < 90; i++) {
+    const sd = new Date(d)
+    sd.setDate(sd.getDate() - i)
+    const sds = `${sd.getFullYear()}-${pad(sd.getMonth()+1)}-${pad(sd.getDate())}`
+    if (i === 0 && !byDate[sds]) { streak = 0; break }
+    if (byDate[sds] && byDate[sds].size >= planTotal) { streak++ }
+    else if (i > 0) break
+  }
+
+  const todayMissed = planAssets
+    .filter(a => !(byDate[today] && byDate[today].has(a.assetId)))
+    .map(a => ({ assetId: a.assetId, assetName: a.assetName, assetNo: a.assetNo }))
+
+  // --- 30-day trend ---
+  const trend = []
+  for (let i = 29; i >= 0; i--) {
+    const td = new Date(d)
+    td.setDate(td.getDate() - i)
+    const tds = `${td.getFullYear()}-${pad(td.getMonth()+1)}-${pad(td.getDate())}`
+    const done = byDate[tds] ? Math.min(byDate[tds].size, planTotal) : 0
+    trend.push({ date: tds, completed: done, total: planTotal, rate: planTotal > 0 ? Math.round(done / planTotal * 100) : 0 })
+  }
+
+  // --- user ranking ---
+  const userRanking = Object.entries(byUser)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20)
+
+  // --- device missed ranking (last 30 days) ---
+  const days30ago = new Date(d)
+  days30ago.setDate(days30ago.getDate() - 29)
+  const start30 = `${days30ago.getFullYear()}-${pad(days30ago.getMonth()+1)}-${pad(days30ago.getDate())}`
+  const datesIn30 = []
+  for (let i = 29; i >= 0; i--) {
+    const td = new Date(d)
+    td.setDate(td.getDate() - i)
+    datesIn30.push(`${td.getFullYear()}-${pad(td.getMonth()+1)}-${pad(td.getDate())}`)
+  }
+  const deviceMissed = planAssets.map(a => {
+    let missed = 0
+    datesIn30.forEach(dt => {
+      if (!(byDate[dt] && byDate[dt].has(a.assetId))) missed++
+    })
+    return { assetId: a.assetId, assetName: a.assetName, assetNo: a.assetNo, missed, rate: Math.round((30 - missed) / 30 * 100) }
+  }).sort((a, b) => b.missed - a.missed).slice(0, 15)
+
+  // --- calendar heatmap (90 days) ---
+  const calendar = []
+  for (let i = 89; i >= 0; i--) {
+    const cd = new Date(d)
+    cd.setDate(cd.getDate() - i)
+    const cds = `${cd.getFullYear()}-${pad(cd.getMonth()+1)}-${pad(cd.getDate())}`
+    const done = byDate[cds] ? Math.min(byDate[cds].size, planTotal) : 0
+    let level = 0
+    if (planTotal > 0) {
+      const r = done / planTotal
+      if (r >= 1) level = 3
+      else if (r >= 0.5) level = 2
+      else if (r > 0) level = 1
+    }
+    calendar.push({ date: cds, done, total: planTotal, level, dayOfWeek: cd.getDay() })
+  }
+
+  // --- hourly distribution ---
+  const hourly = []
+  for (let h = 0; h < 24; h++) {
+    hourly.push({ hour: h, count: byHour[h] || 0 })
+  }
+
+  return {
+    ok: true,
+    data: {
+      hasPlan: true,
+      cards: {
+        todayCompleted,
+        todayTotal: planTotal,
+        todayMissedCount: todayMissed.length,
+        todayMissed: todayMissed.slice(0, 10),
+        weekRate,
+        monthCount,
+        streak
+      },
+      trend,
+      userRanking,
+      deviceMissed,
+      calendar,
+      hourly
+    }
+  }
+}
+
+async function pcGetInspectionPlan(db, data, meUser) {
+  const factoryId = data.factoryId || meUser.factoryId || null
+  const planWhere = { status: 'active' }
+  if (factoryId) planWhere.factoryId = factoryId
+
+  const { data: plans } = await db.collection('inspection_plans')
+    .where(planWhere).limit(1).get()
+
+  if (plans.length === 0) {
+    return { ok: true, data: { plan: null, assets: [], completed: 0, total: 0, inspectDate: getTodayStr() } }
+  }
+
+  const plan = plans[0]
+  const planAssets = plan.assets || []
+  const today = getTodayStr()
+
+  const logWhere = { planId: plan._id, inspectDate: today }
+  if (factoryId) logWhere.factoryId = factoryId
+
+  const { data: logs } = await db.collection('inspection_logs')
+    .where(logWhere).limit(1000).get()
+
+  const logMap = {}
+  logs.forEach(log => {
+    logMap[log.assetId] = {
+      userId: log.userId,
+      userDisplayName: log.userDisplayName,
+      images: log.images,
+      remark: log.remark,
+      createdAt: log.createdAt
+    }
+  })
+
+  const assetList = planAssets.map(a => ({
+    assetId: a.assetId,
+    assetName: a.assetName,
+    assetNo: a.assetNo,
+    sortOrder: a.sortOrder || 0,
+    done: !!logMap[a.assetId],
+    log: logMap[a.assetId] || null
+  }))
+
+  assetList.sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1
+    return (a.sortOrder || 0) - (b.sortOrder || 0)
+  })
+
+  return {
+    ok: true,
+    data: {
+      plan: { _id: plan._id, planName: plan.planName, factoryId: plan.factoryId },
+      assets: assetList,
+      completed: logs.length,
+      total: planAssets.length,
+      inspectDate: today
+    }
+  }
+}
+
+async function pcListInspectionHistory(db, data, meUser) {
+  const factoryId = data.factoryId || meUser.factoryId || null
+  const { startDate, endDate, page = 1, pageSize = 30 } = data
+
+  const planWhere = { status: 'active' }
+  if (factoryId) planWhere.factoryId = factoryId
+  const { data: plans } = await db.collection('inspection_plans')
+    .where(planWhere).limit(1).get()
+
+  const planTotal = plans.length > 0 ? (plans[0].assets || []).length : 0
+  const planId = plans.length > 0 ? plans[0]._id : null
+
+  const logWhere = {}
+  if (factoryId) logWhere.factoryId = factoryId
+  if (planId) logWhere.planId = planId
+
+  if (startDate && endDate) {
+    logWhere.inspectDate = _.gte(startDate).and(_.lte(endDate))
+  } else if (startDate) {
+    logWhere.inspectDate = _.gte(startDate)
+  } else if (endDate) {
+    logWhere.inspectDate = _.lte(endDate)
+  }
+
+  const { data: logs } = await db.collection('inspection_logs')
+    .where(logWhere).orderBy('inspectDate', 'desc').orderBy('createdAt', 'desc')
+    .limit(1000).get()
+
+  const dateMap = {}
+  logs.forEach(log => {
+    if (!dateMap[log.inspectDate]) dateMap[log.inspectDate] = []
+    dateMap[log.inspectDate].push({
+      assetId: log.assetId,
+      assetName: log.assetName,
+      assetNo: log.assetNo,
+      userId: log.userId,
+      userDisplayName: log.userDisplayName,
+      images: log.images,
+      remark: log.remark,
+      createdAt: log.createdAt
+    })
+  })
+
+  const allDates = Object.keys(dateMap).sort((a, b) => b.localeCompare(a))
+  const total = allDates.length
+  const pagedDates = allDates.slice((page - 1) * pageSize, page * pageSize)
+
+  const list = pagedDates.map(date => ({
+    inspectDate: date,
+    completed: dateMap[date].length,
+    total: planTotal,
+    logs: dateMap[date]
+  }))
+
+  return { ok: true, data: { list, total, planTotal } }
+}
+
+async function pcSetInspectionPlan(db, data, meUser) {
+  const { assetIds, planName } = data
+  if (!Array.isArray(assetIds) || assetIds.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '请选择至少 1 台设备' } }
+  }
+
+  const factoryId = data.factoryId || meUser.factoryId || null
+
+  const assets = []
+  for (let i = 0; i < assetIds.length; i += 20) {
+    const batch = assetIds.slice(i, i + 20)
+    const { data: batchAssets } = await db.collection('assets')
+      .where({ assetId: _.in(batch), status: 'active' }).get()
+    batchAssets.forEach((a, idx) => {
+      assets.push({
+        assetId: a.assetId,
+        assetName: a.assetName,
+        assetNo: a.assetNo,
+        sortOrder: i + idx
+      })
+    })
+  }
+
+  if (assets.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '未找到有效设备' } }
+  }
+
+  const now = Date.now()
+  const planWhere = { status: 'active' }
+  if (factoryId) planWhere.factoryId = factoryId
+
+  const { data: existingPlans } = await db.collection('inspection_plans')
+    .where(planWhere).limit(1).get()
+
+  if (existingPlans.length > 0) {
+    await db.collection('inspection_plans').doc(existingPlans[0]._id).update({
+      data: {
+        planName: planName || existingPlans[0].planName || '日常巡检',
+        assets,
+        updatedBy: meUser.userId,
+        updatedAt: now
+      }
+    })
+    return { ok: true, data: { planId: existingPlans[0]._id, assetCount: assets.length, action: 'updated' } }
+  } else {
+    const result = await db.collection('inspection_plans').add({
+      data: {
+        factoryId,
+        planName: planName || '日常巡检',
+        assets,
+        status: 'active',
+        createdBy: meUser.userId,
+        createdAt: now,
+        updatedAt: now
+      }
+    })
+    return { ok: true, data: { planId: result._id, assetCount: assets.length, action: 'created' } }
+  }
+}
+
+
+
+// ====== 锅炉房模块（全部使用 Cloud DB，无需 MySQL） ======
+
+const BOILER_RECORDS_COL = 'boiler_records'
+const BOILER_CONFIG_COL = 'boiler_config'
+const BOILER_FUEL_INBOUND_COL = 'boiler_fuel_inbound'
+
+// 将 Cloud DB 文档转为前端期望格式：id、fuel_consumed/water_usage 别名、boilers/customers
+function normalizeBoilerRecord(r) {
+  if (!r) return null
+  return {
+    ...r,
+    id: r._id || r.id,
+    fuel_consumed: r.total_fuel_consumed,
+    water_usage: r.total_water,
+    boilers: r.boiler_data || [],
+    customers: r.customer_data || [],
+  }
+}
+
+async function boilerGetConfig(db, data) {
+  const factoryId = data.factoryId || '_default'
+  try {
+    const res = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (res.data && res.data.length > 0) {
+      const cfg = res.data[0]
+      return { ok: true, data: {
+        boilers: cfg.boilers || [], customers: cfg.customers || [], prices: cfg.prices || {},
+        parkName: cfg.parkName || '', fuelStock: cfg.fuelStock || null,
+        suppliers: cfg.suppliers || [], kpiTargets: cfg.kpiTargets || {},
+        alerts: cfg.alerts || {},
+      } }
+    }
+    return { ok: true, data: { boilers: [], customers: [], prices: {}, parkName: '', fuelStock: null, suppliers: [], kpiTargets: {}, alerts: {} } }
+  } catch (err) {
+    console.error('[boilerGetConfig]', err)
+    return { ok: true, data: { boilers: [], customers: [], prices: {}, parkName: '', fuelStock: null, suppliers: [], kpiTargets: {}, alerts: {} } }
+  }
+}
+
+async function boilerSaveConfig(db, data) {
+  const factoryId = data.factoryId || '_default'
+  const update = {}
+  if (data.boilers) update.boilers = data.boilers
+  if (data.customers) update.customers = data.customers
+  if (data.prices) update.prices = data.prices
+  if (data.parkName !== undefined) update.parkName = data.parkName
+  if (data.suppliers !== undefined) update.suppliers = data.suppliers
+  if (data.kpiTargets !== undefined) update.kpiTargets = data.kpiTargets
+  if (data.alerts !== undefined) update.alerts = data.alerts
+  update.updatedAt = new Date()
+  try {
+    const res = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (res.data && res.data.length > 0) {
+      await db.collection(BOILER_CONFIG_COL).doc(res.data[0]._id).update({ data: update })
+    } else {
+      await db.collection(BOILER_CONFIG_COL).add({
+        data: { factoryId, boilers: data.boilers || [], customers: data.customers || [], prices: data.prices || {}, parkName: data.parkName || '', createdAt: new Date(), updatedAt: new Date() }
+      })
+    }
+    return { ok: true, data: { factoryId, saved: true } }
+  } catch (err) {
+    console.error('[boilerSaveConfig]', err)
+    return { ok: false, error: { code: 'SAVE_ERROR', message: err.message || '保存失败' } }
+  }
+}
+
+async function boilerListParks(db) {
+  try {
+    const res = await db.collection(BOILER_CONFIG_COL).limit(100).get()
+    const parks = (res.data || []).map(cfg => ({
+      factoryId: cfg.factoryId,
+      parkName: cfg.parkName || '',
+    })).filter(p => p.factoryId && p.factoryId !== '_default')
+    return { ok: true, data: parks }
+  } catch (err) {
+    console.error('[boilerListParks]', err)
+    return { ok: true, data: [] }
+  }
+}
+
+// ====== 燃料入库管理 ======
+
+async function boilerFuelInbound(db, data, meUser) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+  const weight = parseFloat(data.weight)
+  const unitPrice = parseFloat(data.unit_price)
+  if (!weight || weight <= 0) return { ok: false, error: { code: 'VALIDATION', message: '重量必须大于0' } }
+  if (!unitPrice || unitPrice <= 0) return { ok: false, error: { code: 'VALIDATION', message: '单价必须大于0' } }
+
+  const totalPrice = parseFloat((weight * unitPrice).toFixed(2))
+  const doc = {
+    factoryId,
+    date: data.date || new Date().toISOString().slice(0, 10),
+    weight,
+    unit_price: unitPrice,
+    total_price: totalPrice,
+    supplier: data.supplier || '',
+    supplier_id: data.supplier_id || '',
+    note: data.note || '',
+    moisture_rate: null,
+    effective_weight: null,
+    created_by: meUser.userId,
+    created_at: new Date(),
+  }
+
+  try {
+    const addRes = await db.collection(BOILER_FUEL_INBOUND_COL).add({ data: doc })
+
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    const cfg = cfgRes.data?.[0] || {}
+    const stock = cfg.fuelStock || { currentWeight: 0, totalValue: 0, avgPrice: 0, totalInbound: 0, totalConsumed: 0 }
+
+    const newTotalValue = stock.totalValue + totalPrice
+    const newTotalWeight = stock.currentWeight + weight
+    const newAvgPrice = newTotalWeight > 0 ? parseFloat((newTotalValue / newTotalWeight).toFixed(2)) : unitPrice
+
+    const fuelStock = {
+      currentWeight: parseFloat(newTotalWeight.toFixed(2)),
+      totalValue: parseFloat(newTotalValue.toFixed(2)),
+      avgPrice: newAvgPrice,
+      totalInbound: parseFloat(((stock.totalInbound || 0) + weight).toFixed(2)),
+      totalConsumed: stock.totalConsumed || 0,
+      lastUpdated: new Date(),
+    }
+
+    if (cfg._id) {
+      await db.collection(BOILER_CONFIG_COL).doc(cfg._id).update({ data: { fuelStock } })
+    } else {
+      await db.collection(BOILER_CONFIG_COL).add({
+        data: { factoryId, fuelStock, boilers: [], customers: [], prices: {}, createdAt: new Date(), updatedAt: new Date() }
+      })
+    }
+
+    return { ok: true, data: { id: addRes._id, fuelStock } }
+  } catch (err) {
+    console.error('[boilerFuelInbound]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message || '入库失败' } }
+  }
+}
+
+async function boilerListFuelInbound(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+
+  const page = parseInt(data.page) || 1
+  const pageSize = parseInt(data.pageSize) || 20
+  const where = { factoryId }
+
+  if (data.startDate || data.endDate) {
+    const conds = []
+    if (data.startDate) conds.push(db.command.gte(data.startDate))
+    if (data.endDate) conds.push(db.command.lte(data.endDate))
+    where.date = conds.length === 1 ? conds[0] : db.command.and(...conds)
+  }
+  if (data.supplier) where.supplier = data.supplier
+
+  try {
+    const countRes = await db.collection(BOILER_FUEL_INBOUND_COL).where(where).count()
+    const listRes = await db.collection(BOILER_FUEL_INBOUND_COL).where(where)
+      .orderBy('date', 'desc').orderBy('created_at', 'desc')
+      .skip((page - 1) * pageSize).limit(pageSize).get()
+
+    const list = (listRes.data || []).map(r => ({ id: r._id, ...r, _id: undefined }))
+    return { ok: true, data: { list, total: countRes.total, page, pageSize } }
+  } catch (err) {
+    console.error('[boilerListFuelInbound]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message } }
+  }
+}
+
+async function boilerDeleteFuelInbound(db, data, meUser) {
+  const id = data.inboundId || data.id
+  if (!id) return { ok: false, error: { code: 'VALIDATION', message: '缺少 inboundId' } }
+
+  try {
+    const getRes = await db.collection(BOILER_FUEL_INBOUND_COL).doc(id).get()
+    if (!getRes.data) return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+    const record = getRes.data
+    const factoryId = record.factoryId
+
+    await db.collection(BOILER_FUEL_INBOUND_COL).doc(id).remove()
+
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (cfgRes.data?.[0]) {
+      const cfg = cfgRes.data[0]
+      const stock = cfg.fuelStock || { currentWeight: 0, totalValue: 0, totalInbound: 0, totalConsumed: 0 }
+      const newWeight = Math.max(0, stock.currentWeight - record.weight)
+      const newValue = Math.max(0, stock.totalValue - record.total_price)
+      const newAvgPrice = newWeight > 0 ? parseFloat((newValue / newWeight).toFixed(2)) : 0
+      await db.collection(BOILER_CONFIG_COL).doc(cfg._id).update({
+        data: {
+          fuelStock: {
+            currentWeight: parseFloat(newWeight.toFixed(2)),
+            totalValue: parseFloat(newValue.toFixed(2)),
+            avgPrice: newAvgPrice,
+            totalInbound: parseFloat((Math.max(0, (stock.totalInbound || 0) - record.weight)).toFixed(2)),
+            totalConsumed: stock.totalConsumed || 0,
+            lastUpdated: new Date(),
+          }
+        }
+      })
+    }
+
+    return { ok: true, data: { deleted: id } }
+  } catch (err) {
+    console.error('[boilerDeleteFuelInbound]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message } }
+  }
+}
+
+async function boilerGetFuelSummary(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+
+  try {
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    const stock = cfgRes.data?.[0]?.fuelStock || { currentWeight: 0, totalValue: 0, avgPrice: 0, totalInbound: 0, totalConsumed: 0 }
+
+    const recentRes = await db.collection(BOILER_RECORDS_COL)
+      .where({ factoryId })
+      .orderBy('record_date', 'desc').limit(7)
+      .field({ total_fuel_consumed: true, record_date: true, fuel_cost: true })
+      .get()
+    const consumption = (recentRes.data || []).map(r => ({
+      date: r.record_date,
+      consumed: r.total_fuel_consumed || 0,
+      cost: r.fuel_cost || 0,
+    }))
+
+    const avgDaily = consumption.length > 0
+      ? consumption.reduce((s, c) => s + c.consumed, 0) / consumption.length
+      : 0
+    const stockDays = avgDaily > 0 ? parseFloat((stock.currentWeight / avgDaily).toFixed(1)) : 0
+
+    return { ok: true, data: { ...stock, stockDays, avgDailyConsumption: parseFloat(avgDaily.toFixed(2)), consumption } }
+  } catch (err) {
+    console.error('[boilerGetFuelSummary]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message } }
+  }
+}
+
+async function boilerUpdateSuppliers(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+  const suppliers = Array.isArray(data.suppliers) ? data.suppliers : []
+
+  try {
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (cfgRes.data?.[0]) {
+      await db.collection(BOILER_CONFIG_COL).doc(cfgRes.data[0]._id).update({ data: { suppliers, updatedAt: new Date() } })
+    } else {
+      await db.collection(BOILER_CONFIG_COL).add({
+        data: { factoryId, suppliers, boilers: [], customers: [], prices: {}, createdAt: new Date(), updatedAt: new Date() }
+      })
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error('[boilerUpdateSuppliers]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message } }
+  }
+}
+
+async function boilerSaveKpiTargets(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+
+  const update = {}
+  if (data.kpiTargets !== undefined) update.kpiTargets = data.kpiTargets
+  if (data.alerts !== undefined) update.alerts = data.alerts
+  update.updatedAt = new Date()
+
+  try {
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (cfgRes.data?.[0]) {
+      await db.collection(BOILER_CONFIG_COL).doc(cfgRes.data[0]._id).update({ data: update })
+    } else {
+      await db.collection(BOILER_CONFIG_COL).add({
+        data: { factoryId, ...update, boilers: [], customers: [], prices: {}, createdAt: new Date() }
+      })
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error('[boilerSaveKpiTargets]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message } }
+  }
+}
+
+function calcBoilerRunningHours(startTime, endTime) {
+  if (!startTime || !endTime) return 0
+  const s = new Date(startTime), e = new Date(endTime)
+  if (isNaN(s) || isNaN(e)) {
+    const parseMin = (t) => { const p = String(t).split(':'); return parseInt(p[0]) * 60 + parseInt(p[1]) }
+    let sm = parseMin(startTime), em = parseMin(endTime)
+    if (em < sm) em += 1440
+    return parseFloat(((em - sm) / 60).toFixed(2))
+  }
+  return parseFloat(((e - s) / 3600000).toFixed(2))
+}
+
+async function boilerCreateRecord(db, data, meUser) {
+  const factoryId = data.factory_id || data.factoryId || meUser.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factory_id' } }
+  const recordDate = data.record_date
+  if (!recordDate) return { ok: false, error: { code: 'VALIDATION', message: '缺少 record_date' } }
+
+  const existing = await db.collection(BOILER_RECORDS_COL)
+    .where({ factoryId, record_date: recordDate }).count()
+  if (existing.total > 0) {
+    return { ok: false, error: { code: 'DUPLICATE', message: `${recordDate} 的记录已存在` } }
+  }
+
+  const boilers = (data.boilers || []).map(b => ({
+    name: b.name || b.boiler_id || '',
+    steam_production: parseFloat(b.steam_production) || 0,
+    electricity: parseFloat(b.electricity) || 0,
+    start_time: b.start_time || null,
+    end_time: b.end_time || null,
+    running_hours: calcBoilerRunningHours(b.start_time, b.end_time),
+  }))
+  const customers = (data.customers || []).map(c => ({
+    name: c.name || c.customer_id || '',
+    steam_usage: parseFloat(c.steam_usage) || 0,
+    start_time: c.start_time || null,
+    end_time: c.end_time || null,
+  }))
+
+  const totalWater = parseFloat(data.water_usage || data.total_water) || 0
+  const totalFuelConsumed = parseFloat(data.fuel_consumed || data.total_fuel_consumed) || 0
+  const fuelIntake = parseFloat(data.fuel_intake) || 0
+
+  const totalSteamProduction = boilers.reduce((s, b) => s + b.steam_production, 0)
+  const totalElectricity = boilers.reduce((s, b) => s + b.electricity, 0)
+  const totalSteamUsage = customers.reduce((s, c) => s + c.steam_usage, 0)
+
+  const electricityPerSteam = totalSteamProduction > 0 ? parseFloat((totalElectricity / totalSteamProduction).toFixed(4)) : 0
+  const fuelPerSteam = totalSteamProduction > 0 ? parseFloat((totalFuelConsumed / totalSteamProduction).toFixed(4)) : 0
+  const waterPerSteam = totalSteamProduction > 0 ? parseFloat((totalWater / totalSteamProduction).toFixed(4)) : 0
+  const steamLossRate = totalSteamProduction > 0 ? parseFloat(((totalSteamProduction - totalSteamUsage) / totalSteamProduction * 100).toFixed(2)) : 0
+
+  let prices = {}
+  let cfgDoc = null
+  try {
+    const cfgRes = await db.collection(BOILER_CONFIG_COL).where({ factoryId }).get()
+    if (cfgRes.data && cfgRes.data.length > 0) {
+      cfgDoc = cfgRes.data[0]
+      prices = cfgDoc.prices || {}
+    }
+  } catch (e) { /* ignore */ }
+
+  const fuelStock = cfgDoc?.fuelStock || {}
+  const fuelAvgPrice = fuelStock.avgPrice || prices.fuel || 0
+  const fuelCost = parseFloat((totalFuelConsumed * fuelAvgPrice).toFixed(2))
+  const electricityCost = parseFloat((totalElectricity * (prices.electricity || 0)).toFixed(2))
+  const waterCost = parseFloat((totalWater * (prices.water || 0)).toFixed(2))
+
+  const recordYear = parseInt(recordDate.slice(0, 4))
+  const recordMonth = parseInt(recordDate.slice(5, 7))
+  const daysInMonth = new Date(recordYear, recordMonth, 0).getDate()
+  const laborDaily = parseFloat(((prices.laborMonthly || 0) / daysInMonth).toFixed(2))
+
+  const totalCost = parseFloat((fuelCost + electricityCost + waterCost + laborDaily).toFixed(2))
+  const costPerSteam = totalSteamProduction > 0 ? parseFloat((totalCost / totalSteamProduction).toFixed(2)) : 0
+
+  const steamFuelRatio = totalFuelConsumed > 0
+    ? parseFloat((totalSteamProduction / totalFuelConsumed).toFixed(2))
+    : 0
+
+  let costDeviation = null
+  let fuelStockDays = 0
+  let fuelStockEstimate = 0
+
+  try {
+    const endPrev = new Date(recordDate + 'T00:00:00')
+    endPrev.setDate(endPrev.getDate() - 1)
+    const endStr = endPrev.toISOString().slice(0, 10)
+    const startPrev = new Date(endStr)
+    startPrev.setDate(startPrev.getDate() - 6)
+    const startStr = startPrev.toISOString().slice(0, 10)
+    const prevRes = await db.collection(BOILER_RECORDS_COL)
+      .where({ factoryId, record_date: db.command.and(db.command.gte(startStr), db.command.lte(endStr)) })
+      .field({ total_fuel_consumed: true, cost_per_steam: true })
+      .get()
+    const prevRecs = prevRes.data || []
+
+    const totalConsumed = prevRecs.reduce((s, r) => s + (parseFloat(r.total_fuel_consumed) || 0), 0)
+    const avgDaily = prevRecs.length > 0 ? totalConsumed / prevRecs.length : 0
+
+    if (fuelStock.currentWeight != null) {
+      fuelStockEstimate = parseFloat((fuelStock.currentWeight - totalFuelConsumed + fuelIntake).toFixed(2))
+    } else {
+      fuelStockEstimate = parseFloat(data.fuel_stock_estimate) || 0
+    }
+    if (avgDaily > 0 && fuelStockEstimate > 0) {
+      fuelStockDays = parseFloat((fuelStockEstimate / avgDaily).toFixed(1))
+    }
+
+    const prevCosts = prevRecs.map(r => parseFloat(r.cost_per_steam) || 0).filter(v => v > 0)
+    if (prevCosts.length > 0 && costPerSteam > 0) {
+      const avgCps = prevCosts.reduce((a, b) => a + b, 0) / prevCosts.length
+      costDeviation = parseFloat(((costPerSteam - avgCps) / avgCps * 100).toFixed(1))
+    }
+  } catch (e) { /* ignore */ }
+
+  if (cfgDoc?._id && fuelStock.currentWeight != null) {
+    try {
+      const newWeight = parseFloat((fuelStock.currentWeight - totalFuelConsumed + fuelIntake).toFixed(2))
+      const newValue = parseFloat((newWeight * fuelStock.avgPrice).toFixed(2))
+      await db.collection(BOILER_CONFIG_COL).doc(cfgDoc._id).update({
+        data: {
+          'fuelStock.currentWeight': Math.max(0, newWeight),
+          'fuelStock.totalValue': Math.max(0, newValue),
+          'fuelStock.totalConsumed': parseFloat(((fuelStock.totalConsumed || 0) + totalFuelConsumed).toFixed(2)),
+          'fuelStock.lastUpdated': new Date(),
+        }
+      })
+    } catch (e) { console.warn('[boilerCreateRecord] stock update error', e.message) }
+  }
+
+  const doc = {
+    factoryId,
+    record_date: recordDate,
+    total_water: totalWater,
+    total_fuel_consumed: totalFuelConsumed,
+    fuel_intake: fuelIntake,
+    fuel_stock_estimate: Math.max(0, fuelStockEstimate),
+    fuel_stock_days: fuelStockDays,
+    boiler_data: boilers,
+    customer_data: customers,
+    total_steam_production: totalSteamProduction,
+    total_electricity: totalElectricity,
+    total_steam_usage: totalSteamUsage,
+    electricity_per_steam: electricityPerSteam,
+    fuel_per_steam: fuelPerSteam,
+    water_per_steam: waterPerSteam,
+    steam_loss_rate: steamLossRate,
+    fuel_avg_price: fuelAvgPrice,
+    fuel_cost: fuelCost,
+    electricity_cost: electricityCost,
+    water_cost: waterCost,
+    labor_cost: laborDaily,
+    total_cost: totalCost,
+    cost_per_steam: costPerSteam,
+    steam_fuel_ratio: steamFuelRatio,
+    cost_deviation: costDeviation,
+    created_by: meUser.userId,
+    created_at: new Date(),
+  }
+
+  try {
+    const addRes = await db.collection(BOILER_RECORDS_COL).add({ data: doc })
+    return { ok: true, data: { id: addRes._id } }
+  } catch (err) {
+    console.error('[boilerCreateRecord]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message || '写入失败' } }
+  }
+}
+
+async function boilerListRecords(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: false, error: { code: 'VALIDATION', message: '缺少 factoryId' } }
+
+  const page = parseInt(data.page) || 1
+  const pageSize = parseInt(data.pageSize) || 20
+  const where = { factoryId }
+
+  if (data.month) {
+    const _ = db.command
+    where.record_date = _.and(_.gte(data.month + '-01'), _.lte(data.month + '-31'))
+  }
+  if (data.startDate) {
+    const _ = db.command
+    where.record_date = where.record_date
+      ? _.and(where.record_date, _.gte(data.startDate))
+      : _.gte(data.startDate)
+  }
+  if (data.endDate) {
+    const _ = db.command
+    where.record_date = where.record_date
+      ? _.and(where.record_date, _.lte(data.endDate))
+      : _.lte(data.endDate)
+  }
+
+  try {
+    const countRes = await db.collection(BOILER_RECORDS_COL).where(where).count()
+    const total = countRes.total
+
+    const listRes = await db.collection(BOILER_RECORDS_COL)
+      .where(where)
+      .orderBy('record_date', 'desc')
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .get()
+
+    const list = (listRes.data || []).map(normalizeBoilerRecord).filter(Boolean)
+    return { ok: true, data: { list, total, page, pageSize } }
+  } catch (err) {
+    console.error('[boilerListRecords]', err)
+    return { ok: true, data: { list: [], total: 0 } }
+  }
+}
+
+async function boilerGetRecordDetail(db, data) {
+  const id = data.recordId || data.id
+  if (!id) return { ok: false, error: { code: 'VALIDATION', message: '缺少 recordId' } }
+  try {
+    const res = await db.collection(BOILER_RECORDS_COL).doc(id).get()
+    const rec = res.data
+    if (!rec) return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+    const base = normalizeBoilerRecord(rec)
+    return {
+      ok: true,
+      data: {
+        ...base,
+        boiler_data: rec.boiler_data || [],
+        customer_steam_data: rec.customer_data || [],
+        summary: {
+          fuel_stock_estimate: rec.fuel_stock_estimate,
+          fuel_stock_days: rec.fuel_stock_days,
+          steam_loss_rate: rec.steam_loss_rate,
+          total_steam_production: rec.total_steam_production,
+          total_cost: rec.total_cost,
+          cost_per_steam: rec.cost_per_steam,
+        },
+        daily_derived_metrics: {
+          total_steam_production: rec.total_steam_production,
+          total_cost: rec.total_cost,
+          cost_per_steam: rec.cost_per_steam,
+          fuel_cost: rec.fuel_cost,
+          electricity_cost: rec.electricity_cost,
+          water_cost: rec.water_cost,
+          steam_loss_rate: rec.steam_loss_rate,
+          electricity_per_steam: rec.electricity_per_steam,
+          fuel_per_steam: rec.fuel_per_steam,
+          water_per_steam: rec.water_per_steam,
+          fuel_stock_estimate: rec.fuel_stock_estimate,
+          fuel_stock_days: rec.fuel_stock_days,
+        }
+      }
+    }
+  } catch (err) {
+    return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+  }
+}
+
+async function boilerGetOverview(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: true, data: { summary: {} } }
+  const date = data.date
+  try {
+    let rec = null
+    if (date) {
+      const res = await db.collection(BOILER_RECORDS_COL).where({ factoryId, record_date: date }).limit(1).get()
+      rec = res.data && res.data[0] ? res.data[0] : null
+    }
+    if (!rec) {
+      const fallback = await db.collection(BOILER_RECORDS_COL).where({ factoryId }).orderBy('record_date', 'desc').limit(1).get()
+      rec = fallback.data && fallback.data[0] ? fallback.data[0] : null
+    }
+    if (!rec) {
+      return { ok: true, data: { summary: {}, boilers: [], customers: [], noRecordForDate: !!date } }
+    }
+    return {
+      ok: true,
+      data: {
+        summary: {
+          total_steam_production: rec.total_steam_production || 0,
+          total_steam_usage: rec.total_steam_usage || 0,
+          total_electricity: rec.total_electricity || 0,
+          total_water: rec.total_water || 0,
+          total_fuel_consumed: rec.total_fuel_consumed || 0,
+          fuel_consumed: rec.total_fuel_consumed || 0,
+          water_usage: rec.total_water || 0,
+          fuel_intake: rec.fuel_intake ?? 0,
+          electricity_per_steam: rec.electricity_per_steam || 0,
+          fuel_per_steam: rec.fuel_per_steam || 0,
+          water_per_steam: rec.water_per_steam || 0,
+          steam_loss_rate: rec.steam_loss_rate || 0,
+          fuel_stock_estimate: rec.fuel_stock_estimate || 0,
+          fuel_stock_days: rec.fuel_stock_days != null ? rec.fuel_stock_days : undefined,
+          total_cost: rec.total_cost || 0,
+          cost_per_steam: rec.cost_per_steam || 0,
+        },
+        boilers: rec.boiler_data || [],
+        customers: rec.customer_data || [],
+        recordDate: rec.record_date,
+      }
+    }
+  } catch (err) {
+    console.error('[boilerGetOverview]', err)
+    return { ok: true, data: { summary: {} } }
+  }
+}
+
+async function boilerGetTrend(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: true, data: [] }
+  try {
+    const where = { factoryId }
+    const hasRange = data.startDate && data.endDate
+    if (hasRange) {
+      const _ = db.command
+      where.record_date = _.and(_.gte(data.startDate), _.lte(data.endDate))
+    }
+    const q = db.collection(BOILER_RECORDS_COL)
+      .where(where)
+      .field({
+        record_date: true,
+        total_steam_production: true,
+        total_electricity: true,
+        total_cost: true,
+        cost_per_steam: true,
+        total_fuel_consumed: true,
+        total_water: true,
+        total_steam_usage: true,
+        fuel_stock_estimate: true,
+        fuel_stock_days: true,
+      })
+    const res = hasRange
+      ? await q.orderBy('record_date', 'asc').limit(90).get()
+      : await q.orderBy('record_date', 'desc').limit(30).get()
+    const list = hasRange ? (res.data || []) : (res.data || []).reverse()
+    return { ok: true, data: list }
+  } catch (err) {
+    console.error('[boilerGetTrend]', err)
+    return { ok: true, data: [] }
+  }
+}
+
+async function boilerDeleteRecord(db, data, meUser) {
+  const id = data.recordId || data.id
+  if (!id) return { ok: false, error: { code: 'VALIDATION', message: '缺少 recordId' } }
+  try {
+    const getRes = await db.collection(BOILER_RECORDS_COL).doc(id).get()
+    const rec = getRes.data
+    if (!rec) return { ok: false, error: { code: 'NOT_FOUND', message: '记录不存在' } }
+    const factoryId = meUser.factoryId || rec.factoryId
+    if (factoryId && rec.factoryId && rec.factoryId !== factoryId) {
+      return { ok: false, error: { code: 'FORBIDDEN', message: '只能删除本园区的记录' } }
+    }
+    await db.collection(BOILER_RECORDS_COL).doc(id).remove()
+    return { ok: true, data: { deleted: true } }
+  } catch (err) {
+    console.error('[boilerDeleteRecord]', err)
+    return { ok: false, error: { code: 'DB_ERROR', message: err.message || '删除失败' } }
+  }
+}
+
+async function boilerGetCustomerStats(db, data) {
+  const factoryId = data.factoryId
+  if (!factoryId) return { ok: true, data: [] }
+  try {
+    const where = { factoryId }
+    const numDays = parseInt(data.days) || 30
+    if (data.startDate && data.endDate) {
+      const _ = db.command
+      where.record_date = _.and(_.gte(data.startDate), _.lte(data.endDate))
+    } else {
+      const end = new Date()
+      const start = new Date()
+      start.setDate(start.getDate() - numDays)
+      const _ = db.command
+      where.record_date = _.gte(start.toISOString().slice(0, 10))
+    }
+    const res = await db.collection(BOILER_RECORDS_COL)
+      .where(where)
+      .orderBy('record_date', 'asc')
+      .limit(100)
+      .get()
+    const customerMap = {}
+    for (const rec of res.data || []) {
+      for (const c of rec.customer_data || []) {
+        if (!c.name) continue
+        if (!customerMap[c.name]) customerMap[c.name] = { name: c.name, total_steam: 0, days: [] }
+        customerMap[c.name].total_steam += c.steam_usage || 0
+        customerMap[c.name].days.push({
+          date: rec.record_date,
+          steam_usage: c.steam_usage || 0,
+          start_time: c.start_time || null,
+          end_time: c.end_time || null,
+        })
+      }
+    }
+    const stats = Object.values(customerMap).map(c => ({
+      name: c.name,
+      total_steam: parseFloat(c.total_steam.toFixed(2)),
+      days: c.days,
+      dailyAvg: c.days.length > 0 ? parseFloat((c.total_steam / c.days.length).toFixed(2)) : 0,
+    }))
+    return { ok: true, data: stats }
+  } catch (err) {
+    console.error('[boilerGetCustomerStats]', err)
+    return { ok: true, data: [] }
+  }
+}
+
 exports.main = async (event, context) => {
   // 首次调用时自动初始化所有数据库集合
   await ensureAllCollections(db)
@@ -3395,25 +4452,13 @@ exports.main = async (event, context) => {
     if (!me) {
       return { ok: false, error: { code: 'AUTH_FAILED', message: '登录已过期或无效，请重新登录' } }
     }
-    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null }
+    const fullUser = await loadMe(db, me.userId)
+    const mePermissions = fullUser ? migratePermissions(fullUser) : migratePermissions({ role: me.role, canPcLogin: true })
+    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null, permissions: mePermissions }
 
-    // 需要管理员权限的 action
-    const adminOnlyActions = [
-      'listUsers', 'createUser', 'updateUser', 'disableUser', 'deleteUser', 'unbindOpenid', 'bindOpenid',
-      'createFactory', 'updateFactory',
-      'createAsset', 'updateAsset', 'setAssetStatus',
-      'createPart', 'updatePart', 'importPartsCommit',
-      'deletePart', 'batchSetPartsActive', 'batchDeleteParts',
-      'deleteInboundLog', 'deleteOutboundLog',
-      'setAIConfig',
-    ]
-    if (adminOnlyActions.includes(action) && me.role !== 'Admin') {
-      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅管理员可执行此操作' } }
-    }
-
-    const supervisorActions = ['submitFacilityLog']
-    if (supervisorActions.includes(action) && !['Admin', 'Supervisor'].includes(me.role)) {
-      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '仅主管或管理员可执行此操作' } }
+    const requiredPerm = ACTION_PERMISSION_MAP[action]
+    if (requiredPerm && !hasPermission(mePermissions, requiredPerm)) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '您没有执行此操作的权限' } }
     }
 
     switch (action) {
@@ -3507,6 +4552,46 @@ exports.main = async (event, context) => {
       case 'getInventorySummary': return await getInventorySummary(db, data)
       case 'getInventoryTrend': return await getInventoryTrend(db, data)
 
+      // 巡检管理
+      case 'getInspectionDashboard': return await pcGetInspectionDashboard(db, data, meUser)
+      case 'getInspectionPlan': return await pcGetInspectionPlan(db, data, meUser)
+      case 'listInspectionHistory': return await pcListInspectionHistory(db, data, meUser)
+      case 'setInspectionPlan': return await pcSetInspectionPlan(db, data, meUser)
+
+      // 锅炉房（直接使用 Cloud DB）
+      case 'boilerGetOverview': return await boilerGetOverview(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerListBoilers': {
+        const cfgRes = await boilerGetConfig(db, { factoryId: data.factoryId || meUser.factoryId })
+        return { ok: true, data: cfgRes.data?.boilers || [] }
+      }
+      case 'boilerListCustomers': {
+        const cfgRes = await boilerGetConfig(db, { factoryId: data.factoryId || meUser.factoryId })
+        return { ok: true, data: cfgRes.data?.customers || [] }
+      }
+      case 'boilerCreateRecord': return await boilerCreateRecord(db, data, meUser)
+      case 'boilerListRecords': return await boilerListRecords(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerGetRecordDetail': return await boilerGetRecordDetail(db, data)
+      case 'boilerGetTrend': return await boilerGetTrend(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerListAlerts': return { ok: true, data: { list: [], total: 0 } }
+      case 'boilerAcknowledgeAlert': return { ok: true }
+      case 'boilerResolveAlert': return { ok: true }
+      case 'boilerGetCustomerStats': return await boilerGetCustomerStats(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerGetConfig': return await boilerGetConfig(db, data)
+      case 'boilerSaveConfig': return await boilerSaveConfig(db, data)
+      case 'boilerListParks': return await boilerListParks(db)
+      case 'boilerDeleteRecord': return await boilerDeleteRecord(db, data, meUser)
+      case 'boilerFuelInbound': return await boilerFuelInbound(db, { ...data, factoryId: data.factoryId || meUser.factoryId }, meUser)
+      case 'boilerListFuelInbound': return await boilerListFuelInbound(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerDeleteFuelInbound': return await boilerDeleteFuelInbound(db, data, meUser)
+      case 'boilerGetFuelSummary': return await boilerGetFuelSummary(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerUpdateSuppliers': return await boilerUpdateSuppliers(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+      case 'boilerSaveKpiTargets': return await boilerSaveKpiTargets(db, { ...data, factoryId: data.factoryId || meUser.factoryId })
+
+      case 'getDailyTimeline': return await getDailyTimeline(db, data)
+
+      case 'generateAssetQr': return await generateAssetQr(data)
+      case 'batchGenerateAssetQr': return await batchGenerateAssetQr(db, data)
+
       default:
         return { ok: false, error: { code: 'UNKNOWN_ACTION', message: '不支持的 action: ' + action } }
     }
@@ -3514,4 +4599,166 @@ exports.main = async (event, context) => {
     console.error('pcGateway error:', err)
     return { ok: false, error: { code: 'SERVER_ERROR', message: '服务器错误: ' + (err.message || String(err)) } }
   }
+}
+
+// ====== 24小时事件记录 ======
+async function getDailyTimeline(db, data) {
+  const { date, factoryId } = data
+  if (!date) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 date 参数' } }
+
+  const dayStart = new Date(date + 'T00:00:00+08:00').getTime()
+  const dayEnd = new Date(date + 'T23:59:59+08:00').getTime()
+
+  const events = []
+
+  // 1. 故障申报
+  const faultWhere = { createdAt: db.command.gte(dayStart).and(db.command.lte(dayEnd)) }
+  if (factoryId) faultWhere.factoryId = factoryId
+  try {
+    const { data: faults } = await db.collection('fault_reports')
+      .where(faultWhere)
+      .orderBy('createdAt', 'asc')
+      .limit(100)
+      .get()
+    faults.forEach(f => {
+      events.push({
+        id: f.reportId || f._id,
+        type: 'fault',
+        typeLabel: '故障',
+        assetId: f.assetId,
+        assetName: f.assetName || f.assetId,
+        operator: '',
+        desc: f.remark || '',
+        parts: '',
+        status: '',
+        ts: f.createdAt,
+      })
+    })
+  } catch (e) { console.warn('getDailyTimeline fault_reports error:', e.message) }
+
+  // 2. 更换记录
+  const logWhere = { ts: db.command.gte(dayStart).and(db.command.lte(dayEnd)) }
+  if (factoryId) logWhere.factoryId = factoryId
+  try {
+    const { data: logs } = await db.collection('replacement_logs')
+      .where(logWhere)
+      .orderBy('ts', 'asc')
+      .limit(100)
+      .get()
+    logs.forEach(l => {
+      const partsList = (l.items || []).map(item => {
+        const name = item.partNameSnapshot || item.partSkuId
+        return `${name}×${item.qty}`
+      }).join(', ')
+      events.push({
+        id: l.logId || l._id,
+        type: 'replace',
+        typeLabel: '更换',
+        assetId: l.assetId,
+        assetName: l.assetNameSnapshot || l.assetId,
+        operator: l.reporterNameSnapshot || '',
+        desc: l.remark || '',
+        parts: partsList,
+        status: '',
+        ts: l.ts,
+      })
+    })
+  } catch (e) { console.warn('getDailyTimeline replacement_logs error:', e.message) }
+
+  // 3. 巡检记录
+  const inspWhere = { inspectDate: date }
+  if (factoryId) inspWhere.factoryId = factoryId
+  try {
+    const { data: inspections } = await db.collection('inspection_logs')
+      .where(inspWhere)
+      .orderBy('createdAt', 'asc')
+      .limit(100)
+      .get()
+    inspections.forEach(i => {
+      events.push({
+        id: i._id,
+        type: 'inspection',
+        typeLabel: '巡检',
+        assetId: i.assetId,
+        assetName: i.assetName || i.assetId,
+        operator: i.userDisplayName || '',
+        desc: i.remark || '',
+        parts: '',
+        status: i.condition === 'normal' ? '正常' : '异常',
+        ts: i.createdAt,
+      })
+    })
+  } catch (e) { console.warn('getDailyTimeline inspection_logs error:', e.message) }
+
+  // 按时间排序
+  events.sort((a, b) => a.ts - b.ts)
+
+  // 格式化时间 + 标记同设备关联
+  const pad = n => String(n).padStart(2, '0')
+  events.forEach((e, idx) => {
+    const d = new Date(e.ts + 8 * 3600 * 1000)
+    e.time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    e.linkedNext = false
+    if (idx < events.length - 1) {
+      const next = events[idx + 1]
+      if (e.assetId === next.assetId && e.type === 'fault' && next.type === 'replace') {
+        e.linkedNext = true
+      }
+    }
+  })
+
+  return { ok: true, data: { date, events } }
+}
+
+// ====== 设备小程序码生成 ======
+async function generateAssetQr(data) {
+  const { assetId, assetName } = data
+  if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
+
+  try {
+    const resp = await cloud.openapi.wxacode.getUnlimited({
+      scene: assetId,
+      page: 'pages/device/index',
+      width: 430,
+      autoColor: false,
+      lineColor: { r: 0, g: 0, b: 0 },
+      isHyaline: false,
+    })
+
+    if (!resp.buffer) {
+      return { ok: false, error: { code: 'QR_FAILED', message: '生成小程序码失败' } }
+    }
+
+    const cloudPath = `qrcodes/${assetId.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`
+    const uploadRes = await cloud.uploadFile({
+      cloudPath,
+      fileContent: resp.buffer,
+    })
+
+    const urlRes = await cloud.getTempFileURL({ fileList: [uploadRes.fileID] })
+    const tempUrl = urlRes.fileList[0].tempFileURL
+
+    return { ok: true, data: { fileID: uploadRes.fileID, tempUrl, assetId, assetName } }
+  } catch (err) {
+    console.error('generateAssetQr error:', err)
+    return { ok: false, error: { code: 'QR_FAILED', message: err.message || '生成失败' } }
+  }
+}
+
+async function batchGenerateAssetQr(db, data) {
+  const { assetIds } = data
+  if (!Array.isArray(assetIds) || assetIds.length === 0) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetIds' } }
+  }
+  if (assetIds.length > 20) {
+    return { ok: false, error: { code: 'VALIDATION_FAILED', message: '单次最多生成 20 个' } }
+  }
+
+  const results = []
+  for (const assetId of assetIds) {
+    const res = await generateAssetQr({ assetId })
+    results.push({ assetId, ...res })
+  }
+
+  return { ok: true, data: { results } }
 }

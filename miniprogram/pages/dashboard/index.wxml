@@ -1,5 +1,12 @@
 <!-- pages/dashboard/index.wxml -->
-<view class="page-container">
+<custom-nav title="看板" />
+<view class="page-container" wx:if="{{!loading}}">
+  <!-- 工厂切换 -->
+  <view class="factory-bar" wx:if="{{canSwitchFactory}}" bindtap="onSwitchFactory">
+    <text class="factory-name">{{currentFactoryName}}</text>
+    <text class="factory-switch">切换 ›</text>
+  </view>
+
   <!-- 月份选择器 -->
   <view class="month-picker">
     <view class="month-arrow" bindtap="onPrevMonth">‹</view>
@@ -52,6 +59,40 @@
         </view>
       </view>
       <view class="empty-state" wx:if="{{!costRanking.costByAsset || costRanking.costByAsset.length === 0}}">暂无使用金额数据</view>
+    </view>
+  </view>
+
+  <!-- 巡检概况 -->
+  <view class="card dash-card inspect-card">
+    <view class="dash-card-header">
+      <text class="dash-card-title">巡检概况</text>
+      <text class="dash-card-link" bindtap="onInspectionTap">详情 ›</text>
+    </view>
+    <view class="inspect-stats" wx:if="{{inspection.hasPlan}}">
+      <view class="inspect-stat">
+        <view class="inspect-num {{inspection.todayCompleted >= inspection.todayTotal ? 'green' : ''}}">{{inspection.todayCompleted}}/{{inspection.todayTotal}}</view>
+        <view class="inspect-label">今日</view>
+      </view>
+      <view class="inspect-divider"></view>
+      <view class="inspect-stat">
+        <view class="inspect-num {{inspection.weekRate >= 80 ? 'green' : 'orange'}}">{{inspection.weekRate}}%</view>
+        <view class="inspect-label">本周</view>
+      </view>
+      <view class="inspect-divider"></view>
+      <view class="inspect-stat">
+        <view class="inspect-num">{{inspection.streak}}天</view>
+        <view class="inspect-label">连续达标</view>
+      </view>
+    </view>
+    <!-- 7天巡检趋势 -->
+    <view class="inspect-week" wx:if="{{inspection.hasPlan && inspection.week}}">
+      <view class="iw-col {{item.isToday ? 'is-today' : ''}}" wx:for="{{inspection.week}}" wx:key="date">
+        <view class="iw-dot lv{{item.level}}"></view>
+        <view class="iw-day">{{item.dayName}}</view>
+      </view>
+    </view>
+    <view class="inspect-empty" wx:if="{{!inspection.hasPlan}}">
+      <text>未配置巡检计划</text>
     </view>
   </view>
 
@@ -160,5 +201,11 @@
       </view>
       <view class="empty-state" wx:if="{{stats.topEngineers.length === 0}}">暂无数据</view>
     </view>
+  </view>
+</view>
+<view class="page-container loading-container" wx:if="{{loading}}">
+  <view class="loading-wrap">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中…</text>
   </view>
 </view>

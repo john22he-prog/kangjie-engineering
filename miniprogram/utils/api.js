@@ -179,7 +179,7 @@ function getFactories() {
 }
 
 /**
- * AI 分析报告（规则+模板）
+ * 数据分析报告（规则+模板）
  * @param {Object} params { yearMonth, workshop?, scope: 'workshop'|'summary' }
  */
 function getAIReport(params) {
@@ -220,6 +220,10 @@ function setInspectionPlan(params) {
   return callCloud('setInspectionPlan', params)
 }
 
+function getInspectionStats() {
+  return callCloud('getInspectionStats', {})
+}
+
 module.exports = {
   getMe,
   getAssetByQr,
@@ -244,5 +248,6 @@ module.exports = {
   getInspectionPlan,
   submitInspectionLog,
   listInspectionHistory,
-  setInspectionPlan
+  setInspectionPlan,
+  getInspectionStats
 }

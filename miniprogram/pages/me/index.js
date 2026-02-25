@@ -1,7 +1,9 @@
 // pages/me/index.js
 const auth = require('../../utils/auth')
+const { PERMISSIONS } = require('../../utils/permissions')
 const api = require('../../utils/api')
 const offlineQueue = require('../../utils/offline-queue')
+const notification = require('../../utils/notification')
 
 Page({
   data: {
@@ -28,7 +30,7 @@ Page({
       isLoggedIn: auth.isLoggedIn(),
       offlineCount: offlineQueue.getCount(),
       canManage: auth.canManage(),
-      canViewCompany: auth.isAdmin() || auth.isManagement(),
+      canViewCompany: auth.hasPermission(PERMISSIONS.MODULE_COMPANY),
       canSwitchFactory: auth.canSwitchFactory(),
       currentFactoryName: app.globalData.currentFactoryName || '未选择'
     })
@@ -77,8 +79,12 @@ Page({
     wx.navigateTo({ url: '/pages/inspection/index' })
   },
 
+  onBackToCompany() {
+    wx.reLaunch({ url: '/pages/company/index' })
+  },
+
   onCompanyOverview() {
-    wx.navigateTo({ url: '/pages/company/index' })
+    wx.reLaunch({ url: '/pages/company/index' })
   },
 
   onAIAnalysis() {
@@ -119,10 +125,24 @@ Page({
     }
   },
 
+  async onSubscribeNotify() {
+    try {
+      const res = await notification.requestSubscribe()
+      const accepted = Object.values(res).filter(v => v === 'accept').length
+      if (accepted > 0) {
+        wx.showToast({ title: `已订阅 ${accepted} 项通知`, icon: 'success' })
+      } else {
+        wx.showToast({ title: '您可以在设置中开启通知', icon: 'none' })
+      }
+    } catch (e) {
+      console.warn('订阅失败', e)
+    }
+  },
+
   onAbout() {
     wx.showModal({
       title: '关于',
-      content: '康洁工程部小程序 v1.0.0\n设备配件更换记录与报警系统',
+      content: '云南康洁 v1.1.0\n企业综合管理平台',
       showCancel: false
     })
   }

@@ -1,0 +1,94 @@
+---
+description: PC 管理后台 - Vue3 + Element Plus + Pinia 开发规范
+globs: pc-admin/**/*
+alwaysApply: false
+---
+
+# PC 管理后台开发规范
+
+## 技术栈
+
+- Vue 3 (Composition API + `<script setup>`)
+- Element Plus (中文 locale)，图标用 @element-plus/icons-vue
+- Pinia 状态管理
+- Vue Router 4（开发 history / 生产 hash）
+- ECharts 5 + vue-echarts
+- Vite 6，SCSS
+- API 四模式切换：http / cloud / real / mock
+
+## 目录约定
+
+```
+pc-admin/src/
+├── views/{module}/index.vue   页面组件
+├── components/                公共组件
+├── stores/                    Pinia store（auth.js, app.js）
+├── utils/api.js               统一 API 入口（自动选模式）
+├── utils/api-real.js           通过 pc-server 网关调用
+├── utils/api-cloud.js          @cloudbase/js-sdk 直连
+├── utils/api-http.js           HTTP 访问服务
+├── utils/permissions.js        权限常量
+├── layouts/MainLayout.vue      侧边栏 + 顶栏布局
+└── assets/styles/global.scss   全局样式
+```
+
+## 新页面标准结构
+
+```vue
+<template>
+  <div class="page-container">
+    <div class="page-header">
+      <h2>页面标题</h2>
+      <div class="page-header-actions">
+        <el-button type="primary" :icon="Plus" @click="handleAdd">新增</el-button>
+      </div>
+    </div>
+    <el-table :data="list" v-loading="loading" stripe>
+      <!-- 列定义 -->
+    </el-table>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { api } from '@/utils/api'
+
+const loading = ref(false)
+const list = ref([])
+
+async function loadData() {
+  loading.value = true
+  try {
+    const res = await api.listXxx()
+    if (res.ok) list.value = res.data.list
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadData)
+</script>
+```
+
+## API 调用规范
+
+```javascript
+// ✅ 正确：通过统一 api 调用，返回值始终是 { ok, data, error }
+import { api } from '@/utils/api'
+const res = await api.listAssets(factoryId)
+if (res.ok) { /* 使用 res.data */ }
+else { ElMessage.error(res.error?.message || '操作失败') }
+
+// ❌ 错误：不要直接调用 axios 或 fetch
+```
+
+## 权限控制
+
+- 路由 meta.permission 对应 PERMISSIONS 常量
+- 用 `useAuthStore().hasPermission()` 判断权限
+- 无权限自动重定向到 /dashboard
+
+## ECharts 使用
+
+- 通过 vue-echarts 组件使用，按需注册图表类型
+- 图表配置放在 computed 或 ref 中，响应式更新

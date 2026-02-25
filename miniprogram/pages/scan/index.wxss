@@ -26,16 +26,11 @@
   transform: scale(0.96);
 }
 
-.scan-icon {
-  width: 80rpx;
-  height: 80rpx;
-  margin-bottom: 12rpx;
-}
-
 .scan-text {
   color: #fff;
-  font-size: 30rpx;
+  font-size: 34rpx;
   font-weight: 600;
+  letter-spacing: 4rpx;
 }
 
 .scan-hint {
@@ -62,4 +57,83 @@
 
 .dev-btn:last-child {
   border-bottom: none;
+}
+
+/* 故障申报入口 */
+.fault-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 0;
+}
+
+.fault-entry-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #e74c3c;
+}
+
+.fault-entry-desc {
+  display: block;
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.fault-entry-arrow {
+  font-size: 32rpx;
+  color: var(--weui-FG-2);
+}
+
+/* 匿名用户界面 */
+.anon-hero {
+  text-align: center;
+  padding: 100rpx 0 60rpx;
+}
+
+.anon-title {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #07C160;
+}
+
+.anon-subtitle {
+  font-size: 28rpx;
+  color: #999;
+  margin-top: 12rpx;
+}
+
+.anon-main-btn {
+  width: 560rpx;
+  margin: 60rpx auto;
+  padding: 48rpx 0;
+  border-radius: 24rpx;
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  text-align: center;
+  box-shadow: 0 8rpx 32rpx rgba(231, 76, 60, 0.35);
+}
+
+.anon-main-btn:active { opacity: 0.85; transform: scale(0.97); }
+
+.anon-btn-text {
+  display: block;
+  color: #fff;
+  font-size: 40rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.anon-btn-hint {
+  display: block;
+  color: rgba(255,255,255,0.8);
+  font-size: 24rpx;
+  margin-top: 12rpx;
+}
+
+.anon-login-link {
+  text-align: center;
+  margin-top: 60rpx;
+  font-size: 26rpx;
+  color: #576B95;
 }

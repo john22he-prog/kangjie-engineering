@@ -1,192 +1,142 @@
-/* 进度卡片 */
-.progress-card {
+/* ===== Engineer: Scan Hero ===== */
+.scan-hero {
   text-align: center;
-  padding: 40rpx 24rpx;
+  padding: 32rpx 24rpx 24rpx;
 }
-
-.progress-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  margin-bottom: 8rpx;
-}
-
-.progress-date {
-  font-size: 24rpx;
-  color: var(--weui-FG-2);
-  margin-bottom: 24rpx;
-}
-
-.progress-nums {
-  font-size: 56rpx;
-  font-weight: 700;
-  margin-bottom: 20rpx;
-}
-
-.progress-done {
-  color: var(--weui-BRAND);
-}
-
-.progress-sep {
-  color: var(--weui-FG-2);
-  font-size: 40rpx;
-}
-
-.progress-total {
-  color: var(--weui-FG-1);
-}
-
-.progress-bar-bg {
-  height: 16rpx;
-  background: var(--weui-BG-0);
-  border-radius: 8rpx;
-  overflow: hidden;
-  margin: 0 40rpx;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  background: var(--weui-BRAND);
-  border-radius: 8rpx;
-  transition: width 0.3s ease;
-}
-
-.progress-pct {
-  font-size: 24rpx;
-  color: var(--weui-FG-2);
-  margin-top: 8rpx;
-}
-
-/* 扫码按钮 */
-.scan-btn {
-  height: 88rpx;
-  line-height: 88rpx;
-  font-size: 34rpx;
-}
-
-/* 全部完成 */
-.all-done-card {
-  text-align: center;
-  padding: 40rpx;
-}
-
-.all-done-icon {
-  display: block;
-  font-size: 64rpx;
-  color: var(--weui-BRAND);
-  margin-bottom: 12rpx;
-}
-
-.all-done-text {
-  font-size: 30rpx;
-  color: var(--weui-BRAND);
-  font-weight: 500;
-}
-
-/* 设备列表 */
-.asset-list {
-  padding: 0 24rpx;
-}
-
-.asset-item {
-  display: flex;
-  align-items: flex-start;
-  padding: 20rpx 0;
-  border-bottom: 1rpx solid var(--weui-BG-1);
-}
-
-.asset-item:last-child {
-  border-bottom: none;
-}
-
-.asset-status {
-  width: 48rpx;
-  height: 48rpx;
-  line-height: 48rpx;
-  text-align: center;
-  border-radius: 50%;
-  font-size: 28rpx;
-  margin-right: 16rpx;
-  flex-shrink: 0;
-  margin-top: 4rpx;
-}
-
-.asset-status.pending {
-  border: 2rpx solid var(--weui-FG-2);
-  color: var(--weui-FG-2);
-}
-
-.asset-status.done {
-  background: var(--weui-BRAND);
-  color: #fff;
-  font-size: 24rpx;
-}
-
-.asset-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.asset-name {
-  font-size: 30rpx;
-  font-weight: 500;
-  margin-bottom: 4rpx;
-}
-
-.asset-no {
-  font-size: 24rpx;
-  color: var(--weui-FG-2);
-}
-
-.asset-meta {
-  font-size: 24rpx;
-  color: var(--weui-FG-2);
-}
-
-.meta-sep {
-  margin: 0 8rpx;
-}
-
-.asset-arrow {
+.scan-btn-big {
+  height: 100rpx;
+  line-height: 100rpx;
   font-size: 36rpx;
-  color: var(--weui-FG-2);
-  margin-left: 8rpx;
-  align-self: center;
+  border-radius: 16rpx;
 }
-
-/* 缩略图 */
-.thumb-row {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 12rpx;
-  flex-wrap: wrap;
-}
-
-.thumb-img {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 8rpx;
-}
-
-.asset-remark {
+.scan-hint {
   font-size: 24rpx;
-  color: var(--weui-FG-1);
-  margin-top: 8rpx;
+  color: var(--weui-FG-2);
+  margin-top: 12rpx;
 }
 
-/* 底部操作 */
-.bottom-actions {
-  margin-top: 20rpx;
-}
-
-.action-item {
+/* ===== Engineer: Simple Progress ===== */
+.progress-simple {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24rpx 0;
-  border-bottom: 1rpx solid var(--weui-BG-1);
-  font-size: 30rpx;
+  padding: 24rpx 32rpx;
+}
+.ps-left {}
+.ps-nums { font-size: 48rpx; font-weight: 700; }
+.ps-done { color: var(--weui-BRAND); }
+.ps-sep { color: var(--weui-FG-2); font-size: 36rpx; margin: 0 4rpx; }
+.ps-total { color: var(--weui-FG-1); }
+.ps-date { font-size: 24rpx; color: var(--weui-FG-2); margin-top: 4rpx; }
+.ps-right {}
+
+/* Small ring (engineer) */
+.ring-sm {}
+.ring-sm-bg {
+  width: 100rpx; height: 100rpx;
+  border-radius: 50%;
+  background: conic-gradient(var(--color, #07C160) calc(var(--pct, 0) * 3.6deg), #e8e8e8 0);
+  display: flex; align-items: center; justify-content: center;
+}
+.ring-sm-inner {
+  width: 76rpx; height: 76rpx;
+  border-radius: 50%; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24rpx; font-weight: 600; color: var(--weui-FG-0);
 }
 
-.action-item:last-child {
-  border-bottom: none;
+/* ===== Manager: Hero Card (Ring) ===== */
+.hero-card { text-align: center; padding: 32rpx 24rpx; }
+.hero-top {
+  display: flex; align-items: center; justify-content: center; gap: 40rpx;
 }
+.ring-wrap { position: relative; }
+.ring-bg {
+  width: 160rpx; height: 160rpx; border-radius: 50%;
+  background: conic-gradient(var(--color, #07C160) calc(var(--pct, 0) * 3.6deg), #e8e8e8 0);
+  display: flex; align-items: center; justify-content: center;
+}
+.ring-inner {
+  width: 120rpx; height: 120rpx; border-radius: 50%; background: #fff;
+  display: flex; align-items: baseline; justify-content: center; padding-top: 12rpx;
+}
+.ring-num { font-size: 44rpx; font-weight: 700; color: var(--weui-BRAND); }
+.ring-sep { font-size: 24rpx; color: var(--weui-FG-2); margin-left: 2rpx; }
+.hero-info { text-align: left; }
+.hero-date { font-size: 26rpx; color: var(--weui-FG-2); margin-bottom: 8rpx; }
+.hero-pct { font-size: 32rpx; font-weight: 600; margin-bottom: 8rpx; }
+.hero-status { display: flex; align-items: center; gap: 8rpx; font-size: 24rpx; color: var(--weui-FG-1); }
+.status-dot { width: 14rpx; height: 14rpx; border-radius: 50%; display: inline-block; }
+.status-dot.green { background: #67c23a; }
+.status-dot.orange { background: #e6a23c; }
+.status-dot.red { background: #f56c6c; }
+
+/* ===== 7-Day Calendar (shared) ===== */
+.week-card { padding: 20rpx 24rpx; }
+.week-title { font-size: 24rpx; color: var(--weui-FG-2); margin-bottom: 12rpx; }
+.week-grid { display: flex; justify-content: space-between; }
+.week-col { display: flex; flex-direction: column; align-items: center; gap: 6rpx; flex: 1; }
+.week-col.is-today .week-day { font-weight: 700; color: var(--weui-BRAND); }
+.week-col.is-today .week-day-num { font-weight: 700; color: var(--weui-BRAND); }
+.week-dot { width: 40rpx; height: 40rpx; border-radius: 10rpx; }
+.week-dot.lv0 { background: #ebeef5; }
+.week-dot.lv1 { background: #f89898; }
+.week-dot.lv2 { background: #e6a23c; }
+.week-dot.lv3 { background: #67c23a; }
+.week-day { font-size: 20rpx; color: var(--weui-FG-2); }
+.week-day-num { font-size: 22rpx; color: var(--weui-FG-0); }
+
+/* ===== Manager: Engineer Summary ===== */
+.card-title { font-size: 28rpx; font-weight: 600; margin-bottom: 16rpx; color: var(--weui-FG-0); }
+.engineer-list { display: flex; flex-wrap: wrap; gap: 20rpx; }
+.eng-item {
+  display: flex; align-items: center; gap: 12rpx;
+  background: #f0faf3; border-radius: 12rpx; padding: 14rpx 20rpx;
+}
+.eng-avatar {
+  width: 48rpx; height: 48rpx; border-radius: 50%;
+  background: var(--weui-BRAND); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24rpx; font-weight: 600; flex-shrink: 0;
+}
+.eng-name { font-size: 26rpx; font-weight: 500; }
+.eng-count { font-size: 24rpx; color: var(--weui-BRAND); font-weight: 600; }
+.eng-empty { text-align: center; color: var(--weui-FG-2); font-size: 26rpx; padding: 20rpx 0; }
+
+/* ===== All Done ===== */
+.all-done-card { text-align: center; padding: 40rpx; }
+.all-done-icon { display: block; font-size: 64rpx; color: var(--weui-BRAND); margin-bottom: 12rpx; }
+.all-done-text { font-size: 30rpx; color: var(--weui-BRAND); font-weight: 500; }
+
+/* ===== Scan btn (manager) ===== */
+.scan-btn { height: 88rpx; line-height: 88rpx; font-size: 34rpx; }
+
+/* ===== Asset List ===== */
+.asset-list { padding: 0 24rpx; }
+.asset-item { display: flex; align-items: flex-start; padding: 20rpx 0; border-bottom: 1rpx solid var(--weui-BG-1); }
+.asset-item:last-child { border-bottom: none; }
+.asset-status {
+  width: 48rpx; height: 48rpx; line-height: 48rpx;
+  text-align: center; border-radius: 50%; font-size: 28rpx;
+  margin-right: 16rpx; flex-shrink: 0; margin-top: 4rpx;
+}
+.asset-status.pending { border: 2rpx solid var(--weui-FG-2); color: var(--weui-FG-2); }
+.asset-status.done { background: var(--weui-BRAND); color: #fff; font-size: 24rpx; }
+.asset-info { flex: 1; min-width: 0; }
+.asset-name { font-size: 30rpx; font-weight: 500; margin-bottom: 4rpx; }
+.asset-no { font-size: 24rpx; color: var(--weui-FG-2); }
+.asset-meta { font-size: 24rpx; color: var(--weui-FG-2); }
+.meta-sep { margin: 0 8rpx; }
+.meta-user { color: var(--weui-FG-1); }
+.asset-arrow { font-size: 36rpx; color: var(--weui-FG-2); margin-left: 8rpx; align-self: center; }
+.thumb-row { display: flex; gap: 12rpx; margin-top: 12rpx; flex-wrap: wrap; }
+.thumb-img { width: 120rpx; height: 120rpx; border-radius: 8rpx; }
+.asset-remark { font-size: 24rpx; color: var(--weui-FG-1); margin-top: 8rpx; }
+
+/* ===== Bottom Actions ===== */
+.bottom-actions { margin-top: 20rpx; }
+.action-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 24rpx 0; border-bottom: 1rpx solid var(--weui-BG-1); font-size: 30rpx;
+}
+.action-item:last-child { border-bottom: none; }

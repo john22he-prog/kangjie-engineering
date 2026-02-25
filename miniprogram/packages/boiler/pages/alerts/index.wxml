@@ -1,0 +1,71 @@
+<!-- 预警信息页 -->
+<view class="page-container">
+
+  <!-- 筛选栏 -->
+  <view class="filter-bar">
+    <picker range="{{statusOptions}}" range-key="label" value="{{statusIndex}}" bindchange="onFilterChange">
+      <view class="filter-btn">
+        <text class="filter-text">{{statusOptions[statusIndex].label}}</text>
+        <text class="filter-arrow">▾</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- 预警列表 -->
+  <view class="alert-list" wx:if="{{alerts.length > 0}}">
+    <view class="alert-card card" wx:for="{{alerts}}" wx:key="id">
+      <!-- 头部 -->
+      <view class="alert-header">
+        <view class="alert-severity {{item.severityClass}}">{{item.severityLabel}}</view>
+        <view class="alert-status {{item.statusClass}}">{{item.statusLabel}}</view>
+      </view>
+
+      <!-- 内容 -->
+      <view class="alert-body">
+        <view class="alert-rule">{{item.rule_name || '预警规则'}}</view>
+        <view class="alert-metric">
+          <text class="alert-metric-label">指标：</text>
+          <text>{{item.rule_metric || '--'}}</text>
+        </view>
+        <view class="alert-detail-row" wx:if="{{item.rule_threshold}}">
+          <text class="alert-metric-label">阈值：</text>
+          <text>{{item.rule_operator}} {{item.rule_threshold}}</text>
+        </view>
+        <view class="alert-time">{{item.displayTime}}</view>
+      </view>
+
+      <!-- 操作按钮 -->
+      <view class="alert-actions" wx:if="{{item.status === 'open'}}">
+        <view class="alert-action-btn ack-btn" catchtap="onAcknowledge" data-id="{{item.id}}">确认</view>
+        <view class="alert-action-btn resolve-btn" catchtap="onResolve" data-id="{{item.id}}" wx:if="{{user.role === 'admin'}}">解决</view>
+      </view>
+      <view class="alert-actions" wx:elif="{{item.status === 'acknowledged' && user.role === 'admin'}}">
+        <view class="alert-action-btn resolve-btn" catchtap="onResolve" data-id="{{item.id}}">标记解决</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:if="{{!loading && alerts.length === 0}}">
+    <view class="empty-icon">✅</view>
+    <text class="empty-title">暂无预警</text>
+    <text class="empty-desc">当前没有需要关注的预警信息</text>
+  </view>
+
+  <!-- 加载更多 -->
+  <view class="loading-more" wx:if="{{loading && alerts.length > 0}}">
+    <text>加载更多...</text>
+  </view>
+
+  <!-- 初始加载 -->
+  <view class="loading-state" wx:if="{{loading && alerts.length === 0}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中...</text>
+  </view>
+
+  <!-- 没有更多 -->
+  <view class="no-more" wx:if="{{!hasMore && alerts.length > 0}}">
+    <text>— 没有更多了 —</text>
+  </view>
+
+</view>

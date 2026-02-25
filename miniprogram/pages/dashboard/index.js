@@ -5,6 +5,7 @@ const { getCurrentYearMonth } = require('../../utils/util')
 
 Page({
   data: {
+    loading: true,
     yearMonth: '',
     isCurrentMonth: true,
     canViewCost: false,
@@ -23,24 +24,111 @@ Page({
       totalMonthlyUsageCost: 0,
       costByAsset: []
     },
-    inventoryOpenCount: 0
+    inventoryOpenCount: 0,
+    inspection: { hasPlan: false },
+    canSwitchFactory: false,
+    currentFactoryName: '',
+    factories: []
   },
 
   onLoad() {
+    const app = getApp()
     this.setData({
       yearMonth: getCurrentYearMonth(),
-      canViewCost: auth.canViewCost()
+      canViewCost: auth.canViewCost(),
+      canSwitchFactory: auth.canSwitchFactory(),
+      currentFactoryName: app.globalData.currentFactoryName || ''
     })
-    this.loadDashboard()
+    this.loadAll()
   },
 
   onShow() {
-    this.setData({ canViewCost: auth.canViewCost() })
-    this.loadDashboard()
+    const app = getApp()
+    this.setData({
+      canViewCost: auth.canViewCost(),
+      currentFactoryName: app.globalData.currentFactoryName || ''
+    })
+    this.loadAll()
   },
 
   onPullDownRefresh() {
-    this.loadDashboard().then(() => wx.stopPullDownRefresh())
+    this.loadAll(true).then(() => wx.stopPullDownRefresh())
+  },
+
+  /**
+   * 并行加载看板所需全部数据，首屏只需等最慢的一个请求
+   */
+  async loadAll(isRefresh) {
+    if (!isRefresh) this.setData({ loading: true })
+    const yearMonth = this.data.yearMonth
+    const canViewCost = this.data.canViewCost
+
+    const tasks = [
+      api.getDashboard({ yearMonth }).then(result => {
+        if (result.ok) {
+          const data = result.data
+          if (data.dailyTrend && data.dailyTrend.length > 0) {
+            const maxCount = Math.max(...data.dailyTrend.map(d => d.count), 1)
+            const avg = data.dailyTrend.reduce((s, d) => s + d.count, 0) / data.dailyTrend.length
+            data.dailyTrend = data.dailyTrend.map(d => ({
+              ...d,
+              barHeight: Math.max(Math.round((d.count / maxCount) * 160), 8),
+              isHigh: d.count > avg * 1.5 && d.count > 0
+            }))
+          }
+          this.setData({ stats: data })
+        }
+      }),
+      api.getInspectionStats().then(result => {
+        if (result.ok) {
+          const d = result.data
+          const todayItem = (d.week || []).find(w => w.isToday)
+          d.todayCompleted = todayItem ? todayItem.done : 0
+          d.todayTotal = todayItem ? todayItem.total : 0
+          this.setData({ inspection: d })
+        }
+      }),
+      api.listInventoryAlerts().then(result => {
+        if (result.ok) {
+          const openCount = (result.data.list || []).filter(a => a.status === 'OPEN').length
+          this.setData({ inventoryOpenCount: openCount })
+        }
+      })
+    ]
+    if (canViewCost) {
+      tasks.push(
+        api.getMonthlyCostRanking({ yearMonth }).then(result => {
+          if (result.ok) {
+            const data = result.data
+            data.totalMonthlyUsageCostStr = this._formatMoney(data.totalMonthlyUsageCost || 0)
+            if (data.costByAsset && data.costByAsset.length > 0) {
+              const maxCost = data.costByAsset[0].totalCost || 1
+              data.costByAsset = data.costByAsset.map(item => ({
+                ...item,
+                barWidth: Math.max(Math.round((item.totalCost / maxCost) * 100), 5),
+                totalCostStr: this._formatMoney(item.totalCost)
+              }))
+            }
+            this.setData({ costRanking: data })
+          }
+        })
+      )
+    }
+    if (auth.canSwitchFactory()) {
+      tasks.push(
+        api.getFactories().then(result => {
+          if (result.ok) this.setData({ factories: result.data.factories || [] })
+        })
+      )
+    }
+
+    try {
+      await Promise.all(tasks)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      this.setData({ loading: false })
+    }
   },
 
   async loadDashboard() {
@@ -48,25 +136,18 @@ Page({
       const result = await api.getDashboard({ yearMonth: this.data.yearMonth })
       if (result.ok) {
         const data = result.data
-        // 处理趋势图高度
         if (data.dailyTrend && data.dailyTrend.length > 0) {
           const maxCount = Math.max(...data.dailyTrend.map(d => d.count), 1)
           const avg = data.dailyTrend.reduce((s, d) => s + d.count, 0) / data.dailyTrend.length
           data.dailyTrend = data.dailyTrend.map(d => ({
             ...d,
             barHeight: Math.max(Math.round((d.count / maxCount) * 160), 8),
-            isHigh: d.count > avg * 1.5 && d.count > 0  // 超过平均值1.5倍标红
+            isHigh: d.count > avg * 1.5 && d.count > 0
           }))
         }
         this.setData({ stats: data })
       }
-
-      // 加载配件使用金额排名（仅主管及以上可见）
-      if (this.data.canViewCost) {
-        this.loadCostRanking()
-      }
-
-      // 加载低库存报警数量
+      if (this.data.canViewCost) this.loadCostRanking()
       this.loadInventoryAlertCount()
     } catch (e) {
       console.error(e)
@@ -109,7 +190,7 @@ Page({
       yearMonth: ym,
       isCurrentMonth: ym === getCurrentYearMonth()
     })
-    this.loadDashboard()
+    this.loadAll(true)
   },
 
   onNextMonth() {
@@ -119,7 +200,7 @@ Page({
       yearMonth: ym,
       isCurrentMonth: ym === getCurrentYearMonth()
     })
-    this.loadDashboard()
+    this.loadAll(true)
   },
 
   _shiftMonth(ym, delta) {
@@ -209,6 +290,58 @@ Page({
       yearMonth: this.data.yearMonth
     }
     wx.switchTab({ url: '/pages/record/index' })
+  },
+
+  // ========== 巡检统计 ==========
+  async loadInspection() {
+    try {
+      const result = await api.getInspectionStats()
+      if (result.ok) {
+        const d = result.data
+        const todayItem = (d.week || []).find(w => w.isToday)
+        d.todayCompleted = todayItem ? todayItem.done : 0
+        d.todayTotal = todayItem ? todayItem.total : 0
+        this.setData({ inspection: d })
+      }
+    } catch (e) {
+      console.error('loadInspection error:', e)
+    }
+  },
+
+  onInspectionTap() {
+    wx.navigateTo({ url: '/pages/inspection/index' })
+  },
+
+  // ========== 工厂切换 ==========
+  async loadFactories() {
+    try {
+      const result = await api.getFactories()
+      if (result.ok) {
+        this.setData({ factories: result.data.factories || [] })
+      }
+    } catch (e) {}
+  },
+
+  onSwitchFactory() {
+    const factories = this.data.factories
+    if (!factories.length) return
+    const itemList = ['全部工厂（汇总）', ...factories.map(f => f.factoryName)]
+    wx.showActionSheet({
+      itemList,
+      success: (res) => {
+        const app = getApp()
+        if (res.tapIndex === 0) {
+          app.setCurrentFactory(null, '全部工厂')
+          this.setData({ currentFactoryName: '全部工厂' })
+        } else {
+          const selected = factories[res.tapIndex - 1]
+          app.setCurrentFactory(selected.factoryId, selected.factoryName)
+          this.setData({ currentFactoryName: selected.factoryName })
+        }
+        this.loadAll(true)
+        wx.showToast({ title: '已切换', icon: 'none' })
+      }
+    })
   },
 
   // M5 点击某天 → 跳转记录页查看当天

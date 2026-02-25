@@ -2,7 +2,9 @@
   "usingComponents": {
     "mp-icon": "weui-miniprogram/icon/icon",
     "asset-card": "/components/asset-card/index",
-    "offline-banner": "/components/offline-banner/index"
+    "offline-banner": "/components/offline-banner/index",
+    "custom-nav": "/components/custom-nav/index"
   },
-  "navigationBarTitleText": "扫码录入"
+  "navigationBarTitleText": "扫码录入",
+  "navigationStyle": "custom"
 }

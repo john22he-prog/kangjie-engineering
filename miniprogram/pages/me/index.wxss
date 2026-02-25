@@ -1,4 +1,27 @@
 /* pages/me/index.wxss */
+/* 返回公司总览 */
+.back-bar {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  margin: -24rpx -24rpx 16rpx;
+  background: linear-gradient(135deg, #07C160, #06AD56);
+  color: #fff;
+  border-radius: 0 0 16rpx 16rpx;
+}
+
+.back-arrow {
+  font-size: 40rpx;
+  font-weight: 300;
+  margin-right: 8rpx;
+  line-height: 1;
+}
+
+.back-text {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
 .user-card {
   display: flex;
   flex-direction: column;

@@ -3,7 +3,7 @@
     <div class="login-card">
       <div class="login-header">
         <img src="/vite.svg" class="login-logo" />
-        <h1>康洁工程部管理后台</h1>
+        <h1>云南康洁管理后台</h1>
         <p class="login-subtitle">设备配件更换记录与报警管理系统</p>
       </div>
 

@@ -1,0 +1,11 @@
+{
+  "name": "boiler-core",
+  "version": "1.0.0",
+  "description": "锅炉房管理系统核心云函数",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "serverless-mysql": "^1.5.5",
+    "dayjs": "^1.11.10"
+  }
+}

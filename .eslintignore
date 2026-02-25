@@ -1,0 +1,6 @@
+node_modules/
+miniprogram_npm/
+dist/
+pc-admin/dist/
+pc-admin/node_modules/
+*.min.js

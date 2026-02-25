@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "数据录入",
+  "navigationBarBackgroundColor": "#E65100",
+  "navigationBarTextStyle": "white",
+  "usingComponents": {
+    "tab-bar": "../../components/tab-bar/tab-bar"
+  }
+}

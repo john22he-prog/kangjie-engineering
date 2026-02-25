@@ -2,8 +2,9 @@
 const api = require('../../utils/api')
 const auth = require('../../utils/auth')
 const offlineQueue = require('../../utils/offline-queue')
+const notification = require('../../utils/notification')
 const { generateUUID, formatDate, getCurrentYearMonth } = require('../../utils/util')
-const { ERRORS, REPLACE_TYPES } = require('../../utils/constants')
+const { ERRORS, ACTION_MODES, REPLACE_TYPES, FIX_TYPES } = require('../../utils/constants')
 
 Page({
   data: {
@@ -13,7 +14,11 @@ Page({
     assetNo: '',
     reporterName: '',
     displayDate: '',
-    // 可填区
+    // 处理方式：0=更换配件, 1=无需换件
+    actionModes: ACTION_MODES,
+    actionMode: 0,
+    noParts: false,
+    // 更换配件时使用
     typeOptions: REPLACE_TYPES,
     typeIndex: -1,
     type: '',
@@ -23,6 +28,11 @@ Page({
     locationName: '',
     availableSkus: [],
     selectedSkus: [],  // [{partSkuId, qty}]
+    // 无需换件时使用
+    fixTypeOptions: FIX_TYPES,
+    fixTypeIndex: -1,
+    fixType: '',
+    // 通用
     remark: '',
     images: [],        // fileId[]
     // 控制
@@ -74,11 +84,39 @@ Page({
     wx.hideLoading()
   },
 
+  onActionModeChange(e) {
+    const mode = parseInt(e.currentTarget.dataset.value)
+    const noParts = mode === 1
+    this.setData({
+      actionMode: mode,
+      noParts,
+      // 切换模式时重置相关字段
+      typeIndex: -1,
+      type: '',
+      fixTypeIndex: -1,
+      fixType: '',
+      selectedSkus: [],
+      locationIndex: -1,
+      locationId: '',
+      locationName: ''
+    })
+    this.checkCanSubmit()
+  },
+
   onTypeChange(e) {
     const idx = parseInt(e.detail.value)
     this.setData({
       typeIndex: idx,
       type: REPLACE_TYPES[idx]
+    })
+    this.checkCanSubmit()
+  },
+
+  onFixTypeChange(e) {
+    const idx = parseInt(e.detail.value)
+    this.setData({
+      fixTypeIndex: idx,
+      fixType: FIX_TYPES[idx]
     })
     this.checkCanSubmit()
   },
@@ -119,6 +157,7 @@ Page({
 
   onRemarkInput(e) {
     this.setData({ remark: e.detail.value })
+    this.checkCanSubmit()
   },
 
   onImageChange(e) {
@@ -151,18 +190,31 @@ Page({
   },
 
   checkCanSubmit() {
-    const { type, selectedSkus, images } = this.data
-    const hasType = !!type
-    const hasSkus = selectedSkus.length > 0 && selectedSkus.every(s => s.qty > 0)
+    const { noParts, type, fixType, selectedSkus, images, remark } = this.data
     const hasImages = images.length >= 1
-    this.setData({ canSubmit: hasType && hasSkus && hasImages })
+
+    if (noParts) {
+      const hasFixType = !!fixType
+      const hasRemark = remark && String(remark).trim().length > 0
+      this.setData({ canSubmit: hasFixType && hasRemark && hasImages })
+    } else {
+      const hasType = !!type
+      const hasSkus = selectedSkus.length > 0 && selectedSkus.every(s => s.qty > 0)
+      this.setData({ canSubmit: hasType && hasSkus && hasImages })
+    }
   },
 
-  // 校验
   validate() {
-    const { type, selectedSkus, images } = this.data
+    const { noParts, type, fixType, selectedSkus, images, remark } = this.data
+
+    if (noParts) {
+      if (!fixType) return ERRORS.FIX_TYPE_REQUIRED
+      if (!remark || !String(remark).trim()) return ERRORS.REMARK_REQUIRED_NO_PARTS
+      if (images.length < 1) return ERRORS.IMAGE_REQUIRED
+      return null
+    }
+
     if (!type) return ERRORS.TYPE_REQUIRED
-    // 部位为可选，不再强制校验
     if (selectedSkus.length === 0) return ERRORS.SKU_REQUIRED
     for (const s of selectedSkus) {
       if (!s.qty || s.qty < 1 || !Number.isInteger(s.qty)) return ERRORS.QTY_INVALID
@@ -178,23 +230,31 @@ Page({
       return
     }
 
+    // 提交前静默获取推送额度（用户勾选"总是允许"后无弹窗）
+    await notification.preSubscribeForReplacement()
+
     this.setData({ submitting: true })
 
     // 构建提交数据
     const clientOfflineId = generateUUID()
+    const { noParts } = this.data
     const payload = {
       assetId: this.data.assetId,
-      type: this.data.type,
-      locationId: this.data.locationId,
-      selectedPartSkuIds: this.data.selectedSkus.map(s => s.partSkuId),
+      noParts,
+      type: noParts ? '简单处理' : this.data.type,
+      fixType: noParts ? this.data.fixType : '',
+      locationId: noParts ? '' : this.data.locationId,
+      selectedPartSkuIds: noParts ? [] : this.data.selectedSkus.map(s => s.partSkuId),
       qtyMap: {},
       remark: this.data.remark,
       images: this.data.images,
       clientOfflineId
     }
-    this.data.selectedSkus.forEach(s => {
-      payload.qtyMap[s.partSkuId] = s.qty
-    })
+    if (!noParts) {
+      this.data.selectedSkus.forEach(s => {
+        payload.qtyMap[s.partSkuId] = s.qty
+      })
+    }
 
     // 先写入离线队列
     offlineQueue.enqueue({ ...payload, _status: 'PENDING' })

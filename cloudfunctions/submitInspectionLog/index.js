@@ -35,7 +35,7 @@ exports.main = async (event, context) => {
     }
 
     // 入参校验
-    const { assetId, images, remark } = event
+    const { assetId, images, condition, remark } = event
     if (!assetId) {
       return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少设备ID' } }
     }
@@ -89,6 +89,7 @@ exports.main = async (event, context) => {
       userId: user.userId,
       userDisplayName: user.displayName,
       images,
+      condition: condition || 'normal',
       remark: remark || '',
       createdAt: now
     }
@@ -99,6 +100,33 @@ exports.main = async (event, context) => {
     const { total: completedCount } = await db.collection('inspection_logs')
       .where({ planId: plan._id, inspectDate: today })
       .count()
+
+    // ========== 异步发送巡检打卡通知 ==========
+    try {
+      const pad = n => String(n).padStart(2, '0')
+      const nowDate = new Date(now)
+      const submitTime = `${nowDate.getFullYear()}-${pad(nowDate.getMonth()+1)}-${pad(nowDate.getDate())} ${pad(nowDate.getHours())}:${pad(nowDate.getMinutes())}`
+      const statusText = (condition === 'normal') ? '正常' : '异常'
+
+      await cloud.callFunction({
+        name: 'sendNotification',
+        data: {
+          type: 'INSPECTION',
+          factoryId,
+          excludeOpenid: openid,
+          data: {
+            planName: plan.planName || targetAsset.assetName,
+            assetName: targetAsset.assetName,
+            status: statusText,
+            inspectDate: today,
+            submitTime,
+            remark: remark || `进度 ${completedCount}/${planAssets.length}`,
+          }
+        }
+      })
+    } catch (notifyErr) {
+      console.warn('巡检通知发送失败（不影响主流程）:', notifyErr.message || notifyErr)
+    }
 
     return {
       ok: true,

@@ -1,23 +1,38 @@
 // pages/scan/index.js
 const api = require('../../utils/api')
+const auth = require('../../utils/auth')
 const offlineQueue = require('../../utils/offline-queue')
 
-const IS_DEV = false  // 正式上线为 false，隐藏开发调试入口
+const IS_DEV = false
 
 Page({
   data: {
     lastAsset: null,
     offlineCount: 0,
     syncing: false,
-    devMode: IS_DEV
+    devMode: IS_DEV,
+    isLoggedIn: false,
+    isAnonymous: false,
   },
 
-  onShow() {
+  async onShow() {
     const app = getApp()
+    await app.waitForLogin()
+
     this.setData({
       lastAsset: app.globalData.lastAsset,
-      offlineCount: offlineQueue.getCount()
+      offlineCount: offlineQueue.getCount(),
+      isLoggedIn: auth.isLoggedIn(),
+      isAnonymous: app.globalData.isAnonymous || false,
     })
+  },
+
+  onFaultReport() {
+    wx.navigateTo({ url: '/pages/fault-report/index' })
+  },
+
+  onGoBind() {
+    wx.navigateTo({ url: '/pages/bind/index' })
   },
 
   // 扫码

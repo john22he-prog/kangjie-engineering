@@ -8,6 +8,7 @@
   <!-- 操作按钮 -->
   <view class="action-bar" wx:if="{{canWrite}}">
     <button class="btn-primary" bindtap="onReplace">更换配件</button>
+    <button class="btn-primary" bindtap="onInspect">巡检打卡</button>
   </view>
 
   <!-- 最近记录 -->

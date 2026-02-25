@@ -1,6 +1,8 @@
 {
   "usingComponents": {
-    "offline-banner": "/components/offline-banner/index"
+    "offline-banner": "/components/offline-banner/index",
+    "custom-nav": "/components/custom-nav/index"
   },
-  "navigationBarTitleText": "我的"
+  "navigationBarTitleText": "我的",
+  "navigationStyle": "custom"
 }

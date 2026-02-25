@@ -1,0 +1,47 @@
+<!-- packages/boiler/pages/me/index.wxml -->
+<view class="page-container">
+  <block wx:if="{{loading}}">
+    <view class="loading-wrap">
+      <text class="loading-text">加载中...</text>
+    </view>
+  </block>
+
+  <block wx:else>
+    <!-- 用户信息卡片 -->
+    <view class="card user-card">
+      <view class="avatar-wrap">
+        <view class="avatar-circle">
+          <text class="avatar-char">{{avatarChar}}</text>
+        </view>
+      </view>
+      <view class="user-name">{{userName}}</view>
+      <view class="user-role">
+        <text class="role-badge">{{roleLabel}}</text>
+      </view>
+      <view class="user-factory" wx:if="{{factoryName}}">{{factoryName}}</view>
+    </view>
+
+    <!-- 菜单项 -->
+    <view class="card menu-card">
+      <view class="menu-item" bindtap="goToHistory">
+        <text class="menu-title">📋 历史记录</text>
+        <text class="menu-arrow">›</text>
+      </view>
+      <view class="menu-item" bindtap="goToTrend">
+        <text class="menu-title">📈 趋势分析</text>
+        <text class="menu-arrow">›</text>
+      </view>
+      <view class="menu-item" bindtap="goToAlerts">
+        <text class="menu-title">🔔 预警信息</text>
+        <text class="menu-arrow">›</text>
+      </view>
+      <view class="menu-item" bindtap="goBack">
+        <text class="menu-title">🏢 返回公司总览</text>
+        <text class="menu-arrow">›</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- Tab Bar -->
+  <tab-bar active="2" />
+</view>

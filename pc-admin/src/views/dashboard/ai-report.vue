@@ -24,6 +24,7 @@
         <TimeRangeSelector v-model="timeRange" style="margin-left: 12px;" />
         <!-- 报告类型 -->
         <el-select v-model="promptType" placeholder="报告类型" style="width: 130px; margin-left: 8px;">
+          <el-option label="综合分析" value="comprehensive" />
           <el-option label="月度总结" value="monthly_summary" />
           <el-option label="设备分析" value="device_analysis" />
           <el-option label="成本分析" value="cost_analysis" />
@@ -54,6 +55,16 @@
           </div>
         </el-col>
         <el-col :xs="24" :sm="12" :md="8" :lg="4"><div class="stat-card"><div class="stat-value">{{ report.stats.engineerWorkload?.length || 0 }}</div><div class="stat-label">活跃工程师</div></div></el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4">
+          <div class="stat-card" :class="{ 'stat-success': (report.stats.inspectionRate || 0) >= 80 }">
+            <div class="stat-value">{{ report.stats.inspectionRate || 0 }}%</div><div class="stat-label">巡检执行率</div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="4">
+          <div class="stat-card" :class="{ 'stat-warn': (report.stats.inspectionAnomalies || 0) > 0 }">
+            <div class="stat-value">{{ report.stats.inspectionAnomalies || 0 }}</div><div class="stat-label">巡检异常</div>
+          </div>
+        </el-col>
       </el-row>
 
       <!-- 2. 历史环比对比卡 -->
@@ -213,6 +224,7 @@
           @change="loadHistory"
         />
         <el-select v-model="historyFilterType" placeholder="报告类型" clearable style="width: 130px;" @change="loadHistory">
+          <el-option label="综合分析" value="comprehensive" />
           <el-option label="月度总结" value="monthly_summary" />
           <el-option label="设备分析" value="device_analysis" />
           <el-option label="成本分析" value="cost_analysis" />
@@ -225,7 +237,9 @@
             {{ formatTime(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column prop="yearMonth" label="报告月份" width="100" />
+        <el-table-column label="报告月份" width="120">
+          <template #default="{ row }">{{ row.timeRangeLabel || row.yearMonth }}</template>
+        </el-table-column>
         <el-table-column prop="factoryLabel" label="范围" width="120" />
         <el-table-column label="类型" width="100">
           <template #default="{ row }">
@@ -310,6 +324,7 @@ let chartAssets = null
 let chartHistory = null
 
 const promptTypeLabels = {
+  comprehensive: '综合分析',
   monthly_summary: '月度总结',
   device_analysis: '设备分析',
   cost_analysis: '成本分析',
@@ -378,6 +393,7 @@ async function loadReport() {
     const tp = (t.mode === 'month' && t.yearMonths?.length === 1) ? { yearMonth: t.yearMonths[0] } : { yearMonths: t.yearMonths }
     const res = await api.getAIReport({
       ...tp,
+      timeRangeLabel: t.label,
       factoryId: actualFid,
       scope: actualScope,
       promptType: promptType.value,
@@ -499,6 +515,8 @@ function handleExportPDF() {
     { label: '使用成本', value: '¥' + (stats.totalUsageCost || 0).toLocaleString() },
     { label: '低库存预警', value: stats.lowStockCount || 0, warn: (stats.lowStockCount || 0) > 0 },
     { label: '活跃工程师', value: stats.engineerWorkload?.length || 0 },
+    { label: '巡检执行率', value: (stats.inspectionRate || 0) + '%' },
+    { label: '巡检异常', value: stats.inspectionAnomalies || 0, warn: (stats.inspectionAnomalies || 0) > 0 },
   ]
 
   const statCardsHtml = statCards.map(c => {
@@ -602,7 +620,7 @@ ${(partsChartImg || assetsChartImg) ? `
 
 ${factoryTableHtml}
 
-<div class="footer">本报告由康洁工程部智能维保系统自动生成</div>
+<div class="footer">本报告由云南康洁智能管理系统自动生成</div>
 
 <script>window.onload = function() { setTimeout(function() { window.print(); }, 300); }<\/script>
 </body></html>`
@@ -643,7 +661,7 @@ function formatTime(ts) {
 async function loadHistory() {
   historyLoading.value = true
   try {
-    const opts = { page: historyPage.value, pageSize: historyPageSize }
+    const opts = { page: historyPage.value, pageSize: historyPageSize, department: 'engineering' }
     if (historyFilterMonth.value) opts.yearMonth = historyFilterMonth.value
     if (historyFilterType.value) opts.promptType = historyFilterType.value
     const res = await api.listAIReports(opts)
@@ -758,6 +776,7 @@ onMounted(() => {
     .stat-label { font-size: 13px; color: #909399; margin-top: 4px; }
     &.stat-danger .stat-value { color: #F56C6C; }
     &.stat-warn .stat-value { color: #E6A23C; }
+    &.stat-success .stat-value { color: #67C23A; }
   }
 }
 

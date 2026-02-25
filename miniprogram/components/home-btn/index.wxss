@@ -1,0 +1,27 @@
+.home-btn {
+  position: fixed;
+  left: 24rpx;
+  bottom: 180rpx;
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: #07C160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 16rpx rgba(7, 193, 96, 0.4);
+  z-index: 999;
+  opacity: 0.9;
+}
+
+.home-btn:active {
+  opacity: 1;
+  transform: scale(0.92);
+}
+
+.home-icon {
+  font-size: 40rpx;
+  color: #fff;
+  line-height: 1;
+  margin-top: -4rpx;
+}

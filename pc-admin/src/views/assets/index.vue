@@ -55,8 +55,18 @@
       </el-select>
     </div>
 
+    <!-- 批量操作栏 -->
+    <div class="batch-bar" v-if="selectedRows.length > 0">
+      <span>已选 <strong>{{ selectedRows.length }}</strong> 台设备</span>
+      <el-button type="success" @click="batchDownloadQr" :loading="batchDownloading">
+        <el-icon><Download /></el-icon>批量下载二维码（{{ selectedRows.length }}）
+      </el-button>
+      <el-button @click="clearSelection">取消选择</el-button>
+    </div>
+
     <!-- 设备表格 -->
-    <el-table :data="filteredList" v-loading="loading" stripe>
+    <el-table ref="tableRef" :data="filteredList" v-loading="loading" stripe @selection-change="handleSelectionChange">
+      <el-table-column type="selection" width="45" />
       <el-table-column prop="assetId" label="设备ID" width="120" />
       <el-table-column prop="assetName" label="设备名称" min-width="150" />
       <el-table-column prop="assetNo" label="设备编号" width="140" />
@@ -215,13 +225,23 @@
     <!-- QR码弹窗 -->
     <el-dialog v-model="qrDialogVisible" title="设备二维码" width="360px" align-center>
       <div class="qr-dialog-body">
-        <canvas ref="qrCanvasRef" class="qr-canvas"></canvas>
+        <div v-if="wxacodeLoading" class="wxacode-loading-lg">
+          <div class="wxacode-spinner"></div>
+          <p>正在生成小程序码...</p>
+        </div>
+        <div v-else-if="wxacodeError" class="wxacode-error">
+          <p>{{ wxacodeError }}</p>
+          <el-button size="small" type="primary" plain @click="generateWxacode">重试</el-button>
+        </div>
+        <img v-else-if="wxacodeUrl" :src="wxacodeUrl" class="wxacode-img-lg" />
         <p class="qr-factory">{{ qrFactoryName }}</p>
         <p class="qr-info">{{ qrAsset?.assetName }}</p>
         <p class="qr-sub">{{ qrAsset?.assetId }} · {{ qrAsset?.assetNo }}</p>
       </div>
       <template #footer>
-        <el-button type="primary" @click="downloadQr">下载二维码</el-button>
+        <el-button type="primary" :disabled="!wxacodeUrl" @click="downloadWxacode">
+          下载二维码
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -236,7 +256,8 @@ import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import QRCode from 'qrcode'
-// XLSX 动态导入，按需加载
+import JSZip from 'jszip'
+import { saveAs } from 'file-saver'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -247,15 +268,21 @@ const list = ref([])
 const searchText = ref('')
 const filterFactory = ref('')
 const filterStatus = ref('')
-const allFactories = ref([])  // 工厂列表
+const allFactories = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editAssetId = ref('')
 const formRef = ref()
+const tableRef = ref()
 const qrDialogVisible = ref(false)
 const qrCanvasRef = ref()
 const qrAsset = ref(null)
 const qrFactoryName = ref('')
+const wxacodeUrl = ref('')
+const wxacodeLoading = ref(false)
+const wxacodeError = ref('')
+const selectedRows = ref([])
+const batchDownloading = ref(false)
 
 const form = reactive({
   assetId: '',
@@ -382,15 +409,11 @@ function goLocations(row) {
 async function showQrCode(row) {
   qrAsset.value = row
   qrFactoryName.value = getFactoryName(row.factoryId) || row.workshop || ''
+  wxacodeUrl.value = ''
+  wxacodeError.value = ''
+  wxacodeLoading.value = false
   qrDialogVisible.value = true
-  await nextTick()
-  if (qrCanvasRef.value) {
-    QRCode.toCanvas(qrCanvasRef.value, row.assetId, {
-      width: 200,
-      margin: 2,
-      color: { dark: '#1d1e1f', light: '#ffffff' },
-    })
-  }
+  generateWxacode()
 }
 
 function downloadQr() {
@@ -455,6 +478,200 @@ function downloadQr() {
   link.download = `${asset.assetNo || asset.assetId}-${name}.png`
   link.href = canvas.toDataURL('image/png')
   link.click()
+}
+
+async function generateWxacode() {
+  if (!qrAsset.value) return
+  wxacodeLoading.value = true
+  wxacodeError.value = ''
+  try {
+    const res = await api('generateAssetQr', {
+      assetId: qrAsset.value.assetId,
+      assetName: qrAsset.value.assetName,
+    })
+    if (res.ok) {
+      wxacodeUrl.value = res.data.tempUrl
+    } else {
+      wxacodeError.value = res.error?.message || '生成失败，请确认小程序已发布'
+    }
+  } catch (e) {
+    wxacodeError.value = '网络错误，请重试'
+  } finally {
+    wxacodeLoading.value = false
+  }
+}
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows
+}
+
+function clearSelection() {
+  tableRef.value?.clearSelection()
+}
+
+async function batchDownloadQr() {
+  if (selectedRows.value.length === 0) return
+  batchDownloading.value = true
+  try {
+    const zip = new JSZip()
+    const folder = zip.folder('设备二维码')
+
+    for (const asset of selectedRows.value) {
+      const factory = getFactoryName(asset.factoryId) || asset.workshop || ''
+      const name = asset.assetName || ''
+      const sub = `${asset.assetId} · ${asset.assetNo || ''}`
+
+      const qrCanvas = document.createElement('canvas')
+      await QRCode.toCanvas(qrCanvas, asset.assetId, {
+        width: 200, margin: 2,
+        color: { dark: '#1d1e1f', light: '#ffffff' },
+      })
+
+      const qrSize = 200
+      const padding = 24
+      const width = qrSize + padding * 2
+      const topSpace = 10
+      const factoryH = factory ? 24 : 0
+      const nameH = 28
+      const subH = 20
+      const bottomSpace = 12
+      const textBlockH = factoryH + nameH + subH + bottomSpace
+      const height = topSpace + qrSize + 12 + textBlockH + padding
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width * 2
+      canvas.height = height * 2
+      const ctx = canvas.getContext('2d')
+      ctx.scale(2, 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(qrCanvas, padding, topSpace, qrSize, qrSize)
+
+      let y = topSpace + qrSize + 16
+      ctx.textAlign = 'center'
+      const cx = width / 2
+
+      if (factory) {
+        ctx.fillStyle = '#07C160'
+        ctx.font = '500 13px "PingFang SC", "Microsoft YaHei", sans-serif'
+        ctx.fillText(factory, cx, y)
+        y += factoryH
+      }
+      ctx.fillStyle = '#303133'
+      ctx.font = '600 16px "PingFang SC", "Microsoft YaHei", sans-serif'
+      ctx.fillText(name, cx, y)
+      y += nameH
+      ctx.fillStyle = '#909399'
+      ctx.font = '12px "PingFang SC", "Microsoft YaHei", sans-serif'
+      ctx.fillText(sub, cx, y)
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+      const fileName = `${asset.assetNo || asset.assetId}-${name}.png`
+      folder.file(fileName, blob)
+    }
+
+    const content = await zip.generateAsync({ type: 'blob' })
+    saveAs(content, `设备二维码_${selectedRows.value.length}台.zip`)
+    ElMessage.success(`已下载 ${selectedRows.value.length} 个二维码`)
+  } catch (e) {
+    console.error('批量下载失败', e)
+    ElMessage.error('批量下载失败：' + (e.message || '未知错误'))
+  } finally {
+    batchDownloading.value = false
+  }
+}
+
+function downloadWxacode() {
+  if (!wxacodeUrl.value || !qrAsset.value) return
+
+  const asset = qrAsset.value
+  const factory = qrFactoryName.value || ''
+  const name = asset.assetName || ''
+  const no = asset.assetNo || ''
+  const hint = '\u626b\u7801\u62a5\u6545\u969c \u00b7 \u66f4\u6362\u914d\u4ef6 \u00b7 \u5de1\u68c0\u6253\u5361'
+
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  img.onload = () => {
+    const qrSize = 260
+    const padding = 32
+    const width = qrSize + padding * 2
+    const topPad = 20
+    const gap = 16
+    const factoryH = factory ? 26 : 0
+    const nameH = 32
+    const noH = no ? 22 : 0
+    const hintH = 22
+    const bottomPad = 24
+    const textBlock = factoryH + nameH + noH + hintH + gap * 3 + bottomPad
+    const height = topPad + qrSize + gap + textBlock
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width * 2
+    canvas.height = height * 2
+    const ctx = canvas.getContext('2d')
+    ctx.scale(2, 2)
+
+    // Rounded rect background
+    const r = 16
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.moveTo(r, 0)
+    ctx.lineTo(width - r, 0)
+    ctx.quadraticCurveTo(width, 0, width, r)
+    ctx.lineTo(width, height - r)
+    ctx.quadraticCurveTo(width, height, width - r, height)
+    ctx.lineTo(r, height)
+    ctx.quadraticCurveTo(0, height, 0, height - r)
+    ctx.lineTo(0, r)
+    ctx.quadraticCurveTo(0, 0, r, 0)
+    ctx.closePath()
+    ctx.fill()
+
+    // Border
+    ctx.strokeStyle = '#e0e0e0'
+    ctx.lineWidth = 1
+    ctx.stroke()
+
+    // QR code image
+    ctx.drawImage(img, padding, topPad, qrSize, qrSize)
+
+    // Text
+    let y = topPad + qrSize + gap + 4
+    const cx = width / 2
+    ctx.textAlign = 'center'
+
+    if (factory) {
+      ctx.fillStyle = '#07C160'
+      ctx.font = '600 14px "PingFang SC", "Microsoft YaHei", sans-serif'
+      ctx.fillText(factory, cx, y)
+      y += factoryH
+    }
+
+    ctx.fillStyle = '#1a1a1a'
+    ctx.font = '700 18px "PingFang SC", "Microsoft YaHei", sans-serif'
+    ctx.fillText(name, cx, y)
+    y += nameH
+
+    if (no) {
+      ctx.fillStyle = '#666666'
+      ctx.font = '13px "PingFang SC", "Microsoft YaHei", sans-serif'
+      ctx.fillText(no, cx, y)
+      y += noH + gap
+    } else {
+      y += gap
+    }
+
+    ctx.fillStyle = '#999999'
+    ctx.font = '12px "PingFang SC", "Microsoft YaHei", sans-serif'
+    ctx.fillText(hint, cx, y)
+
+    const link = document.createElement('a')
+    link.download = `${asset.assetNo || asset.assetId}-${name}.png`
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+  }
+  img.src = wxacodeUrl.value
 }
 
 const appStore = useAppStore()
@@ -900,6 +1117,19 @@ onMounted(async () => {
   }
 }
 
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  background: #ecf5ff;
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #409eff;
+}
+
 .import-errors {
   ul {
     margin: 8px 0 0;
@@ -937,7 +1167,48 @@ onMounted(async () => {
     color: #303133;
   }
 
-  .qr-sub {
+  .wxacode-img-lg {
+  width: 240px;
+  height: 240px;
+  border-radius: 12px;
+  display: block;
+  margin: 0 auto 16px;
+}
+
+.wxacode-loading-lg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  color: #909399;
+  font-size: 14px;
+  gap: 12px;
+}
+
+.wxacode-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #07C160;
+  border-radius: 50%;
+  animation: wxspin 0.8s linear infinite;
+}
+
+@keyframes wxspin { to { transform: rotate(360deg); } }
+
+.wxacode-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  color: #f56c6c;
+  font-size: 14px;
+  gap: 12px;
+}
+
+.qr-sub {
     font-size: 13px;
     color: #909399;
     margin-top: 4px;

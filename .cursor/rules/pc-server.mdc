@@ -1,0 +1,41 @@
+---
+description: PC 网关服务 - Express 开发规范
+globs: pc-server/**/*
+alwaysApply: false
+---
+
+# PC 网关服务开发规范
+
+## 架构
+
+Express 轻量网关，核心职责：
+1. 管理微信 access_token（自动缓存、过期刷新）
+2. 转发 PC 端请求到云函数（adminPcLogin / pcGateway）
+
+## 关键约定
+
+- ESM 模块（`"type": "module"`）
+- 环境变量：APPID, SECRET, ENV, PORT, CORS_ORIGINS
+- 配置从 `.env` 文件读取，不依赖 dotenv 库
+- 仅两个路由：`POST /api/login` 和 `POST /api/call`
+
+## API 格式
+
+```javascript
+// /api/call 请求体
+{ token: 'jwt_token', action: 'listAssets', data: { factoryId: 'xxx' } }
+
+// 统一响应格式
+{ ok: true, data: { ... } }
+{ ok: false, error: { code: 'ERROR_CODE', message: '描述' } }
+```
+
+## 安全
+
+- CORS 白名单通过 CORS_ORIGINS 环境变量配置
+- access_token 提前 60s 刷新，避免边界过期
+- APPID/SECRET 绝不暴露给前端
+
+## 新增路由模式
+
+如需新增 API，优先通过 pcGateway 云函数的 action 路由扩展，而非在网关层加路由。

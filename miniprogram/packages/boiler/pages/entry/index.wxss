@@ -1,0 +1,254 @@
+/* 数据录入页样式 — 橙色主题 */
+page {
+  --theme-color: #E65100;
+  --theme-light: #FFF3E0;
+  --theme-dark: #BF360C;
+}
+
+.page-container {
+  padding-bottom: 140rpx;
+}
+
+/* ========== 加载状态 ========== */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 200rpx 0;
+}
+
+.loading-spinner {
+  width: 64rpx;
+  height: 64rpx;
+  border: 6rpx solid #f0f0f0;
+  border-top-color: var(--theme-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 24rpx;
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ========== 无权限 ========== */
+.no-auth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 200rpx 60rpx;
+}
+
+.no-auth-icon {
+  font-size: 80rpx;
+  margin-bottom: 24rpx;
+}
+
+.no-auth-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+  margin-bottom: 12rpx;
+}
+
+.no-auth-desc {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ========== 表单容器 ========== */
+.form-wrapper {
+  padding-top: 8rpx;
+}
+
+/* ========== Section 卡片 ========== */
+.form-section {
+  margin: 20rpx 24rpx;
+  padding: 0;
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 24rpx 16rpx;
+  border-bottom: 1rpx solid rgba(0, 0, 0, 0.05);
+}
+
+.section-icon {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 8rpx;
+  margin-right: 12rpx;
+}
+
+.boiler-icon {
+  background: linear-gradient(135deg, #FF6D00, #E65100);
+}
+
+.customer-icon {
+  background: linear-gradient(135deg, #42A5F5, #1565C0);
+}
+
+.summary-icon {
+  background: linear-gradient(135deg, #66BB6A, #2E7D32);
+}
+
+.section-title-text {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+}
+
+/* ========== 锅炉/客户分块 ========== */
+.boiler-block,
+.customer-block {
+  padding: 0 24rpx;
+  border-bottom: 1rpx solid rgba(0, 0, 0, 0.04);
+}
+
+.boiler-block:last-child,
+.customer-block:last-child {
+  border-bottom: none;
+}
+
+.block-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--theme-color);
+  padding: 20rpx 0 8rpx;
+}
+
+/* ========== 表单行 ========== */
+.form-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid rgba(0, 0, 0, 0.04);
+}
+
+.form-row:last-child {
+  border-bottom: none;
+}
+
+.form-label {
+  width: 200rpx;
+  flex-shrink: 0;
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+}
+
+.form-input {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+}
+
+.form-textarea {
+  flex: 1;
+  min-height: 72rpx;
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  padding: 16rpx 20rpx;
+  line-height: 1.5;
+}
+
+/* ========== Picker 字段 ========== */
+.picker-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+}
+
+.picker-field.compact {
+  flex: 1;
+  background: var(--weui-BG-1);
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+  height: 72rpx;
+}
+
+.picker-label {
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+}
+
+.picker-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.picker-value {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+}
+
+.picker-value.placeholder {
+  color: var(--weui-FG-2);
+}
+
+.picker-arrow {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ========== 工厂信息 ========== */
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+}
+
+.info-label {
+  font-size: 28rpx;
+  color: var(--weui-FG-1);
+}
+
+.info-value {
+  font-size: 28rpx;
+  color: var(--weui-FG-0);
+  font-weight: 500;
+}
+
+/* ========== 提交按钮 ========== */
+.submit-area {
+  padding: 32rpx 24rpx;
+}
+
+.submit-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: linear-gradient(135deg, #FF6D00, #E65100);
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  border-radius: 12rpx;
+  border: none;
+  letter-spacing: 4rpx;
+}
+
+.submit-btn[disabled] {
+  opacity: 0.5;
+}
+
+.submit-btn::after {
+  border: none;
+}

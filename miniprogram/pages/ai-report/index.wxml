@@ -1,7 +1,7 @@
 <!--pages/ai-report/index.wxml-->
 <view class="page-container">
   <view class="card header-card">
-    <view class="header-desc">基于更换与报警数据生成全厂分析报告，包含历史对比与 8 大分析维度。</view>
+    <view class="header-desc">基于更换与报警数据生成全厂分析报告，包含历史对比与多维度分析。</view>
     <view class="form-row">
       <picker mode="date" fields="month" value="{{yearMonth}}" bindchange="onMonthChange">
         <view class="picker-label">{{yearMonth || '选择月份'}}</view>

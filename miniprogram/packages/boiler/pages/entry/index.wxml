@@ -1,0 +1,175 @@
+<!-- 数据录入页 -->
+<view class="page-container">
+
+  <!-- 加载中 -->
+  <view class="loading-state" wx:if="{{loading}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载中...</text>
+  </view>
+
+  <!-- 无权限 -->
+  <view class="no-auth" wx:elif="{{!authorized}}">
+    <view class="no-auth-icon">🔒</view>
+    <text class="no-auth-title">暂无录入权限</text>
+    <text class="no-auth-desc">仅操作员和管理员可以录入数据</text>
+  </view>
+
+  <!-- 主表单 -->
+  <view wx:elif="{{authorized}}" class="form-wrapper">
+
+    <!-- 日期选择 -->
+    <view class="card form-section">
+      <view class="section-header">
+        <text class="section-title-text">选择日期</text>
+      </view>
+      <picker range="{{dateOptions}}" range-key="label" value="{{dateIndex}}" bindchange="onDateChange">
+        <view class="picker-field">
+          <text class="picker-label">日期</text>
+          <view class="picker-value-row">
+            <text class="picker-value">{{selectedDate}}</text>
+            <text class="picker-arrow">▸</text>
+          </view>
+        </view>
+      </picker>
+    </view>
+
+    <!-- 工厂信息 -->
+    <view class="card form-section" wx:if="{{user.factory_name}}">
+      <view class="section-header">
+        <text class="section-title-text">工厂信息</text>
+      </view>
+      <view class="info-row">
+        <text class="info-label">工厂名称</text>
+        <text class="info-value">{{user.factory_name}}</text>
+      </view>
+    </view>
+
+    <!-- 锅炉运行数据 -->
+    <view class="card form-section" wx:if="{{formData.boiler_data.length > 0}}">
+      <view class="section-header">
+        <view class="section-icon boiler-icon"></view>
+        <text class="section-title-text">锅炉运行数据</text>
+      </view>
+
+      <view class="boiler-block" wx:for="{{formData.boiler_data}}" wx:key="boiler_id">
+        <view class="block-title">{{item.name || '锅炉' + (index + 1)}}</view>
+
+        <view class="form-row">
+          <text class="form-label">用电量（度）</text>
+          <input class="form-input" type="digit" placeholder="请输入"
+            value="{{item.electricity}}"
+            data-index="{{index}}" data-field="electricity"
+            bindinput="onBoilerInput" />
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">产汽量（吨）</text>
+          <input class="form-input" type="digit" placeholder="请输入"
+            value="{{item.steam_production}}"
+            data-index="{{index}}" data-field="steam_production"
+            bindinput="onBoilerInput" />
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">启动时间</text>
+          <picker mode="time" value="{{item.start_time}}" data-index="{{index}}" data-field="start_time" bindchange="onBoilerTimeChange">
+            <view class="picker-field compact">
+              <text class="picker-value {{item.start_time ? '' : 'placeholder'}}">{{item.start_time || '请选择'}}</text>
+              <text class="picker-arrow">▸</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">停止时间</text>
+          <picker mode="time" value="{{item.end_time}}" data-index="{{index}}" data-field="end_time" bindchange="onBoilerTimeChange">
+            <view class="picker-field compact">
+              <text class="picker-value {{item.end_time ? '' : 'placeholder'}}">{{item.end_time || '请选择'}}</text>
+              <text class="picker-arrow">▸</text>
+            </view>
+          </picker>
+        </view>
+      </view>
+    </view>
+
+    <!-- 客户用汽数据 -->
+    <view class="card form-section" wx:if="{{formData.customer_data.length > 0}}">
+      <view class="section-header">
+        <view class="section-icon customer-icon"></view>
+        <text class="section-title-text">客户用汽数据</text>
+      </view>
+
+      <view class="customer-block" wx:for="{{formData.customer_data}}" wx:key="customer_id">
+        <view class="block-title">{{item.name || '客户' + (index + 1)}}</view>
+
+        <view class="form-row">
+          <text class="form-label">用汽量（吨）</text>
+          <input class="form-input" type="digit" placeholder="请输入"
+            value="{{item.steam_usage}}"
+            data-index="{{index}}" data-field="steam_usage"
+            bindinput="onCustomerInput" />
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">备注</text>
+          <input class="form-input" placeholder="选填"
+            value="{{item.remark}}"
+            data-index="{{index}}" data-field="remark"
+            bindinput="onCustomerInput" />
+        </view>
+      </view>
+    </view>
+
+    <!-- 工厂汇总 -->
+    <view class="card form-section">
+      <view class="section-header">
+        <view class="section-icon summary-icon"></view>
+        <text class="section-title-text">工厂汇总</text>
+      </view>
+
+      <view class="form-row">
+        <text class="form-label">用水量（吨）</text>
+        <input class="form-input" type="digit" placeholder="请输入"
+          value="{{formData.total_water}}"
+          data-field="total_water"
+          bindinput="onFormInput" />
+      </view>
+
+      <view class="form-row">
+        <text class="form-label">燃料消耗（吨）</text>
+        <input class="form-input" type="digit" placeholder="请输入"
+          value="{{formData.total_fuel_consumed}}"
+          data-field="total_fuel_consumed"
+          bindinput="onFormInput" />
+      </view>
+
+      <view class="form-row">
+        <text class="form-label">进柴量（吨）</text>
+        <input class="form-input" type="digit" placeholder="请输入"
+          value="{{formData.fuel_intake}}"
+          data-field="fuel_intake"
+          bindinput="onFormInput" />
+      </view>
+
+      <view class="form-row">
+        <text class="form-label">备注</text>
+        <textarea class="form-textarea" placeholder="选填"
+          value="{{formData.remark}}"
+          data-field="remark"
+          bindinput="onFormInput"
+          auto-height maxlength="200" />
+      </view>
+    </view>
+
+    <!-- 提交按钮 -->
+    <view class="submit-area">
+      <button class="submit-btn" bindtap="onSubmit" disabled="{{submitting}}">
+        {{submitting ? '提交中...' : '提交记录'}}
+      </button>
+    </view>
+
+  </view>
+
+  <!-- Tab Bar -->
+  <tab-bar active="1" />
+</view>

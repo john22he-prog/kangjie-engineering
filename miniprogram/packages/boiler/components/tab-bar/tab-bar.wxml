@@ -1,0 +1,20 @@
+<view class="tab-bar">
+  <view class="tab-item {{active === 0 ? 'active' : ''}}" bindtap="switchTab" data-index="0">
+    <view class="tab-icon">
+      <view class="icon-home"></view>
+    </view>
+    <text class="tab-label">首页</text>
+  </view>
+  <view class="tab-item {{active === 1 ? 'active' : ''}}" bindtap="switchTab" data-index="1">
+    <view class="tab-icon">
+      <view class="icon-edit"></view>
+    </view>
+    <text class="tab-label">录入</text>
+  </view>
+  <view class="tab-item {{active === 2 ? 'active' : ''}}" bindtap="switchTab" data-index="2">
+    <view class="tab-icon">
+      <view class="icon-user"></view>
+    </view>
+    <text class="tab-label">我的</text>
+  </view>
+</view>

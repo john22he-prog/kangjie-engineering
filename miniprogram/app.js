@@ -19,8 +19,9 @@ App({
       currentFactoryId: null,
       currentFactoryName: '',
       factories: [],
-      loginReady: false,       // 登录流程是否完成
-      loginCallbacks: []       // 等待登录完成的回调队列
+      loginReady: false,
+      loginCallbacks: [],
+      isAnonymous: false
     }
 
     // 恢复上次选择的工厂
@@ -50,11 +51,10 @@ App({
         this.globalData.loginReady = true
         this._fireLoginCallbacks(true)
       } else if (result.error && result.error.code === 'AUTH_NOT_BOUND') {
-        // 未绑定，需要跳转到绑定页
+        // 未绑定 → 标记为匿名用户（可使用故障申报功能）
+        this.globalData.isAnonymous = true
         this.globalData.loginReady = true
         this._fireLoginCallbacks(false)
-        // 跳转到绑定页
-        wx.navigateTo({ url: '/pages/bind/index' })
       } else if (result.error && result.error.code === 'USER_DISABLED') {
         // 账号已禁用
         this.globalData.loginReady = true
@@ -161,14 +161,4 @@ App({
       console.warn('离线队列同步部分失败:', e.message)
     }
   },
-
-  globalData: {
-    userInfo: null,
-    lastAsset: null,
-    currentFactoryId: null,
-    currentFactoryName: '',
-    factories: [],
-    loginReady: false,
-    loginCallbacks: []
-  }
 })

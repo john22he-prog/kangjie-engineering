@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "预警信息",
+  "navigationBarBackgroundColor": "#E65100",
+  "navigationBarTextStyle": "white",
+  "enablePullDownRefresh": true
+}

@@ -1,4 +1,5 @@
 <!-- pages/me/index.wxml -->
+<custom-nav title="我的" />
 <view class="page-container">
   <!-- 用户信息 -->
   <view class="card user-card">
@@ -21,8 +22,8 @@
     </view>
   </view>
 
-  <!-- 巡检打卡 -->
-  <view class="card" wx:if="{{isLoggedIn}}">
+  <!-- 巡检（角色区分展示） -->
+  <view class="card" wx:if="{{isLoggedIn && !canManage}}">
     <view class="me-cell" bindtap="onInspection">
       <view class="me-cell-left">
         <view>
@@ -33,29 +34,28 @@
       <text class="me-cell-arrow">›</text>
     </view>
   </view>
-
-  <!-- 离线队列 -->
-  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
-
-  <!-- 公司总览（Admin / Management） -->
-  <view class="card" wx:if="{{canViewCompany}}">
-    <view class="me-cell" bindtap="onCompanyOverview">
+  <view class="card" wx:if="{{isLoggedIn && canManage}}">
+    <view class="me-cell" bindtap="onInspection">
       <view class="me-cell-left">
         <view>
-          <text class="me-cell-title">公司总览</text>
-          <text class="me-cell-desc">各部门状态与关键数据</text>
+          <text class="me-cell-title">巡检管理</text>
+          <text class="me-cell-desc">查看巡检进度、人员动态、配置计划</text>
         </view>
       </view>
       <text class="me-cell-arrow">›</text>
     </view>
   </view>
 
-  <!-- AI 分析报告（主管及以上） -->
+  <!-- 离线队列 -->
+  <offline-banner count="{{offlineCount}}" syncing="{{syncing}}" bind:sync="onSync" />
+
+
+  <!-- 数据分析报告（主管及以上） -->
   <view class="card" wx:if="{{canManage}}">
     <view class="me-cell" bindtap="onAIAnalysis">
       <view class="me-cell-left">
         <view>
-          <text class="me-cell-title">AI 分析报告</text>
+          <text class="me-cell-title">数据分析报告</text>
           <text class="me-cell-desc">查看数据摘要与风险建议</text>
         </view>
       </view>
@@ -63,11 +63,24 @@
     </view>
   </view>
 
+  <!-- 消息通知（管理人员可见） -->
+  <view class="card" wx:if="{{isLoggedIn && canManage}}">
+    <view class="me-cell" bindtap="onSubscribeNotify">
+      <view class="me-cell-left">
+        <view>
+          <text class="me-cell-title">消息通知</text>
+          <text class="me-cell-desc">点击订阅，勾选「总是允许」可自动接收推送</text>
+        </view>
+      </view>
+      <text class="me-cell-arrow">订阅 ›</text>
+    </view>
+  </view>
+
   <!-- 功能列表 -->
   <view class="card">
     <view class="me-cell" bindtap="onAbout">
       <text>关于</text>
-      <text class="me-cell-value">v1.0.0</text>
+      <text class="me-cell-value">v1.1.0</text>
     </view>
   </view>
 

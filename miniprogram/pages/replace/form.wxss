@@ -59,6 +59,33 @@
   box-sizing: border-box;
 }
 
+.action-mode-bar {
+  display: flex;
+  border-radius: 12rpx;
+  overflow: hidden;
+  border: 2rpx solid var(--weui-BRAND);
+}
+
+.action-mode-item {
+  flex: 1;
+  text-align: center;
+  padding: 18rpx 0;
+  font-size: 28rpx;
+  color: var(--weui-BRAND);
+  background: #fff;
+  transition: all 0.2s;
+}
+
+.action-mode-item.active {
+  background: var(--weui-BRAND);
+  color: #fff;
+  font-weight: 500;
+}
+
+.action-mode-item:first-child {
+  border-right: 2rpx solid var(--weui-BRAND);
+}
+
 .submit-bar {
   padding: 24rpx;
   padding-bottom: calc(24rpx + env(safe-area-inset-bottom));

@@ -3,6 +3,8 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
+const { migratePermissions } = require('./permissions')
+
 exports.main = async (event, context) => {
   try {
     const wxContext = cloud.getWXContext()
@@ -12,7 +14,6 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'AUTH_FAILED', message: '无法获取用户身份' } }
     }
 
-    // 按 openid 查找用户（不过滤 status，以便区分"未绑定"和"已禁用"）
     const { data } = await db.collection('users').where({ openid }).limit(1).get()
 
     if (data.length === 0) {
@@ -25,14 +26,18 @@ exports.main = async (event, context) => {
       return { ok: false, error: { code: 'USER_DISABLED', message: '您的账号已被管理员禁用，如有疑问请联系管理员' } }
     }
 
+    const permissions = migratePermissions(user)
+
     return {
       ok: true,
       data: {
         userId: user.userId,
         displayName: user.displayName,
         role: user.role,
+        permissions,
         status: user.status,
-        factoryId: user.factoryId || null
+        factoryId: user.factoryId || null,
+        factoryIds: user.factoryIds || (user.factoryId ? [user.factoryId] : []),
       }
     }
   } catch (err) {

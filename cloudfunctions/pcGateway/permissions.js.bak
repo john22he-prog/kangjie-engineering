@@ -1,0 +1,206 @@
+// utils/permissions.js — 权限定义、角色模板、分组（小程序 / PC端 / 云函数共享）
+
+const PERMISSIONS = {
+  // 模块访问
+  MODULE_ENGINEERING: 'module:engineering',
+  MODULE_BOILER: 'module:boiler',
+  MODULE_COMPANY: 'module:company',
+
+  // 记录与巡检
+  RECORD_WRITE: 'record:write',
+  RECORD_DELETE: 'record:delete',
+  INSPECTION_WRITE: 'inspection:write',
+  INSPECTION_MANAGE: 'inspection:manage',
+
+  // 报警
+  ALERT_VIEW: 'alert:view',
+  ALERT_ACK: 'alert:ack',
+
+  // 数据与看板
+  DASHBOARD_VIEW: 'dashboard:view',
+  COST_VIEW: 'cost:view',
+  EXPORT_DATA: 'export:data',
+  AI_USE: 'ai:use',
+
+  // 设备与库存管理
+  ASSET_MANAGE: 'asset:manage',
+  PART_MANAGE: 'part:manage',
+  INVENTORY_MANAGE: 'inventory:manage',
+  THRESHOLD_MANAGE: 'threshold:manage',
+
+  // 系统管理
+  FACTORY_MANAGE: 'factory:manage',
+  FACTORY_SWITCH: 'factory:switch',
+  PC_LOGIN: 'pc:login',
+  USER_MANAGE: 'user:manage',
+  SYSTEM_ADMIN: 'system:admin',
+}
+
+const PERMISSION_GROUPS = [
+  {
+    label: '模块访问',
+    items: [
+      { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
+      { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
+      { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
+    ],
+  },
+  {
+    label: '记录与巡检',
+    items: [
+      { key: PERMISSIONS.RECORD_WRITE, label: '提交更换记录' },
+      { key: PERMISSIONS.RECORD_DELETE, label: '删除/修改记录' },
+      { key: PERMISSIONS.INSPECTION_WRITE, label: '提交巡检记录' },
+      { key: PERMISSIONS.INSPECTION_MANAGE, label: '配置巡检计划' },
+    ],
+  },
+  {
+    label: '报警',
+    items: [
+      { key: PERMISSIONS.ALERT_VIEW, label: '查看报警' },
+      { key: PERMISSIONS.ALERT_ACK, label: '确认/处理报警' },
+    ],
+  },
+  {
+    label: '数据与看板',
+    items: [
+      { key: PERMISSIONS.DASHBOARD_VIEW, label: '查看数据看板' },
+      { key: PERMISSIONS.COST_VIEW, label: '查看成本数据' },
+      { key: PERMISSIONS.EXPORT_DATA, label: '导出数据' },
+      { key: PERMISSIONS.AI_USE, label: '数据分析报告' },
+    ],
+  },
+  {
+    label: '设备与库存管理',
+    items: [
+      { key: PERMISSIONS.ASSET_MANAGE, label: '管理设备' },
+      { key: PERMISSIONS.PART_MANAGE, label: '管理配件' },
+      { key: PERMISSIONS.INVENTORY_MANAGE, label: '库存管理' },
+      { key: PERMISSIONS.THRESHOLD_MANAGE, label: '管理阈值' },
+    ],
+  },
+  {
+    label: '系统管理',
+    items: [
+      { key: PERMISSIONS.FACTORY_MANAGE, label: '管理工厂' },
+      { key: PERMISSIONS.FACTORY_SWITCH, label: '切换工厂' },
+      { key: PERMISSIONS.PC_LOGIN, label: 'PC端登录' },
+      { key: PERMISSIONS.USER_MANAGE, label: '用户管理' },
+      { key: PERMISSIONS.SYSTEM_ADMIN, label: '系统管理员（最高权限）' },
+    ],
+  },
+]
+
+var ALL_PERMISSION_KEYS = Object.values(PERMISSIONS)
+
+var ROLE_TEMPLATES = {
+  Admin: ALL_PERMISSION_KEYS.slice(),
+  Management: [
+    PERMISSIONS.MODULE_ENGINEERING,
+    PERMISSIONS.MODULE_BOILER,
+    PERMISSIONS.MODULE_COMPANY,
+    PERMISSIONS.ALERT_VIEW,
+    PERMISSIONS.ALERT_ACK,
+    PERMISSIONS.COST_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.AI_USE,
+    PERMISSIONS.EXPORT_DATA,
+    PERMISSIONS.FACTORY_SWITCH,
+    PERMISSIONS.PC_LOGIN,
+  ],
+  Supervisor: [
+    PERMISSIONS.MODULE_ENGINEERING,
+    PERMISSIONS.ALERT_VIEW,
+    PERMISSIONS.ALERT_ACK,
+    PERMISSIONS.INSPECTION_MANAGE,
+    PERMISSIONS.COST_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.INVENTORY_MANAGE,
+    PERMISSIONS.AI_USE,
+    PERMISSIONS.PC_LOGIN,
+  ],
+  Engineer: [
+    PERMISSIONS.MODULE_ENGINEERING,
+    PERMISSIONS.RECORD_WRITE,
+    PERMISSIONS.ALERT_VIEW,
+    PERMISSIONS.INSPECTION_WRITE,
+    PERMISSIONS.DASHBOARD_VIEW,
+  ],
+  Viewer: [
+    PERMISSIONS.MODULE_ENGINEERING,
+    PERMISSIONS.ALERT_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.AI_USE,
+    PERMISSIONS.PC_LOGIN,
+  ],
+}
+
+function getPermissionsForRole(role) {
+  return (ROLE_TEMPLATES[role] || []).slice()
+}
+
+function hasPermission(permissions, key) {
+  if (!Array.isArray(permissions)) return false
+  if (permissions.includes(PERMISSIONS.SYSTEM_ADMIN)) return true
+  return permissions.includes(key)
+}
+
+function migratePermissions(user) {
+  if (Array.isArray(user.permissions) && user.permissions.length > 0) {
+    return user.permissions
+  }
+  var perms = getPermissionsForRole(user.role || 'Viewer')
+  if (user.canPcLogin && perms.indexOf(PERMISSIONS.PC_LOGIN) === -1) {
+    perms.push(PERMISSIONS.PC_LOGIN)
+  }
+  return perms
+}
+
+var ACTION_PERMISSION_MAP = {
+  listUsers: PERMISSIONS.USER_MANAGE,
+  createUser: PERMISSIONS.USER_MANAGE,
+  updateUser: PERMISSIONS.USER_MANAGE,
+  disableUser: PERMISSIONS.USER_MANAGE,
+  deleteUser: PERMISSIONS.USER_MANAGE,
+  unbindOpenid: PERMISSIONS.USER_MANAGE,
+  bindOpenid: PERMISSIONS.USER_MANAGE,
+
+  createFactory: PERMISSIONS.FACTORY_MANAGE,
+  updateFactory: PERMISSIONS.FACTORY_MANAGE,
+
+  createAsset: PERMISSIONS.ASSET_MANAGE,
+  updateAsset: PERMISSIONS.ASSET_MANAGE,
+  setAssetStatus: PERMISSIONS.ASSET_MANAGE,
+
+  createPart: PERMISSIONS.PART_MANAGE,
+  updatePart: PERMISSIONS.PART_MANAGE,
+  deletePart: PERMISSIONS.PART_MANAGE,
+  batchSetPartsActive: PERMISSIONS.PART_MANAGE,
+  batchDeleteParts: PERMISSIONS.PART_MANAGE,
+  importPartsCommit: PERMISSIONS.PART_MANAGE,
+
+  deleteInboundLog: PERMISSIONS.INVENTORY_MANAGE,
+  deleteOutboundLog: PERMISSIONS.INVENTORY_MANAGE,
+
+  setAIConfig: PERMISSIONS.SYSTEM_ADMIN,
+
+  upsertThreshold: PERMISSIONS.THRESHOLD_MANAGE,
+  batchUpsertThresholds: PERMISSIONS.THRESHOLD_MANAGE,
+  deleteThreshold: PERMISSIONS.THRESHOLD_MANAGE,
+
+  ackAlert: PERMISSIONS.ALERT_ACK,
+  submitFacilityLog: PERMISSIONS.RECORD_WRITE,
+  editReplacementLogItems: PERMISSIONS.RECORD_DELETE,
+  toggleLogStatus: PERMISSIONS.RECORD_DELETE,
+}
+
+module.exports = {
+  PERMISSIONS: PERMISSIONS,
+  PERMISSION_GROUPS: PERMISSION_GROUPS,
+  ALL_PERMISSION_KEYS: ALL_PERMISSION_KEYS,
+  ROLE_TEMPLATES: ROLE_TEMPLATES,
+  getPermissionsForRole: getPermissionsForRole,
+  hasPermission: hasPermission,
+  migratePermissions: migratePermissions,
+  ACTION_PERMISSION_MAP: ACTION_PERMISSION_MAP,
+}

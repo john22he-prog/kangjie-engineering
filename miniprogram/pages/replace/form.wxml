@@ -24,47 +24,72 @@
     </view>
   </view>
 
-  <!-- 可填区 -->
+  <!-- 处理方式 -->
   <view class="card">
-    <!-- 更换类型 -->
-    <picker range="{{typeOptions}}" value="{{typeIndex}}" bindchange="onTypeChange">
-      <view class="form-row">
-        <text class="form-label required">更换类型</text>
-        <text class="form-value {{type ? '' : 'placeholder'}}">{{type || '请选择更换类型'}}</text>
-      </view>
-    </picker>
-
-    <!-- 部位选择（可选） -->
-    <view wx:if="{{hasLocations}}">
-      <picker range="{{locations}}" range-key="locationName" value="{{locationIndex}}" bindchange="onLocationChange">
-        <view class="form-row">
-          <text class="form-label">部位（选填）</text>
-          <text class="form-value {{locationId ? '' : 'placeholder'}}">{{locationName || '不选择则显示全部配件'}}</text>
-        </view>
-      </picker>
-      <view class="form-row" wx:if="{{locationId}}" bindtap="onClearLocation" style="justify-content:flex-end;">
-        <text style="font-size:24rpx;color:#576b95;">清除部位筛选</text>
-      </view>
+    <view class="form-section-title required">处理方式</view>
+    <view class="action-mode-bar">
+      <view
+        wx:for="{{actionModes}}"
+        wx:key="index"
+        class="action-mode-item {{actionMode === index ? 'active' : ''}}"
+        data-value="{{index}}"
+        bindtap="onActionModeChange"
+      >{{item}}</view>
     </view>
   </view>
 
-  <!-- SKU 多选 -->
-  <view class="card">
-    <view class="form-section-title">选择配件</view>
-    <sku-multi-select
-      availableSkus="{{availableSkus}}"
-      value="{{selectedSkus}}"
-      readonly="{{false}}"
-      bind:change="onSkuChange"
-    />
-  </view>
+  <!-- ===== 更换配件模式 ===== -->
+  <block wx:if="{{!noParts}}">
+    <view class="card">
+      <picker range="{{typeOptions}}" value="{{typeIndex}}" bindchange="onTypeChange">
+        <view class="form-row">
+          <text class="form-label required">更换类型</text>
+          <text class="form-value {{type ? '' : 'placeholder'}}">{{type || '请选择更换类型'}}</text>
+        </view>
+      </picker>
+
+      <view wx:if="{{hasLocations}}">
+        <picker range="{{locations}}" range-key="locationName" value="{{locationIndex}}" bindchange="onLocationChange">
+          <view class="form-row">
+            <text class="form-label">部位（选填）</text>
+            <text class="form-value {{locationId ? '' : 'placeholder'}}">{{locationName || '不选择则显示全部配件'}}</text>
+          </view>
+        </picker>
+        <view class="form-row" wx:if="{{locationId}}" bindtap="onClearLocation" style="justify-content:flex-end;">
+          <text style="font-size:24rpx;color:#576b95;">清除部位筛选</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="form-section-title">选择配件</view>
+      <sku-multi-select
+        availableSkus="{{availableSkus}}"
+        value="{{selectedSkus}}"
+        readonly="{{false}}"
+        bind:change="onSkuChange"
+      />
+    </view>
+  </block>
+
+  <!-- ===== 无需换件模式 ===== -->
+  <block wx:if="{{noParts}}">
+    <view class="card">
+      <picker range="{{fixTypeOptions}}" value="{{fixTypeIndex}}" bindchange="onFixTypeChange">
+        <view class="form-row">
+          <text class="form-label required">故障处理类型</text>
+          <text class="form-value {{fixType ? '' : 'placeholder'}}">{{fixType || '请选择处理类型'}}</text>
+        </view>
+      </picker>
+    </view>
+  </block>
 
   <!-- 备注 -->
   <view class="card">
-    <view class="form-section-title">备注</view>
+    <view class="form-section-title {{noParts ? 'required' : ''}}">{{noParts ? '处理说明' : '备注'}}</view>
     <textarea
       class="form-textarea"
-      placeholder="选填备注说明"
+      placeholder="{{noParts ? '请说明具体做了什么处理（必填）' : '选填备注说明'}}"
       value="{{remark}}"
       bindinput="onRemarkInput"
       maxlength="500"

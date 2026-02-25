@@ -4,6 +4,7 @@
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
+const { migratePermissions, hasPermission, PERMISSIONS } = require('./permissions')
 
 // 简单 JWT 生成（无第三方依赖），payload: { userId, role, exp }
 // 优先从环境变量读取 JWT 密钥，生产环境必须配置 JWT_SECRET 环境变量
@@ -76,13 +77,12 @@ exports.main = async (event, context) => {
       }
     }
 
-    // 检查角色
-    const allowedRoles = ['Admin', 'Supervisor', 'Management']
-    if (!allowedRoles.includes(user.role)) {
-      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '您的角色无权登录 PC 端' } }
+    const permissions = migratePermissions(user)
+
+    if (!hasPermission(permissions, PERMISSIONS.PC_LOGIN)) {
+      return { ok: false, error: { code: 'PERMISSION_DENIED', message: '您没有 PC 端登录权限' } }
     }
 
-    // 生成 JWT
     const token = createToken({
       userId: user.userId,
       role: user.role,
@@ -98,8 +98,10 @@ exports.main = async (event, context) => {
           username: user.username,
           displayName: user.displayName || user.username,
           role: user.role,
+          permissions,
           status: user.status,
           factoryId: user.factoryId || '',
+          factoryIds: user.factoryIds || (user.factoryId ? [user.factoryId] : []),
         },
       },
     }

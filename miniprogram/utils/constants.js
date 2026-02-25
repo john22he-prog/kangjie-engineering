@@ -1,7 +1,13 @@
 // utils/constants.js — 错误文案 / 枚举常量
 
-// 更换类型
+// 处理方式
+const ACTION_MODES = ['更换配件', '无需换件']
+
+// 更换类型（更换配件时使用）
 const REPLACE_TYPES = ['维修', '保养']
+
+// 故障处理类型（无需换件时使用）
+const FIX_TYPES = ['重启/复位', '简单调整', '清洁维护', '误报/虚报', '其他']
 
 // 角色
 const ROLES = {
@@ -22,6 +28,8 @@ const ALERT_STATUS = {
 // 统一错误文案
 const ERRORS = {
   TYPE_REQUIRED: '请选择更换类型',
+  FIX_TYPE_REQUIRED: '请选择故障处理类型',
+  REMARK_REQUIRED_NO_PARTS: '无需换件时请填写处理说明',
   LOCATION_REQUIRED: '请选择部位',
   SKU_REQUIRED: '请选择至少 1 个配件',
   QTY_INVALID: '数量必须为正整数',
@@ -46,7 +54,9 @@ const INSPECTION_ERRORS = {
 const OFFLINE_QUEUE_KEY = 'KJ_OFFLINE_QUEUE'
 
 module.exports = {
+  ACTION_MODES,
   REPLACE_TYPES,
+  FIX_TYPES,
   ROLES,
   ALERT_STATUS,
   ERRORS,

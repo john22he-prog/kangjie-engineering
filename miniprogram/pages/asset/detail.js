@@ -65,6 +65,14 @@ Page({
     })
   },
 
+  onInspect() {
+    const asset = this.data.asset
+    if (!asset) return
+    wx.navigateTo({
+      url: `/pages/inspection/checkin?assetId=${asset.assetId}&assetName=${encodeURIComponent(asset.assetName)}&assetNo=${encodeURIComponent(asset.assetNo)}`
+    })
+  },
+
   onLogTap(e) {
     const log = e.currentTarget.dataset.log
     const items = (log.items || []).map(i => `${i.partNameSnapshot} x${i.qty}`).join('\n')

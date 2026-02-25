@@ -145,6 +145,8 @@ export const httpApi = {
   async listAIReports(opts) { return call('listAIReports', opts || {}) },
   async getAIReportDetail(reportId) { return call('getAIReportDetail', { reportId }) },
   async deleteAIReport(reportId) { return call('deleteAIReport', { reportId }) },
+  async saveBoilerAIReport(opts) { return call('saveBoilerAIReport', opts || {}) },
+  async saveBoilerAIReport(opts) { return call('saveBoilerAIReport', opts || {}) },
   async getAIConfig() { return call('getAIConfig', {}) },
   async setAIConfig(data) { return call('setAIConfig', data) },
   async getDashboardPartDetail(partSkuId, yearMonth, yearMonths) { return call('getDashboardPartDetail', { partSkuId, yearMonth, yearMonths }) },
@@ -171,4 +173,41 @@ export const httpApi = {
   async getAssetCostDetail(factoryId, assetId, yearMonth, yearMonths) { return call('getAssetCostDetail', { factoryId, assetId, yearMonth, yearMonths }) },
   async getInventoryTrend(factoryId, months) { return call('getInventoryTrend', { factoryId, months }) },
   async getCostTrend(factoryId, months) { return call('getCostTrend', { factoryId, months }) },
+
+  // ====== 锅炉房模块 ======
+  async boilerGetOverview(params = {}) { return call('boilerGetOverview', params) },
+  async boilerListBoilers(factoryId) { return call('boilerListBoilers', { factoryId }) },
+  async boilerListCustomers(factoryId) { return call('boilerListCustomers', { factoryId }) },
+  async boilerCreateRecord(data) { return call('boilerCreateRecord', data) },
+  async boilerListRecords(params = {}) { return call('boilerListRecords', params) },
+  async boilerGetRecordDetail(recordId) { return call('boilerGetRecordDetail', { recordId }) },
+  async boilerGetTrend(params = {}) { return call('boilerGetTrend', params) },
+  async boilerListAlerts(params = {}) { return call('boilerListAlerts', params) },
+  async boilerAcknowledgeAlert(alertId) { return call('boilerAcknowledgeAlert', { alertId }) },
+  async boilerResolveAlert(alertId, resolveNote) { return call('boilerResolveAlert', { alertId, resolveNote }) },
+  async boilerGetCustomerStats(params = {}) { return call('boilerGetCustomerStats', params) },
+  async boilerGetConfig(factoryId) { return call('boilerGetConfig', { factoryId }) },
+  async boilerSaveConfig(factoryId, data) { return call('boilerSaveConfig', { factoryId, ...data }) },
+  async boilerDeleteRecord(recordId) { return call('boilerDeleteRecord', { recordId }) },
+  async boilerListParks() { return call('boilerListParks', {}) },
+
+
+  // ====== 锅炉房 - 燃料管理 ======
+  async boilerFuelInbound(data) { return call('boilerFuelInbound', data) },
+  async boilerListFuelInbound(params = {}) { return call('boilerListFuelInbound', params) },
+  async boilerDeleteFuelInbound(inboundId) { return call('boilerDeleteFuelInbound', { inboundId }) },
+  async boilerGetFuelSummary(params = {}) { return call('boilerGetFuelSummary', params) },
+  async boilerUpdateSuppliers(data) { return call('boilerUpdateSuppliers', data) },
+  async boilerSaveKpiTargets(data) { return call('boilerSaveKpiTargets', data) },
+  // ===== 巡检管理 =====
+  async getInspectionDashboard(params) { return call("getInspectionDashboard", params || {}) },
+  async getInspectionPlan() { return call("getInspectionPlan", {}) },
+  async submitInspectionLog(data) { return call("submitInspectionLog", data) },
+  async listInspectionHistory(params) { return call("listInspectionHistory", params) },
+  async setInspectionPlan(data) { return call("setInspectionPlan", data) },
+
+  async getDailyTimeline(date, factoryId) {
+    return call("getDailyTimeline", { date, factoryId: factoryId || undefined })
+  },
+
 }

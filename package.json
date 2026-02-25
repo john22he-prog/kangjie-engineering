@@ -1,5 +1,11 @@
 {
+  "scripts": {
+    "lint": "eslint miniprogram/ cloudfunctions/ --ext .js",
+    "lint:fix": "eslint miniprogram/ cloudfunctions/ --ext .js --fix"
+  },
   "devDependencies": {
-    "@cloudbase/cli": "^2.12.2"
+    "@cloudbase/cli": "^2.12.2",
+    "eslint": "^8.57.1",
+    "miniprogram-ci": "^2.1.26"
   }
 }

@@ -1,0 +1,68 @@
+<!-- pages/fault-report/index.wxml -->
+<view class="page-container">
+  <!-- 加载中 -->
+  <view class="loading-view" wx:if="{{loading}}">
+    <view class="loading-text">正在识别设备...</view>
+  </view>
+
+  <!-- 步骤一：扫码（仅在没有自动加载设备时显示） -->
+  <view class="step-section" wx:if="{{!assetName && !loading}}">
+    <view class="hero">
+      <view class="hero-title">设备故障申报</view>
+      <view class="hero-desc">扫描设备上的二维码，拍照上传故障信息</view>
+    </view>
+    <view class="scan-btn" bindtap="onScan">
+      <text class="scan-btn-text">扫描设备二维码</text>
+    </view>
+  </view>
+
+  <!-- 步骤二：填写信息 -->
+  <view wx:if="{{assetName}}">
+    <view class="card">
+      <view class="card-title">设备信息</view>
+      <view class="info-row">
+        <text class="info-label">设备名称</text>
+        <text class="info-value">{{assetName}}</text>
+      </view>
+      <view class="info-row" wx:if="{{assetNo}}">
+        <text class="info-label">设备编号</text>
+        <text class="info-value">{{assetNo}}</text>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">拍摄故障照片 <text class="required">*</text></view>
+      <view class="photo-tip">请拍摄设备上的故障代码或异常部位</view>
+      <view class="photo-area">
+        <view class="photo-item" wx:for="{{images}}" wx:key="*this">
+          <image src="{{item}}" mode="aspectFill" class="photo-img" />
+          <view class="photo-del" catchtap="onDelImage" data-idx="{{index}}">×</view>
+        </view>
+        <view class="photo-add" bindtap="onChooseImage" wx:if="{{images.length < 3}}">
+          <text class="photo-add-icon">+</text>
+          <text class="photo-add-text">拍照</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">问题描述（选填）</view>
+      <textarea class="remark-input" placeholder="简单描述故障现象..." maxlength="200" bindinput="onRemarkInput" value="{{remark}}" />
+    </view>
+
+    <view class="btn-group">
+      <button class="submit-btn {{canSubmit ? '' : 'disabled'}}" bindtap="onSubmit" disabled="{{!canSubmit || submitting}}">
+        {{submitting ? '提交中...' : '提交故障申报'}}
+      </button>
+      <view class="rescan-link" bindtap="onRescan">重新扫码</view>
+    </view>
+  </view>
+
+  <!-- 提交成功 -->
+  <view class="success-view" wx:if="{{submitted}}">
+    <view class="success-icon">✓</view>
+    <view class="success-title">申报成功</view>
+    <view class="success-desc">工程部已收到通知，将尽快处理</view>
+    <button class="submit-btn" bindtap="onReset">继续申报</button>
+  </view>
+</view>

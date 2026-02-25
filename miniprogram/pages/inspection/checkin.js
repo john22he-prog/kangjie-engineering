@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const auth = require('../../utils/auth')
+const notification = require('../../utils/notification')
 
 Page({
   data: {
@@ -7,6 +8,8 @@ Page({
     assetName: '',
     assetNo: '',
     reporterName: '',
+    checkTime: '',
+    condition: 'normal',
     images: [],
     remark: '',
     submitting: false,
@@ -15,12 +18,20 @@ Page({
 
   onLoad(options) {
     const user = auth.getUser()
+    const now = new Date()
+    const pad = n => String(n).padStart(2, '0')
+    const checkTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
     this.setData({
       assetId: options.assetId || '',
       assetName: decodeURIComponent(options.assetName || ''),
       assetNo: decodeURIComponent(options.assetNo || ''),
-      reporterName: user.displayName || ''
+      reporterName: user.displayName || '',
+      checkTime
     })
+  },
+
+  onConditionChange(e) {
+    this.setData({ condition: e.currentTarget.dataset.val })
   },
 
   onImageChange(e) {
@@ -42,12 +53,16 @@ Page({
       return
     }
 
+    // 提交前静默获取推送额度
+    await notification.preSubscribeForInspection()
+
     this.setData({ submitting: true })
 
     try {
       const result = await api.submitInspectionLog({
         assetId: this.data.assetId,
         images: this.data.images,
+        condition: this.data.condition,
         remark: this.data.remark
       })
 

@@ -1,135 +1,101 @@
 <!-- pages/company/index.wxml -->
-<view class="page-container">
-  <!-- 关键数据摘要 -->
-  <view class="section-header">
-    <text class="section-title">关键数据摘要</text>
-    <text class="section-sub">{{yearMonth}}</text>
-  </view>
 
-  <view class="card">
-    <view class="summary-row">
-      <view class="summary-item">
-        <text class="summary-label">总更换次数</text>
-        <text class="summary-value">{{stats.totalLogs}}</text>
-      </view>
-      <view class="summary-item">
-        <text class="summary-label">总报警数</text>
-        <text class="summary-value">{{stats.totalAlerts}}</text>
-      </view>
+<!-- 登录加载中 -->
+<view class="loading-page" wx:if="{{loading}}">
+  <view class="loading-logo">康</view>
+  <view class="loading-title">云南康洁</view>
+  <view class="loading-sub">企业综合管理平台</view>
+</view>
+
+<!-- 主内容 -->
+<view class="co-page" wx:else>
+
+  <!-- 顶部区域 -->
+  <view class="co-header">
+    <view class="co-greeting">
+      <view class="co-hello">你好，{{userInfo.displayName || '管理员'}}</view>
+      <view class="co-date">{{yearMonth}}</view>
     </view>
-    <view class="summary-row">
-      <view class="summary-item">
-        <text class="summary-label">待处理报警</text>
-        <text class="summary-value {{stats.openAlerts > 0 ? 'metric-warn' : ''}}">{{stats.openAlerts}}</text>
-      </view>
-      <view class="summary-item">
-        <text class="summary-label">配件消耗总量</text>
-        <text class="summary-value">{{stats.totalPartsQty}}</text>
-      </view>
+    <view class="co-factory-pill" bindtap="onSwitchFactory">
+      <text class="co-factory-name">{{currentFactoryName}}</text>
+      <text class="co-factory-arrow">▾</text>
     </view>
   </view>
 
-  <!-- 跨部门统计（预留） -->
-  <view class="section-header" style="margin-top: 16rpx;">
-    <text class="section-title">跨部门统计</text>
-  </view>
-
-  <view class="card">
-    <view class="placeholder-hint" style="padding: 40rpx 0;">
-      <text>更多部门接入后，将在此展示跨部门汇总数据</text>
+  <!-- 数据卡片 -->
+  <view class="co-stats">
+    <view class="co-stat-item">
+      <text class="co-stat-num">{{stats.totalLogs}}</text>
+      <text class="co-stat-label">本月更换</text>
+    </view>
+    <view class="co-stat-item">
+      <text class="co-stat-num co-stat-warn" wx:if="{{stats.openAlerts > 0}}">{{stats.openAlerts}}</text>
+      <text class="co-stat-num" wx:else>{{stats.openAlerts}}</text>
+      <text class="co-stat-label">待处理报警</text>
+    </view>
+    <view class="co-stat-item">
+      <text class="co-stat-num">{{stats.totalAlerts}}</text>
+      <text class="co-stat-label">总报警数</text>
+    </view>
+    <view class="co-stat-item">
+      <text class="co-stat-num">{{stats.totalPartsQty}}</text>
+      <text class="co-stat-label">配件消耗</text>
     </view>
   </view>
 
-  <!-- 部门状态 -->
-  <view class="section-header" style="margin-top: 16rpx;">
-    <text class="section-title">部门状态</text>
-    <text class="section-sub">点击查看详情</text>
-  </view>
+  <!-- 部门入口 -->
+  <view class="co-section-title">部门</view>
 
-  <!-- 工程部卡片 -->
-  <view class="card dept-card" bindtap="onGoEngineering">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-eng">工</view>
-      <view class="dept-info">
-        <text class="dept-name">工程部</text>
-        <view class="dept-status {{engStatus === 'normal' ? 'status-normal' : 'status-warn'}}">
-          <text>{{engStatusText}}</text>
-        </view>
+  <!-- 工程部 -->
+  <view class="co-dept" bindtap="onGoEngineering">
+    <view class="co-dept-left">
+      <view class="co-dept-icon" style="background:#07C160;">工</view>
+      <view class="co-dept-text">
+        <text class="co-dept-name">工程部</text>
+        <text class="co-dept-desc">设备维护 · 配件管理 · 阈值报警</text>
       </view>
     </view>
-    <view class="dept-metrics">
-      <view class="metric-item">
-        <text class="metric-value">{{stats.totalLogs}}</text>
-        <text class="metric-label">本月更换</text>
-      </view>
-      <view class="metric-item">
-        <text class="metric-value {{stats.openAlerts > 0 ? 'metric-warn' : ''}}">{{stats.openAlerts}}</text>
-        <text class="metric-label">待处理报警</text>
-      </view>
-      <view class="metric-item">
-        <text class="metric-value">{{stats.totalPartsQty}}</text>
-        <text class="metric-label">配件消耗</text>
-      </view>
+    <view class="co-dept-right">
+      <view class="co-dept-badge {{engStatus === 'warn' ? 'badge-warn' : 'badge-ok'}}">{{engStatusText}}</view>
+      <text class="co-dept-go">›</text>
     </view>
   </view>
 
-  <!-- 锅炉房（预留） -->
-  <view class="card dept-card dept-card-placeholder">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-boiler">锅</view>
-      <view class="dept-info">
-        <text class="dept-name">锅炉房</text>
-        <view class="dept-status status-inactive"><text>即将接入</text></view>
+  <!-- 锅炉房 -->
+  <view class="co-dept" bindtap="onGoBoiler">
+    <view class="co-dept-left">
+      <view class="co-dept-icon" style="background:#E65100;">锅</view>
+      <view class="co-dept-text">
+        <text class="co-dept-name">锅炉房</text>
+        <text class="co-dept-desc">运行数据 · 能耗统计 · 预警管理</text>
       </view>
     </view>
-    <view class="placeholder-hint"><text>数据对接中，敬请期待</text></view>
+    <view class="co-dept-right">
+      <view class="co-dept-badge badge-ok">已接入</view>
+      <text class="co-dept-go">›</text>
+    </view>
   </view>
 
-  <!-- 生产部（预留） -->
-  <view class="card dept-card dept-card-placeholder">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-prod">产</view>
-      <view class="dept-info">
-        <text class="dept-name">生产部</text>
-        <view class="dept-status status-inactive"><text>即将接入</text></view>
-      </view>
+  <!-- 即将接入 -->
+  <view class="co-section-title" style="margin-top:32rpx;">即将接入</view>
+
+  <view class="co-upcoming">
+    <view class="co-upcoming-item">
+      <view class="co-upcoming-icon" style="background:#409EFF;">产</view>
+      <text>生产部</text>
     </view>
-    <view class="placeholder-hint"><text>数据对接中，敬请期待</text></view>
+    <view class="co-upcoming-item">
+      <view class="co-upcoming-icon" style="background:#67C23A;">运</view>
+      <text>运输部</text>
+    </view>
+    <view class="co-upcoming-item">
+      <view class="co-upcoming-icon" style="background:#909399;">综</view>
+      <text>综合办</text>
+    </view>
+    <view class="co-upcoming-item">
+      <view class="co-upcoming-icon" style="background:#E6A23C;">财</view>
+      <text>财务</text>
+    </view>
   </view>
 
-  <!-- 运输部（预留） -->
-  <view class="card dept-card dept-card-placeholder">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-trans">运</view>
-      <view class="dept-info">
-        <text class="dept-name">运输部</text>
-        <view class="dept-status status-inactive"><text>即将接入</text></view>
-      </view>
-    </view>
-    <view class="placeholder-hint"><text>数据对接中，敬请期待</text></view>
-  </view>
-
-  <!-- 综合办（预留） -->
-  <view class="card dept-card dept-card-placeholder">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-admin">综</view>
-      <view class="dept-info">
-        <text class="dept-name">综合办</text>
-        <view class="dept-status status-inactive"><text>即将接入</text></view>
-      </view>
-    </view>
-    <view class="placeholder-hint"><text>数据对接中，敬请期待</text></view>
-  </view>
-
-  <!-- 财务（预留） -->
-  <view class="card dept-card dept-card-placeholder">
-    <view class="dept-header">
-      <view class="dept-icon dept-icon-finance">财</view>
-      <view class="dept-info">
-        <text class="dept-name">财务</text>
-        <view class="dept-status status-inactive"><text>即将接入</text></view>
-      </view>
-    </view>
-    <view class="placeholder-hint"><text>数据对接中，敬请期待</text></view>
-  </view>
 </view>

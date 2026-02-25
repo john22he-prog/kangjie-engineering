@@ -257,7 +257,7 @@ exports.main = async (event, context) => {
     const buffer = xlsx.build([sheet1, sheet2, sheet3, sheet4, sheet5, sheet6])
 
     // ========== 6. 上传到云存储 ==========
-    const cloudFileName = `exports/康洁工程部_${fileLabel}_${Date.now()}.xlsx`
+    const cloudFileName = `exports/云南康洁_${fileLabel}_${Date.now()}.xlsx`
     const uploadRes = await cloud.uploadFile({
       cloudPath: cloudFileName,
       fileContent: buffer
@@ -269,7 +269,7 @@ exports.main = async (event, context) => {
     })
     const tempUrl = fileList[0].tempFileURL
 
-    const userFileName = `康洁工程部_${fileLabel}.xlsx`
+    const userFileName = `云南康洁_${fileLabel}.xlsx`
 
     return {
       ok: true,

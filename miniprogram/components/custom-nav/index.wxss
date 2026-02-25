@@ -1,0 +1,52 @@
+.nav-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #07C160;
+  z-index: 9999;
+}
+
+.nav-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 16rpx;
+}
+
+.nav-left {
+  width: 120rpx;
+  display: flex;
+  align-items: center;
+}
+
+.nav-home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64rpx;
+  height: 56rpx;
+  border-radius: 28rpx;
+  background: rgba(255,255,255,0.25);
+}
+
+.nav-home-btn:active {
+  background: rgba(255,255,255,0.4);
+}
+
+.nav-home-icon {
+  font-size: 36rpx;
+  color: #fff;
+  line-height: 1;
+}
+
+.nav-title {
+  flex: 1;
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #fff;
+}
+
+.nav-right {
+  width: 120rpx;
+}

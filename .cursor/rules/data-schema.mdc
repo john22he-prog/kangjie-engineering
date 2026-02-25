@@ -1,0 +1,101 @@
+---
+description: 全部数据库结构参考 - NoSQL 集合 + MySQL 表
+alwaysApply: false
+globs: cloudfunctions/**/*,miniprogram/**/*.js,pc-admin/src/**/*
+---
+
+# 数据库 Schema 参考
+
+## 一、工程部 NoSQL 集合（CloudBase）
+
+### users
+userId, username, displayName, openid, role(Engineer/Supervisor/Management/Admin), status(active/disabled), factoryId, factoryIds[], pcPassword, createdAt, updatedAt
+
+### assets
+assetId, assetName, assetNo, workshop, factoryId, status(active/inactive), createdAt, updatedAt
+
+### parts
+partSkuId, partName, partCode(唯一), unit, specModel, factoryId?, active, source(manual/Excel), unitPrice?, updatedAt
+
+### replacement_logs
+logId, module(equipment/facility/boiler), factoryId, assetId, assetNameSnapshot, assetNoSnapshot, reporterUserIdSnapshot, reporterNameSnapshot, ts, yearMonth(YYYY-MM), type(维修/保养/预防/紧急), locationIdSnapshot, locationNameSnapshot, items[{partSkuId, partNameSnapshot, partCodeSnapshot, qty, unitCost, itemCost}], totalRepairCost, remark, images[], clientOfflineId(幂等), createdAt
+
+### alerts
+alertId, factoryId, assetId, partSkuId, yearMonth, thresholdValue, currentQty, status(OPEN/ACK), ackByUserId, ackTs, ackNote, createdAt
+
+### asset_part_thresholds
+assetId+partSkuId(联合键), thresholdMonthly, active, updatedAt
+
+### monthly_part_usage
+factoryId, assetId+partSkuId+yearMonth(联合键), qtySum, lastUpdatedAt
+
+### factories
+factoryId, factoryName, factoryCode(唯一), address, status, createdAt, updatedAt
+
+### asset_locations
+locationId, assetId, locationName, sortOrder, active, updatedAt
+
+### location_part_map
+mapId, assetId, locationId, partSkuId, active
+
+### inventory (inventory_records)
+inventoryId, factoryId, partSkuId, partNameSnapshot, partCodeSnapshot, unitSnapshot, specModelSnapshot, currentQty, avgUnitCost(加权平均), totalCostValue, lowStockThreshold, lastInboundAt, lastOutboundAt, updatedAt
+
+### inventory_inbound
+inboundId, factoryId, partSkuId, partNameSnapshot, partCodeSnapshot, qty, unitPrice, totalPrice, supplier, batchNo, remark, operatorUserId, operatorNameSnapshot, ts, yearMonth, createdAt
+
+### 补充集合
+- **inventory_outbound_logs**: outboundId, factoryId, partSkuId, qty, unitCostAtTime, totalCost, replacementLogId, assetId, ts, yearMonth
+- **inventory_alerts**: alertId, factoryId, partSkuId, currentQty, threshold, status(OPEN/ACK)
+
+---
+
+## 二、锅炉房 MySQL 表（TDSQL-C 8.0，16 张）
+
+### factory
+id(PK), name, short_name, address, contact_person, contact_phone, initial_fuel_stock(DECIMAL), stock_base_date(DATE), status(TINYINT), created_by, created_at, updated_at
+
+### boiler
+id(PK), factory_id(FK→factory), name, model, rated_capacity(DECIMAL 吨/时), fuel_type, sort_order, status, created_by, created_at, updated_at
+
+### steam_customer
+id(PK), factory_id(FK→factory), name, contact_person, contact_phone, sort_order, status, created_by, created_at, updated_at
+
+### app_user
+id(PK), openid(UNIQUE), nickname, avatar_url, phone, real_name, role(ENUM:admin/viewer/operator), factory_id(FK→factory), status, last_login_at, created_at, updated_at
+
+### daily_record
+id(PK), factory_id(FK)+record_date(DATE) UNIQUE, total_water, total_fuel_consumed, fuel_intake, created_by(FK→app_user), remark, created_at, updated_at
+
+### boiler_daily_data (文档中叫 boiler_data)
+id(PK), record_id(FK→daily_record), boiler_id(FK→boiler), start_time(TIME), end_time(TIME), running_hours(自动算), steam_production, electricity, steam_pressure, steam_temperature, exhaust_temperature, remark
+
+### customer_steam_data
+id(PK), record_id(FK→daily_record), customer_id(FK→steam_customer), steam_usage(DECIMAL), remark
+
+### price_config
+id(PK), factory_id?(FK), price_type(ENUM:electricity/fuel/water), unit_price(DECIMAL), unit, effective_from(DATE), effective_to(DATE NULL=长期), remark
+
+### daily_derived_metrics
+id(PK), record_id(FK→daily_record UNIQUE), factory_id, record_date, total_steam_production, total_steam_usage, total_electricity, electricity_per_steam, fuel_per_steam, water_per_steam, steam_loss_rate(%), fuel_stock_estimate, fuel_stock_days, electricity_cost, fuel_cost, water_cost, total_cost, cost_per_steam
+
+### alert_rule
+id(PK), factory_id?(FK), name, metric_key, threshold_min, threshold_max, comparison, message_template, severity(ENUM:info/warning/critical), notify_method, status
+
+### alert_log
+id(PK), rule_id(FK→alert_rule), factory_id, record_date, metric_key, metric_value, threshold_value, severity, message, status(ENUM:pending/acknowledged/resolved), resolved_by, resolved_at, resolve_note, triggered_at
+
+### ai_analysis
+id(PK), factory_id, analysis_type(ENUM:daily_report/diagnosis/forecast/weekly_report/monthly_report), analysis_date, input_data(JSON), prompt_text, raw_response, key_findings(JSON), suggestions(JSON), risk_level(ENUM:low/medium/high/critical), token_input, token_output, cost_estimate, feedback_score, feedback_note
+
+### ai_chat_history
+id(PK), user_id(FK→app_user), session_id, role(ENUM:user/assistant), content(TEXT), token_count
+
+### extended_field
+id(PK), target_type(ENUM:boiler/factory/customer)+field_key(UNIQUE), field_label, field_type(ENUM:number/text/select), unit, options(JSON), sort_order, status
+
+### extended_field_value
+id(PK), field_id(FK→extended_field), record_id, record_type, field_value
+
+### operation_log
+id(PK), user_id(FK→app_user), user_name, action(ENUM:create/update/delete), target_table, target_id, before_data(JSON), after_data(JSON), ip_address, remark, created_at

@@ -8,7 +8,8 @@ Page({
     page: 1,
     pageSize: 30,
     hasMore: true,
-    planTotal: 0
+    planTotal: 0,
+    summary: null
   },
 
   onLoad() {
@@ -24,11 +25,20 @@ Page({
       })
       if (result.ok) {
         const { list, total, planTotal } = result.data
+        const newList = this.data.page === 1 ? list : [...this.data.list, ...list]
+
+        const fullDays = newList.filter(d => d.completed >= d.total && d.total > 0).length
+        const totalLogs = newList.reduce((sum, d) => sum + d.completed, 0)
+        const avgRate = newList.length > 0
+          ? Math.round(newList.reduce((sum, d) => sum + (d.total > 0 ? d.completed / d.total * 100 : 0), 0) / newList.length)
+          : 0
+
         this.setData({
-          list: this.data.page === 1 ? list : [...this.data.list, ...list],
+          list: newList,
           hasMore: this.data.page * this.data.pageSize < total,
           planTotal,
-          loading: false
+          loading: false,
+          summary: { totalDays: newList.length, fullDays, totalLogs, avgRate }
         })
       } else {
         this.setData({ loading: false })
@@ -43,9 +53,7 @@ Page({
 
   onToggleDate(e) {
     const date = e.currentTarget.dataset.date
-    this.setData({
-      expandedDate: this.data.expandedDate === date ? '' : date
-    })
+    this.setData({ expandedDate: this.data.expandedDate === date ? '' : date })
   },
 
   onPreviewImage(e) {
@@ -62,12 +70,5 @@ Page({
   onPullDownRefresh() {
     this.setData({ page: 1, list: [], hasMore: true })
     this.loadHistory().then(() => wx.stopPullDownRefresh())
-  },
-
-  formatTime(ts) {
-    if (!ts) return ''
-    const d = new Date(ts)
-    const pad = n => String(n).padStart(2, '0')
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 })

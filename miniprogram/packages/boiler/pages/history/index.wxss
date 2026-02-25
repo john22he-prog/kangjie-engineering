@@ -1,0 +1,257 @@
+/* 历史记录页样式 — 橙色主题 */
+page {
+  --theme-color: #E65100;
+  --theme-light: #FFF3E0;
+  --theme-dark: #BF360C;
+}
+
+.page-container {
+  padding-bottom: 40rpx;
+}
+
+/* ========== 加载状态 ========== */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 200rpx 0;
+}
+
+.loading-spinner {
+  width: 64rpx;
+  height: 64rpx;
+  border: 6rpx solid #f0f0f0;
+  border-top-color: var(--theme-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 24rpx;
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ========== 记录列表 ========== */
+.record-list {
+  padding-top: 8rpx;
+}
+
+.record-card {
+  margin: 16rpx 24rpx;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ========== 卡片头部 ========== */
+.record-header {
+  display: flex;
+  align-items: center;
+  padding: 24rpx;
+}
+
+.record-date-badge {
+  background: var(--theme-light);
+  border-radius: 8rpx;
+  padding: 8rpx 16rpx;
+  margin-right: 16rpx;
+}
+
+.date-day {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--theme-color);
+}
+
+.record-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.factory-name {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--weui-FG-0);
+}
+
+.record-summary {
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+.record-summary-row {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 4rpx;
+}
+
+.metric-inline {
+  font-size: 26rpx;
+  color: var(--weui-FG-0);
+  font-weight: 500;
+}
+
+.expand-arrow {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+  transition: transform 0.2s ease;
+}
+
+.expand-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+/* ========== 概览指标 ========== */
+.record-metrics {
+  display: flex;
+  border-top: 1rpx solid rgba(0, 0, 0, 0.05);
+  padding: 16rpx 0;
+}
+
+.metric-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8rpx 0;
+}
+
+.metric-value {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+}
+
+.metric-label {
+  font-size: 22rpx;
+  color: var(--weui-FG-2);
+  margin-top: 4rpx;
+}
+
+/* ========== 展开详情 ========== */
+.record-detail {
+  border-top: 1rpx solid rgba(0, 0, 0, 0.05);
+  padding: 16rpx 24rpx 24rpx;
+  background: var(--weui-BG-1);
+}
+
+.detail-section {
+  margin-bottom: 20rpx;
+}
+
+.detail-title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--theme-color);
+  margin-bottom: 12rpx;
+}
+
+/* ========== 详情表格 ========== */
+.detail-table {
+  background: #fff;
+  border-radius: 8rpx;
+  overflow: hidden;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 16rpx;
+  border-bottom: 1rpx solid rgba(0, 0, 0, 0.04);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-row.header-row {
+  background: rgba(230, 81, 0, 0.05);
+}
+
+.header-row .detail-cell {
+  font-weight: 500;
+  color: var(--weui-FG-1);
+  font-size: 22rpx;
+}
+
+.detail-cell {
+  flex: 1;
+  font-size: 24rpx;
+  color: var(--weui-FG-0);
+  text-align: center;
+}
+
+.detail-cell.name-cell {
+  flex: 1.2;
+  text-align: left;
+}
+
+/* ========== 备注 ========== */
+.detail-remark {
+  padding: 12rpx 0;
+  display: flex;
+}
+
+.remark-label {
+  font-size: 24rpx;
+  color: var(--weui-FG-1);
+  flex-shrink: 0;
+}
+
+.remark-text {
+  font-size: 24rpx;
+  color: var(--weui-FG-0);
+}
+
+/* ========== 查看详情按钮 ========== */
+.detail-action {
+  text-align: center;
+  padding: 16rpx 0 4rpx;
+}
+
+.detail-action-text {
+  font-size: 26rpx;
+  color: var(--theme-color);
+  font-weight: 500;
+}
+
+/* ========== 空状态 ========== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 200rpx 60rpx;
+}
+
+.empty-icon {
+  font-size: 80rpx;
+  margin-bottom: 24rpx;
+}
+
+.empty-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: var(--weui-FG-0);
+  margin-bottom: 12rpx;
+}
+
+.empty-desc {
+  font-size: 28rpx;
+  color: var(--weui-FG-2);
+}
+
+/* ========== 加载更多/没有更多 ========== */
+.loading-more,
+.no-more {
+  text-align: center;
+  padding: 32rpx;
+  font-size: 24rpx;
+  color: var(--weui-FG-2);
+}

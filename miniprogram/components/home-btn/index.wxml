@@ -1,0 +1,3 @@
+<view class="home-btn" wx:if="{{show}}" bindtap="onTap">
+  <view class="home-icon">⌂</view>
+</view>

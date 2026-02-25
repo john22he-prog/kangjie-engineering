@@ -155,11 +155,52 @@ exports.main = async (event, context) => {
         const { factoryId } = data
         const where = {}
         if (factoryId) where.factoryId = factoryId
-        const { data: list } = await db.collection('inventory_alerts')
+
+        // 1) 已有的 inventory_alerts 记录
+        const { data: alertRecords } = await db.collection('inventory_alerts')
           .where(where)
           .orderBy('createdAt', 'desc')
           .limit(100)
           .get()
+
+        // 2) 从 inventory 实时计算低库存（与 PC 端一致，兼容 threshold 和 lowStockThreshold 两种字段名）
+        const { data: invList } = await db.collection('inventory').where(where).limit(1000).get()
+        const lowStockItems = invList.filter(i => {
+          const th = i.lowStockThreshold || i.threshold || 0
+          return th > 0 && i.currentQty <= th
+        })
+
+        // 合并：以 partSkuId 为 key，实时低库存优先
+        const alertMap = {}
+        for (const a of alertRecords) {
+          alertMap[a.partSkuId] = a
+        }
+        for (const inv of lowStockItems) {
+          const th = inv.lowStockThreshold || inv.threshold || 0
+          if (!alertMap[inv.partSkuId]) {
+            alertMap[inv.partSkuId] = {
+              alertId: 'live_' + inv.partSkuId,
+              factoryId: inv.factoryId || '',
+              partSkuId: inv.partSkuId,
+              partNameSnapshot: inv.partNameSnapshot || inv.partSkuId,
+              currentQty: inv.currentQty,
+              threshold: th,
+              status: 'OPEN',
+              createdAt: inv.updatedAt || Date.now()
+            }
+          } else {
+            alertMap[inv.partSkuId].currentQty = inv.currentQty
+            alertMap[inv.partSkuId].threshold = th
+          }
+        }
+
+        // 排除已不再低库存的旧 OPEN 报警
+        const activePartSkuIds = new Set(lowStockItems.map(i => i.partSkuId))
+        const list = Object.values(alertMap).filter(a => {
+          if (a.status !== 'OPEN') return true
+          return activePartSkuIds.has(a.partSkuId)
+        }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+
         return { ok: true, data: { list } }
       }
 

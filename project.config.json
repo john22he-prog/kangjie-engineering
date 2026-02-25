@@ -36,7 +36,7 @@
     "disableSWC": true
   },
   "appid": "wx3e10fc82cc0af56d",
-  "projectname": "kangjie-engineering",
+  "projectname": "kangjie-app",
   "libVersion": "2.25.4",
   "cloudfunctionTemplateRoot": "",
   "condition": {},
