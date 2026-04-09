@@ -1,0 +1,218 @@
+.manage-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+}
+
+.page-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.add-btn {
+  background: #07C160;
+  color: #fff;
+  padding: 12rpx 28rpx;
+  border-radius: 32rpx;
+  font-size: 28rpx;
+}
+
+.cancel-btn {
+  color: #999;
+  font-size: 28rpx;
+  padding: 12rpx 20rpx;
+}
+
+.loading-tip, .empty-tip {
+  text-align: center;
+  padding: 80rpx 0;
+  color: #999;
+  font-size: 28rpx;
+}
+
+/* 酒店卡片 */
+.hotel-card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
+}
+
+.hotel-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8rpx;
+}
+
+.hotel-addr {
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 8rpx;
+}
+
+.hotel-meta {
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 8rpx;
+}
+
+.phone-text {
+  color: #07C160;
+}
+
+.hotel-coords {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 8rpx;
+}
+
+.coord-tag {
+  font-size: 22rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  background: #e8f5e9;
+  color: #07C160;
+}
+
+.coord-tag.warn {
+  background: #fff3e0;
+  color: #E65100;
+}
+
+.coord-text {
+  font-size: 22rpx;
+  color: #999;
+  font-family: monospace;
+}
+
+.hotel-actions {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #f0f0f0;
+}
+
+.action-link {
+  font-size: 26rpx;
+  color: #07C160;
+}
+
+.action-link.danger {
+  color: #e53935;
+}
+
+/* 表单 */
+.form-group {
+  margin-bottom: 24rpx;
+}
+
+.form-label {
+  font-size: 28rpx;
+  color: #333;
+  margin-bottom: 8rpx;
+  font-weight: 500;
+}
+
+.form-label.required::before {
+  content: '* ';
+  color: #e53935;
+}
+
+.form-input {
+  background: #fff;
+  border: 2rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+  font-size: 28rpx;
+}
+
+.form-textarea {
+  background: #fff;
+  border: 2rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+  font-size: 28rpx;
+  width: 100%;
+  height: 160rpx;
+  box-sizing: border-box;
+}
+
+.form-help {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 12rpx;
+}
+
+.help-btn {
+  font-size: 26rpx;
+  color: #07C160;
+  padding: 8rpx 0;
+}
+
+/* 地理编码结果 */
+.geocode-result {
+  background: #f0faf4;
+  border: 2rpx solid #c8e6c9;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.result-title {
+  font-size: 28rpx;
+  color: #2e7d32;
+  font-weight: 500;
+  margin-bottom: 12rpx;
+}
+
+.result-row {
+  display: flex;
+  padding: 6rpx 0;
+  font-size: 26rpx;
+}
+
+.result-label {
+  color: #999;
+  width: 140rpx;
+  flex-shrink: 0;
+}
+
+.result-value {
+  color: #333;
+  flex: 1;
+}
+
+/* 提交按钮 */
+.submit-btn {
+  background: #07C160 !important;
+  color: #fff !important;
+  border-radius: 40rpx !important;
+  font-size: 32rpx !important;
+  margin-top: 32rpx;
+  width: 100%;
+}
+
+.submit-btn[disabled] {
+  opacity: 0.6;
+}
+
+.form-tip {
+  text-align: center;
+  font-size: 24rpx;
+  color: #999;
+  margin-top: 24rpx;
+  line-height: 1.6;
+}

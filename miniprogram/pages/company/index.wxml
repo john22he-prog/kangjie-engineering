@@ -76,12 +76,27 @@
     </view>
   </view>
 
+  <!-- 业务部 -->
+  <view class="co-dept" bindtap="onGoBusiness">
+    <view class="co-dept-left">
+      <view class="co-dept-icon" style="background:#409EFF;">业</view>
+      <view class="co-dept-text">
+        <text class="co-dept-name">业务部</text>
+        <text class="co-dept-desc">酒店地图 · 客户管理 · 业务拓展</text>
+      </view>
+    </view>
+    <view class="co-dept-right">
+      <view class="co-dept-badge badge-ok">已接入</view>
+      <text class="co-dept-go">›</text>
+    </view>
+  </view>
+
   <!-- 即将接入 -->
   <view class="co-section-title" style="margin-top:32rpx;">即将接入</view>
 
   <view class="co-upcoming">
     <view class="co-upcoming-item">
-      <view class="co-upcoming-icon" style="background:#409EFF;">产</view>
+      <view class="co-upcoming-icon" style="background:#67C23A;">产</view>
       <text>生产部</text>
     </view>
     <view class="co-upcoming-item">

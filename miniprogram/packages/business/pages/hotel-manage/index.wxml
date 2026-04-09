@@ -1,0 +1,103 @@
+<view class="manage-page">
+
+  <!-- 酒店列表 -->
+  <view class="hotel-list" wx:if="{{!showAddForm}}">
+
+    <view class="page-header">
+      <text class="page-title">酒店管理</text>
+      <view class="add-btn" bind:tap="onShowAdd">+ 添加酒店</view>
+    </view>
+
+    <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
+
+    <view class="empty-tip" wx:if="{{!loading && hotels.length === 0}}">
+      <text>暂无酒店，点击上方按钮添加</text>
+    </view>
+
+    <view class="hotel-card" wx:for="{{hotels}}" wx:key="_id">
+      <view class="hotel-info">
+        <view class="hotel-name">{{item.name}}</view>
+        <view class="hotel-addr">{{item.formatted_address || item.address}}</view>
+        <view class="hotel-meta" wx:if="{{item.contact || item.phone}}">
+          <text wx:if="{{item.contact}}">{{item.contact}}</text>
+          <text wx:if="{{item.contact && item.phone}}"> · </text>
+          <text wx:if="{{item.phone}}" class="phone-text" bind:tap="onCallPhone" data-phone="{{item.phone}}">{{item.phone}}</text>
+        </view>
+        <view class="hotel-coords" wx:if="{{item.latitude}}">
+          <text class="coord-tag">已定位</text>
+          <text class="coord-text">{{item.latitude}}, {{item.longitude}}</text>
+        </view>
+        <view class="hotel-coords" wx:else>
+          <text class="coord-tag warn">未定位</text>
+        </view>
+      </view>
+      <view class="hotel-actions">
+        <view class="action-link" bind:tap="onEdit" data-hotel="{{item}}">编辑</view>
+        <view class="action-link danger" bind:tap="onDelete" data-hotel="{{item}}">删除</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 添加/编辑表单 -->
+  <view class="form-page" wx:if="{{showAddForm}}">
+    <view class="page-header">
+      <text class="page-title">{{editingId ? '编辑酒店' : '添加酒店'}}</text>
+      <view class="cancel-btn" bind:tap="onCancel">取消</view>
+    </view>
+
+    <view class="form-group">
+      <view class="form-label required">酒店名称</view>
+      <input class="form-input" placeholder="请输入酒店名称" value="{{form.name}}" data-field="name" bind:input="onInput" />
+    </view>
+
+    <view class="form-group">
+      <view class="form-label required">酒店地址</view>
+      <input class="form-input" placeholder="请输入详细地址（用于地理编码定位）" value="{{form.address}}" data-field="address" bind:input="onInput" />
+      <view class="form-help">
+        <view class="help-btn" bind:tap="onTestGeocode">🔍 测试解析</view>
+        <view class="help-btn" bind:tap="onChooseLocation">📍 地图选点</view>
+      </view>
+    </view>
+
+    <view class="form-group">
+      <view class="form-label">所在城市（辅助定位）</view>
+      <input class="form-input" placeholder="如：昆明市（可不填，提高定位精度）" value="{{form.city}}" data-field="city" bind:input="onInput" />
+    </view>
+
+    <!-- 地理编码结果 -->
+    <view class="geocode-result" wx:if="{{geocodeResult}}">
+      <view class="result-title">✅ 地址解析结果</view>
+      <view class="result-row">
+        <text class="result-label">坐标</text>
+        <text class="result-value">{{geocodeResult.latitude}}, {{geocodeResult.longitude}}</text>
+      </view>
+      <view class="result-row" wx:if="{{geocodeResult.formatted_address}}">
+        <text class="result-label">标准地址</text>
+        <text class="result-value">{{geocodeResult.formatted_address}}</text>
+      </view>
+    </view>
+
+    <view class="form-group">
+      <view class="form-label">联系人</view>
+      <input class="form-input" placeholder="请输入联系人姓名" value="{{form.contact}}" data-field="contact" bind:input="onInput" />
+    </view>
+
+    <view class="form-group">
+      <view class="form-label">联系电话</view>
+      <input class="form-input" type="number" placeholder="请输入联系电话" value="{{form.phone}}" data-field="phone" bind:input="onInput" />
+    </view>
+
+    <view class="form-group">
+      <view class="form-label">备注</view>
+      <textarea class="form-textarea" placeholder="备注信息" value="{{form.remark}}" data-field="remark" bind:input="onInput" />
+    </view>
+
+    <button class="submit-btn" bind:tap="onSubmit" disabled="{{submitting}}" loading="{{submitting}}">
+      {{submitting ? '保存中...' : '保存酒店'}}
+    </button>
+
+    <view class="form-tip">
+      💡 输入地址后点击「测试解析」可预览定位效果。保存时会自动调用高德地理编码获取坐标。
+    </view>
+  </view>
+</view>

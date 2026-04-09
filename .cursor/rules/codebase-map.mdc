@@ -33,6 +33,13 @@ alwaysApply: true
 | packages/boiler/pages/alerts/ | 预警管理 |
 | packages/boiler/pages/trend/ | 趋势分析 |
 
+### 业务部分包 (packages/business/)
+| 路径 | 用途 |
+|------|------|
+| packages/business/pages/map/ | 业务地图（酒店标注+导航） |
+| packages/business/pages/hotel-manage/ | 酒店管理（增删改+地理编码） |
+| packages/business/utils/api.js | 业务部API封装 |
+
 ### 公共模块 (utils/ & components/)
 | 文件 | 用途 |
 |------|------|
@@ -64,6 +71,9 @@ alwaysApply: true
 - boiler-core/: 工厂+锅炉+客户+日报 CRUD
 - boiler-analysis/: 统计+预警+AI
 - boiler-auth/: 登录+用户+配置
+
+### 业务部（1个合并函数）
+- business-geocode/: 地理编码+酒店CRUD（高德API地址→经纬度转换）
 
 ## PC管理后台 (pc-admin/)
 

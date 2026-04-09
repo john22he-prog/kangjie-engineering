@@ -1,0 +1,68 @@
+<view class="map-page">
+  <!-- 地图 -->
+  <map
+    id="hotelMap"
+    class="map-container"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    show-location
+    bind:markertap="onMarkerTap"
+    bind:callouttap="onCalloutTap"
+  />
+
+  <!-- 顶部工具栏 -->
+  <view class="map-toolbar">
+    <view class="toolbar-left">
+      <text class="hotel-count">{{hotels.length}} 家酒店</text>
+    </view>
+    <view class="toolbar-right">
+      <view class="toolbar-btn" bind:tap="onIncludePoints">
+        <text>全部显示</text>
+      </view>
+      <view class="toolbar-btn primary" bind:tap="onGoManage">
+        <text>管理酒店</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-tip" wx:if="{{!loading && hotels.length === 0}}">
+    <text class="empty-icon">📍</text>
+    <text class="empty-text">暂无酒店数据</text>
+    <view class="empty-btn" bind:tap="onGoManage">添加酒店</view>
+  </view>
+
+  <!-- 酒店详情弹窗 -->
+  <view class="detail-mask" wx:if="{{showDetail}}" bind:tap="onCloseDetail" />
+  <view class="detail-panel {{showDetail ? 'show' : ''}}">
+    <view class="detail-header">
+      <text class="detail-name">{{selectedHotel.name}}</text>
+      <text class="detail-close" bind:tap="onCloseDetail">✕</text>
+    </view>
+    <view class="detail-body" wx:if="{{selectedHotel}}">
+      <view class="detail-row">
+        <text class="detail-label">地址</text>
+        <text class="detail-value">{{selectedHotel.formatted_address || selectedHotel.address}}</text>
+      </view>
+      <view class="detail-row" wx:if="{{selectedHotel.contact}}">
+        <text class="detail-label">联系人</text>
+        <text class="detail-value">{{selectedHotel.contact}}</text>
+      </view>
+      <view class="detail-row" wx:if="{{selectedHotel.phone}}">
+        <text class="detail-label">电话</text>
+        <text class="detail-value phone" bind:tap="onCallPhone" data-phone="{{selectedHotel.phone}}">{{selectedHotel.phone}}</text>
+      </view>
+      <view class="detail-row" wx:if="{{selectedHotel.remark}}">
+        <text class="detail-label">备注</text>
+        <text class="detail-value">{{selectedHotel.remark}}</text>
+      </view>
+    </view>
+    <view class="detail-actions">
+      <view class="action-btn navigate" bind:tap="onNavigateTo">
+        <text>导航前往</text>
+      </view>
+    </view>
+  </view>
+</view>
