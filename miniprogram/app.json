@@ -53,6 +53,14 @@
         "pages/alerts/index",
         "pages/trend/index"
       ]
+    },
+    {
+      "root": "packages/business",
+      "name": "business",
+      "pages": [
+        "pages/map/index",
+        "pages/hotel-manage/index"
+      ]
     }
   ],
   "sitemapLocation": "sitemap.json",

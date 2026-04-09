@@ -141,5 +141,9 @@ Page({
 
   onGoBoiler() {
     wx.navigateTo({ url: '/packages/boiler/pages/home/index' })
+  },
+
+  onGoBusiness() {
+    wx.navigateTo({ url: '/packages/business/pages/map/index' })
   }
 })

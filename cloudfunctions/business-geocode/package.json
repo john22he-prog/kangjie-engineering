@@ -1,0 +1,9 @@
+{
+  "name": "business-geocode",
+  "version": "1.0.0",
+  "description": "业务部地理编码云函数 — 调用高德API将地址转为经纬度",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
