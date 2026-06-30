@@ -31,7 +31,7 @@ Page({
     // 详情面板
     showDetail: false,
     selectedPoi: null,
-    matchThreshold: 0.35,
+    suggestThreshold: 0.55,
 
     // 底部列表
     showList: false,
@@ -78,7 +78,7 @@ Page({
   },
 
   onThresholdChange(e) {
-    this.setData({ matchThreshold: parseFloat(e.detail.value) || 0.35 })
+    this.setData({ suggestThreshold: parseFloat(e.detail.value) || 0.55 })
   },
 
   onModeChange(e) {
@@ -203,7 +203,7 @@ Page({
   },
 
   async _doSearch() {
-    const { searchKeywords, searchCity, searchRadius, searchMode, drawPoints, matchThreshold } = this.data
+    const { searchKeywords, searchCity, searchRadius, searchMode, drawPoints, suggestThreshold } = this.data
 
     if (!searchKeywords) {
       wx.showToast({ title: '请输入搜索关键词', icon: 'none' })
@@ -218,7 +218,7 @@ Page({
         keywords: searchKeywords,
         city: searchCity,
         types: POI_TYPES,
-        matchThreshold,
+        suggestThreshold,
         pageSize: 50
       }
 
@@ -349,6 +349,11 @@ Page({
   async onConfirmBind() {
     const poi = this.data.selectedPoi
     if (!poi) return
+
+    if (poi.matchStatus === 'unmatched' && poi.bestCandidateTaken) {
+      wx.showToast({ title: '最佳候选已被占用（1:1）', icon: 'none' })
+      return
+    }
 
     const hotelId = poi.matchStatus === 'suggested' ? poi.suggestedHotelId : poi.bestCandidateId
     const hotelName = poi.matchStatus === 'suggested' ? poi.suggestedHotelName : poi.bestCandidateName

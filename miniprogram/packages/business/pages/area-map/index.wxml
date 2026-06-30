@@ -52,8 +52,8 @@
       <input class="setting-input" type="number" value="{{searchRadius}}" bind:input="onRadiusChange" />
     </view>
     <view class="setting-item">
-      <text class="setting-label">匹配阈值</text>
-      <input class="setting-input" type="digit" value="{{matchThreshold}}" bind:input="onThresholdChange" />
+      <text class="setting-label">建议阈值</text>
+      <input class="setting-input" type="digit" value="{{suggestThreshold}}" bind:input="onThresholdChange" />
       <text class="setting-hint">0~1，越高越严格</text>
     </view>
   </view>
@@ -142,12 +142,13 @@
         <text class="match-icon">⚪</text>
         <view class="match-text">
           <text class="match-title">未匹配到内部客户</text>
-          <text class="match-sub" wx:if="{{selectedPoi.bestCandidateName}}">最接近：{{selectedPoi.bestCandidateName}}（{{selectedPoi.matchScore.total * 100}}%）</text>
+          <text class="match-sub" wx:if="{{selectedPoi.bestCandidateName && selectedPoi.bestCandidateTaken}}">最接近：{{selectedPoi.bestCandidateName}}（已被占用·1:1）</text>
+          <text class="match-sub" wx:elif="{{selectedPoi.bestCandidateName}}">最接近：{{selectedPoi.bestCandidateName}}（{{selectedPoi.matchScore.total * 100}}%，未达阈值）</text>
           <text class="match-sub" wx:else>该区域暂无相近客户</text>
         </view>
       </view>
 
-      <!-- 匹配度明细 -->
+      <!-- 匹配度明细（名称 + 距离 + 地址；缺失维度不计权重） -->
       <view class="score-detail" wx:if="{{selectedPoi.matchStatus !== 'bound' && selectedPoi.matchScore}}">
         <view class="score-row">
           <text class="score-label">名称</text>
@@ -155,19 +156,14 @@
           <text class="score-val">{{selectedPoi.matchScore.name * 100}}%</text>
         </view>
         <view class="score-row">
-          <text class="score-label">电话</text>
-          <view class="score-bar"><view class="score-fill" style="width:{{selectedPoi.matchScore.phone * 100}}%"></view></view>
-          <text class="score-val">{{selectedPoi.matchScore.phone * 100}}%</text>
-        </view>
-        <view class="score-row">
           <text class="score-label">距离</text>
-          <view class="score-bar"><view class="score-fill" style="width:{{selectedPoi.matchScore.coordinate * 100}}%"></view></view>
-          <text class="score-val">{{selectedPoi.matchScore.coordinate * 100}}%</text>
+          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedCoordinate ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.coordinate * 100}}%"></view></view>
+          <text class="score-val">{{selectedPoi.matchScore.usedCoordinate ? selectedPoi.matchScore.coordinate * 100 + '%' : '—'}}</text>
         </view>
         <view class="score-row">
           <text class="score-label">地址</text>
-          <view class="score-bar"><view class="score-fill" style="width:{{selectedPoi.matchScore.address * 100}}%"></view></view>
-          <text class="score-val">{{selectedPoi.matchScore.address * 100}}%</text>
+          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedAddress ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.address * 100}}%"></view></view>
+          <text class="score-val">{{selectedPoi.matchScore.usedAddress ? selectedPoi.matchScore.address * 100 + '%' : '—'}}</text>
         </view>
       </view>
 
@@ -191,8 +187,8 @@
       <view class="detail-actions">
         <view class="action-btn ghost" bind:tap="onNavigateTo">导航</view>
         <view class="action-btn primary" wx:if="{{selectedPoi.matchStatus === 'suggested'}}" bind:tap="onConfirmBind">确认绑定</view>
-        <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
         <view class="action-btn danger" wx:elif="{{selectedPoi.matchStatus === 'bound'}}" bind:tap="onUnbind">解除绑定</view>
+        <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId && !selectedPoi.bestCandidateTaken}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
       </view>
     </block>
   </view>

@@ -18,10 +18,6 @@ function geocode(address, city) {
   return callFunction('geocode', { address, city })
 }
 
-function batchGeocode(addresses) {
-  return callFunction('batchGeocode', { addresses })
-}
-
 function searchPOI(params) {
   return callFunction('searchPOI', params)
 }
@@ -46,6 +42,10 @@ function batchMatch(params = {}) {
   return callFunction('batchMatch', params)
 }
 
+function saveHotelFromPOI(data) {
+  return callFunction('saveHotelFromPOI', data)
+}
+
 function saveHotel(data) {
   return callFunction('saveHotel', data)
 }
@@ -64,13 +64,13 @@ function deleteHotel(hotelId) {
 
 module.exports = {
   geocode,
-  batchGeocode,
   searchPOI,
   searchAndMatch,
   bindPOI,
   unbindPOI,
   listBindings,
   batchMatch,
+  saveHotelFromPOI,
   saveHotel,
   updateHotel,
   listHotels,
