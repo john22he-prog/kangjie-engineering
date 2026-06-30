@@ -2501,6 +2501,7 @@ async function getDashboardAssetDetail(db, data, meUser) {
 async function getDashboardAssetAlerts(db, data, meUser) {
   const { assetId } = data
   if (!assetId) return { ok: false, error: { code: 'VALIDATION_FAILED', message: '缺少 assetId' } }
+  const ym = data.yearMonth || (data.yearMonths ? null : new Date().toISOString().slice(0, 7))
   const where = { assetId, status: 'OPEN' }
   Object.assign(where, buildTimeQuery(data))
   const { data: rawAlerts } = await db.collection('alerts').where(where).limit(1000).get()
