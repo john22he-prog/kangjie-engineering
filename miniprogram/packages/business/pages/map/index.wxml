@@ -21,6 +21,9 @@
       <view class="toolbar-btn" bind:tap="onIncludePoints">
         <text>全部显示</text>
       </view>
+      <view class="toolbar-btn" bind:tap="onGoAreaMap">
+        <text>片区匹配</text>
+      </view>
       <view class="toolbar-btn primary" bind:tap="onGoManage">
         <text>管理酒店</text>
       </view>

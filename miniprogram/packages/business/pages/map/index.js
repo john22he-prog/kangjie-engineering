@@ -113,6 +113,10 @@ Page({
     wx.navigateTo({ url: '/packages/business/pages/hotel-manage/index' })
   },
 
+  onGoAreaMap() {
+    wx.navigateTo({ url: '/packages/business/pages/area-map/index' })
+  },
+
   onIncludePoints() {
     if (this.data.markers.length === 0) return
     const mapCtx = wx.createMapContext('hotelMap', this)

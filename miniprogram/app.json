@@ -59,7 +59,8 @@
       "name": "business",
       "pages": [
         "pages/map/index",
-        "pages/hotel-manage/index"
+        "pages/hotel-manage/index",
+        "pages/area-map/index"
       ]
     }
   ],

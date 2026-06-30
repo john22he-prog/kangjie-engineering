@@ -38,6 +38,7 @@ alwaysApply: true
 |------|------|
 | packages/business/pages/map/ | 业务地图（酒店标注+导航） |
 | packages/business/pages/hotel-manage/ | 酒店管理（增删改+地理编码） |
+| packages/business/pages/area-map/ | 片区态势图（画区域/周边搜索高德POI+智能匹配内部客户+绑定） |
 | packages/business/utils/api.js | 业务部API封装 |
 
 ### 公共模块 (utils/ & components/)

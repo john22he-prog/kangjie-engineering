@@ -232,7 +232,7 @@
       "config": {
         "runtime": "Nodejs16.13",
         "handler": "index.main",
-        "timeout": 15,
+        "timeout": 60,
         "installDependency": true,
         "envVariables": {
           "AMAP_KEY": "YOUR_AMAP_WEB_SERVICE_KEY"
