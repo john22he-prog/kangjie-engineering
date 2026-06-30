@@ -1,0 +1,64 @@
+<view class="review-page">
+  <!-- 顶部统计 -->
+  <view class="review-header">
+    <view class="review-stats">
+      <view class="rs-item">
+        <text class="rs-num">{{stats.total}}</text>
+        <text class="rs-label">待匹配客户</text>
+      </view>
+      <view class="rs-item">
+        <text class="rs-num suggest">{{stats.matched}}</text>
+        <text class="rs-label">有建议</text>
+      </view>
+      <view class="rs-item">
+        <text class="rs-num high">{{stats.high}}</text>
+        <text class="rs-label">高分(≥80%)</text>
+      </view>
+    </view>
+    <view class="accept-all-btn {{stats.high > 0 ? '' : 'disabled'}}" bind:tap="onAcceptAllHigh">一键接受高分</view>
+  </view>
+
+  <view class="review-tip">说明：系统按客户名称自动搜索高德 POI 并给出最优 1:1 建议。请逐条复核后绑定；接受后即建立绑定，下次搜索精确命中。</view>
+
+  <view class="loading-tip" wx:if="{{loading}}">批量匹配中，请稍候...</view>
+
+  <view class="empty-tip" wx:if="{{!loading && results.length === 0}}">
+    <text>暂无待匹配客户（可能均已绑定）</text>
+  </view>
+
+  <!-- 结果列表 -->
+  <view class="review-list">
+    <view class="review-card" wx:for="{{results}}" wx:key="hotelId">
+      <view class="card-head">
+        <text class="hotel-name">{{item.hotelName}}</text>
+        <view class="level-tag high" wx:if="{{item.matchLevel === 'high'}}">高 {{item.scorePct}}%</view>
+        <view class="level-tag medium" wx:elif="{{item.matchLevel === 'medium'}}">建议 {{item.scorePct}}%</view>
+        <view class="level-tag none" wx:else>无匹配</view>
+      </view>
+      <view class="hotel-addr" wx:if="{{item.hotelAddress}}">内部地址：{{item.hotelAddress}}</view>
+
+      <view class="poi-box" wx:if="{{item.bestPoi}}">
+        <view class="poi-arrow">⇣ 高德最佳匹配</view>
+        <view class="poi-name">{{item.bestPoi.name}}</view>
+        <view class="poi-addr">{{item.bestPoi.address || '—'}}</view>
+        <view class="poi-tel" wx:if="{{item.bestPoi.tel}}">📞 {{item.bestPoi.tel}}</view>
+      </view>
+      <view class="poi-box empty" wx:else>
+        <text>未搜到合适的高德 POI</text>
+      </view>
+
+      <view class="card-actions">
+        <block wx:if="{{item.accepted}}">
+          <view class="status-done">✅ 已绑定</view>
+        </block>
+        <block wx:elif="{{item.ignored}}">
+          <view class="status-ignored">已忽略</view>
+        </block>
+        <block wx:else>
+          <view class="act-btn ghost" bind:tap="onIgnore" data-index="{{index}}">忽略</view>
+          <view class="act-btn primary {{item.bestPoi ? '' : 'disabled'}}" wx:if="{{item.bestPoi}}" bind:tap="onAccept" data-index="{{index}}">接受并绑定</view>
+        </block>
+      </view>
+    </view>
+  </view>
+</view>

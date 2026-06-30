@@ -28,7 +28,19 @@ Page({
     // POI 结果
     pois: [],
     poiTotal: 0,
+    poiMarkers: [],
     stats: { total: 0, bound: 0, suggested: 0, unmatched: 0 },
+
+    // 分页
+    currentPage: 1,
+    hasMore: false,
+    loadingMore: false,
+
+    // 我方客户图层（盲区）
+    showHotelLayer: false,
+    hotelLayer: [],
+    hotelMarkers: [],
+    blindCount: 0,
 
     // 详情面板
     showDetail: false,
@@ -182,7 +194,13 @@ Page({
       polyline: [],
       polygons: [],
       markers: [],
+      poiMarkers: [],
+      hotelMarkers: [],
       pois: [],
+      filteredPois: [],
+      hotelLayer: [],
+      blindCount: 0,
+      hasMore: false,
       stats: { total: 0, bound: 0, suggested: 0, unmatched: 0 }
     })
   },
@@ -216,82 +234,102 @@ Page({
     }
   },
 
-  async _doSearch() {
+  _buildSearchParams(page) {
     const { searchKeywords, searchCity, searchRadius, searchMode, drawPoints, suggestThreshold } = this.data
+    const params = {
+      keywords: searchKeywords,
+      city: searchCity,
+      types: POI_TYPES,
+      suggestThreshold,
+      page,
+      pageSize: 25
+    }
+    if (searchMode === 'draw' && drawPoints.length >= 3) {
+      params.polygon = drawPoints.map(p => `${p.longitude},${p.latitude}`).join('|')
+    } else {
+      params.location = `${this.data.longitude},${this.data.latitude}`
+      params.radius = searchRadius
+    }
+    return params
+  },
 
-    if (!searchKeywords) {
+  _poiMarker(p, idx) {
+    let bgColor = '#999'
+    if (p.matchStatus === 'bound') bgColor = '#07C160'
+    else if (p.matchStatus === 'suggested') bgColor = '#E6A23C'
+    return {
+      id: idx,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      title: p.name,
+      width: 28,
+      height: 36,
+      anchor: { x: 0.5, y: 1 },
+      callout: {
+        content: this._getCalloutText(p),
+        color: '#333', fontSize: 12, borderRadius: 8,
+        borderWidth: 1, borderColor: bgColor, bgColor: '#fff',
+        padding: 6, display: 'BYCLICK', textAlign: 'left'
+      }
+    }
+  },
+
+  // 我方客户图层标记（盲区客户用紫色突出）
+  _buildHotelMarkers(hotelLayer) {
+    if (!this.data.showHotelLayer) return []
+    return (hotelLayer || [])
+      .filter(h => !h.matchedHere)
+      .map((h, i) => ({
+        id: 50000 + i,
+        latitude: h.latitude,
+        longitude: h.longitude,
+        width: 22,
+        height: 22,
+        anchor: { x: 0.5, y: 0.5 },
+        callout: {
+          content: (h.bound ? '🔒 ' : '🏠 ') + h.name + (h.bound ? '' : '（盲区）'),
+          color: '#fff', fontSize: 12, borderRadius: 8,
+          bgColor: h.bound ? '#909399' : '#8E44AD',
+          padding: 6, display: 'BYCLICK', textAlign: 'left'
+        }
+      }))
+  },
+
+  _syncMarkers() {
+    this.setData({ markers: [...this.data.poiMarkers, ...this.data.hotelMarkers] })
+  },
+
+  async _doSearch() {
+    if (!this.data.searchKeywords) {
       wx.showToast({ title: '请输入搜索关键词', icon: 'none' })
       return
     }
-
-    this.setData({ loading: true, showSettings: false })
+    this.setData({ loading: true, showSettings: false, currentPage: 1 })
     wx.showLoading({ title: '搜索匹配中...' })
-
     try {
-      const params = {
-        keywords: searchKeywords,
-        city: searchCity,
-        types: POI_TYPES,
-        suggestThreshold,
-        pageSize: 50
-      }
-
-      if (searchMode === 'draw' && drawPoints.length >= 3) {
-        params.polygon = drawPoints.map(p => `${p.longitude},${p.latitude}`).join('|')
-      } else {
-        params.location = `${this.data.longitude},${this.data.latitude}`
-        params.radius = searchRadius
-      }
-
-      const result = await api.searchAndMatch(params)
-
-      const markers = (result.pois || [])
-        .filter(p => p.latitude && p.longitude)
-        .map((p, idx) => {
-          let bgColor = '#999'
-          if (p.matchStatus === 'bound') {
-            bgColor = '#07C160'
-          } else if (p.matchStatus === 'suggested') {
-            bgColor = '#E6A23C'
-          }
-
-          return {
-            id: idx,
-            latitude: p.latitude,
-            longitude: p.longitude,
-            title: p.name,
-            width: 28,
-            height: 36,
-            anchor: { x: 0.5, y: 1 },
-            callout: {
-              content: this._getCalloutText(p),
-              color: '#333',
-              fontSize: 12,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: bgColor,
-              bgColor: '#fff',
-              padding: 6,
-              display: 'BYCLICK',
-              textAlign: 'left'
-            }
-          }
-        })
+      const result = await api.searchAndMatch(this._buildSearchParams(1))
+      const pois = result.pois || []
+      const poiMarkers = pois.filter(p => p.latitude && p.longitude).map((p, idx) => this._poiMarker(p, idx))
+      const hotelLayer = result.hotelLayer || []
 
       this.setData({
-        pois: result.pois || [],
+        pois,
         poiTotal: result.total || 0,
         stats: result.stats || { total: 0, bound: 0, suggested: 0, unmatched: 0 },
-        markers,
+        poiMarkers,
+        hotelLayer,
+        blindCount: result.blindCount || 0,
+        hasMore: pois.length < (result.total || 0),
         loading: false
       })
+      this.setData({ hotelMarkers: this._buildHotelMarkers(hotelLayer) })
+      this._syncMarkers()
       this._refreshFiltered()
-
       wx.hideLoading()
 
       const { bound, suggested } = result.stats || {}
       wx.showToast({
-        title: `${result.pois.length}条结果 | 已绑${bound} 建议${suggested}`,
+        title: `${pois.length}条 | 已绑${bound} 建议${suggested} 盲区${result.blindCount || 0}`,
         icon: 'none',
         duration: 2500
       })
@@ -301,6 +339,42 @@ Page({
       wx.showToast({ title: err.message || '搜索失败', icon: 'none' })
       this.setData({ loading: false })
     }
+  },
+
+  async onLoadMore() {
+    if (!this.data.hasMore || this.data.loadingMore) return
+    const nextPage = this.data.currentPage + 1
+    this.setData({ loadingMore: true })
+    try {
+      const result = await api.searchAndMatch(this._buildSearchParams(nextPage))
+      const newPois = result.pois || []
+      const merged = [...this.data.pois, ...newPois]
+      const poiMarkers = merged.filter(p => p.latitude && p.longitude).map((p, idx) => this._poiMarker(p, idx))
+      this.setData({
+        pois: merged,
+        poiMarkers,
+        currentPage: nextPage,
+        stats: result.stats || this.data.stats,
+        hotelLayer: result.hotelLayer || this.data.hotelLayer,
+        blindCount: result.blindCount || this.data.blindCount,
+        hasMore: merged.length < (result.total || 0),
+        loadingMore: false
+      })
+      this.setData({ hotelMarkers: this._buildHotelMarkers(this.data.hotelLayer) })
+      this._syncMarkers()
+      this._refreshFiltered()
+    } catch (err) {
+      console.error('[onLoadMore]', err)
+      wx.showToast({ title: '加载更多失败', icon: 'none' })
+      this.setData({ loadingMore: false })
+    }
+  },
+
+  onToggleHotelLayer() {
+    const next = !this.data.showHotelLayer
+    this.setData({ showHotelLayer: next })
+    this.setData({ hotelMarkers: this._buildHotelMarkers(this.data.hotelLayer) })
+    this._syncMarkers()
   },
 
   _getCalloutText(poi) {
@@ -320,6 +394,7 @@ Page({
 
   onMarkerTap(e) {
     const idx = e.markerId
+    if (idx >= 50000) return // 我方客户图层标记，仅展示 callout
     const poi = this.data.pois[idx]
     if (poi) {
       this.setData({ selectedPoi: poi, showDetail: true })
@@ -457,6 +532,10 @@ Page({
   },
 
   // ─── 全部显示 ───
+
+  onGoReview() {
+    wx.navigateTo({ url: '/packages/business/pages/match-review/index' })
+  },
 
   onFitMarkers() {
     if (this.data.markers.length === 0) return

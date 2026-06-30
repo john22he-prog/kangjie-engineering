@@ -60,7 +60,8 @@
       "pages": [
         "pages/map/index",
         "pages/hotel-manage/index",
-        "pages/area-map/index"
+        "pages/area-map/index",
+        "pages/match-review/index"
       ]
     }
   ],

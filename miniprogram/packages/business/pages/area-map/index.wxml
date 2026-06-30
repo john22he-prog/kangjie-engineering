@@ -79,6 +79,8 @@
 
   <!-- 右下角操作 -->
   <view class="float-actions">
+    <view class="float-btn {{showHotelLayer ? 'active' : ''}}" bind:tap="onToggleHotelLayer">客户<text wx:if="{{blindCount > 0}}" class="float-badge">{{blindCount}}</text></view>
+    <view class="float-btn" wx:if="{{canManage}}" bind:tap="onGoReview">复核</view>
     <view class="float-btn" bind:tap="onFitMarkers" wx:if="{{markers.length > 0}}">全部</view>
   </view>
 
@@ -111,6 +113,9 @@
         </view>
       </view>
       <view class="list-empty" wx:if="{{filteredPois.length === 0}}">暂无数据</view>
+      <view class="load-more" wx:if="{{hasMore && activeTab === 'all'}}" bind:tap="onLoadMore">
+        {{loadingMore ? '加载中...' : '加载更多 POI'}}
+      </view>
     </scroll-view>
   </view>
 

@@ -443,6 +443,24 @@ async function handleSearchAndMatch(event) {
     unmatched: matchedPois.filter(p => p.matchStatus === 'unmatched').length
   }
 
+  // 我方客户图层：本次搜索命中（已绑/被建议）的客户 id 集合，其余即"盲区客户"
+  const matchedHotelIds = new Set()
+  matchedPois.forEach(p => {
+    if (p.boundHotelId) matchedHotelIds.add(p.boundHotelId)
+    if (p.suggestedHotelId) matchedHotelIds.add(p.suggestedHotelId)
+  })
+  const hotelLayer = hotels
+    .filter(h => h.latitude != null && h.longitude != null)
+    .map(h => ({
+      hotelId: h._id,
+      name: h.name,
+      latitude: h.latitude,
+      longitude: h.longitude,
+      bound: !!h.amapPoiId,
+      matchedHere: matchedHotelIds.has(h._id)
+    }))
+  const blindCount = hotelLayer.filter(h => !h.matchedHere && !h.bound).length
+
   return {
     code: 0,
     data: {
@@ -452,7 +470,9 @@ async function handleSearchAndMatch(event) {
       pageSize: poiResult.pageSize,
       stats,
       hotelCount: hotels.length,
-      unboundHotelCount: unboundHotels.length
+      unboundHotelCount: unboundHotels.length,
+      hotelLayer,
+      blindCount
     }
   }
 }

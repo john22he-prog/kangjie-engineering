@@ -38,7 +38,8 @@ alwaysApply: true
 |------|------|
 | packages/business/pages/map/ | 业务地图（酒店标注+导航） |
 | packages/business/pages/hotel-manage/ | 酒店管理（增删改+地理编码） |
-| packages/business/pages/area-map/ | 片区态势图（画区域/周边搜索高德POI+智能匹配内部客户+严格1:1绑定） |
+| packages/business/pages/area-map/ | 片区态势图（画区域/周边搜索高德POI+智能匹配内部客户+严格1:1绑定+我方客户盲区图层+POI分页） |
+| packages/business/pages/match-review/ | 批量匹配复核（按客户名批量搜POI给1:1建议，逐条/一键接受高分） |
 | packages/business/pages/hotel-manage/ 录入 | 支持「POI搜索建档(推荐,精确)」与「手动地址录入(地理编码兜底)」两种方式 |
 | packages/business/utils/api.js | 业务部API封装 |
 
