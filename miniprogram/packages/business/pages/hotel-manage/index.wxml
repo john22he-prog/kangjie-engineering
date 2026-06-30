@@ -5,7 +5,7 @@
 
     <view class="page-header">
       <text class="page-title">酒店管理</text>
-      <view class="add-btn" bind:tap="onShowAdd">+ 添加酒店</view>
+      <view class="add-btn" wx:if="{{canManage}}" bind:tap="onShowAdd">+ 添加酒店</view>
     </view>
 
     <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
@@ -30,7 +30,7 @@
           <text class="coord-tag poi" wx:if="{{item.locateSource === 'poi'}}">POI精确</text>
         </view>
       </view>
-      <view class="hotel-actions">
+      <view class="hotel-actions" wx:if="{{canManage}}">
         <view class="action-link" bind:tap="onEdit" data-hotel="{{item}}">编辑</view>
         <view class="action-link danger" bind:tap="onDelete" data-hotel="{{item}}">删除</view>
       </view>

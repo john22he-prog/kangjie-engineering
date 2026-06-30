@@ -4,6 +4,8 @@ const https = require('https')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
+const { migratePermissions, hasPermission, PERMISSIONS, ACTION_PERMISSION_MAP } = require('./permissions')
+
 const AMAP_KEY = process.env.AMAP_KEY || ''
 
 // 匹配阈值（可被入参覆盖）
@@ -457,7 +459,7 @@ async function handleSearchAndMatch(event) {
 
 // ─────────────────────────── Action: 绑定（严格 1:1） ───────────────────────────
 
-async function handleBindPOI(event) {
+async function handleBindPOI(event, user) {
   const { poiId, poiName, hotelId, hotelName, poiData } = event
   if (!poiId || !hotelId) return { code: 400, message: '缺少 poiId 或 hotelId' }
 
@@ -489,6 +491,8 @@ async function handleBindPOI(event) {
     hotelName: hotelName || '',
     poiData: poiData || {},
     status: 'active',
+    boundByUserId: user ? user.userId : '',
+    boundByName: user ? user.displayName : '',
     createdAt: db.serverDate(),
     updatedAt: db.serverDate()
   }
@@ -647,7 +651,7 @@ async function handleBatchMatch(event) {
 // ─────────────────────────── Action: 内部客户 CRUD ───────────────────────────
 
 // POI 优先录入：直接用选定的高德 POI 建档（坐标精确、带 amapPoiId）
-async function handleSaveHotelFromPOI(event) {
+async function handleSaveHotelFromPOI(event, user) {
   const { poi, contact, remark, autoBind = true } = event
   if (!poi || !poi.name) return { code: 400, message: '缺少 POI 信息' }
 
@@ -675,6 +679,8 @@ async function handleSaveHotelFromPOI(event) {
     locateSource: 'poi',
     geoLevel: 'poi',
     status: 'active',
+    createdByUserId: user ? user.userId : '',
+    createdByName: user ? user.displayName : '',
     createdAt: db.serverDate(),
     updatedAt: db.serverDate()
   }
@@ -688,6 +694,8 @@ async function handleSaveHotelFromPOI(event) {
         poiId: poi.id, poiName: poi.name,
         hotelId: res._id, hotelName: poi.name,
         poiData: poi, status: 'active',
+        boundByUserId: user ? user.userId : '',
+        boundByName: user ? user.displayName : '',
         createdAt: db.serverDate(), updatedAt: db.serverDate()
       }
     })
@@ -796,6 +804,37 @@ async function handleDeleteHotel(event) {
   return { code: 0, message: '已删除' }
 }
 
+// ─────────────────────────── 鉴权 ───────────────────────────
+
+// 始终以 getWXContext 的 openid 为准，不信任前端传入
+async function getCurrentUser() {
+  const wxContext = cloud.getWXContext()
+  const openid = wxContext.OPENID
+  if (!openid) return null
+  const { data } = await db.collection('users').where({ openid }).limit(1).get()
+  if (data.length === 0) return null
+  const user = data[0]
+  if (user.status === 'disabled') return { ...user, _disabled: true }
+  user.permissions = migratePermissions(user)
+  return user
+}
+
+// 校验当前用户是否有执行该 action 的权限
+async function authorize(action) {
+  const required = ACTION_PERMISSION_MAP[action] || PERMISSIONS.BUSINESS_VIEW
+  const user = await getCurrentUser()
+  if (!user) {
+    return { ok: false, res: { code: 401, message: '未绑定账号或无法识别身份，请联系管理员' } }
+  }
+  if (user._disabled) {
+    return { ok: false, res: { code: 403, message: '账号已被禁用' } }
+  }
+  if (!hasPermission(user.permissions, required)) {
+    return { ok: false, res: { code: 403, message: '无权限执行该操作（需业务部权限）' } }
+  }
+  return { ok: true, user }
+}
+
 // ─────────────────────────── 入口路由 ───────────────────────────
 
 exports.main = async (event) => {
@@ -821,7 +860,9 @@ exports.main = async (event) => {
   }
 
   try {
-    return await handlers[action](payload)
+    const auth = await authorize(action)
+    if (!auth.ok) return auth.res
+    return await handlers[action](payload, auth.user)
   } catch (err) {
     console.error(`[business-geocode] ${action} 错误:`, err)
     if (err.code && err.message) return { code: err.code, message: err.message }

@@ -1,5 +1,7 @@
 const app = getApp()
 const api = require('../../utils/api')
+const auth = require('../../../../utils/auth')
+const { PERMISSIONS } = require('../../../../utils/permissions')
 
 const POI_TYPES = '100000|120000'
 
@@ -39,11 +41,23 @@ Page({
     filteredPois: [],
 
     // 搜索设置面板
-    showSettings: false
+    showSettings: false,
+
+    canManage: false
   },
 
   async onLoad() {
     await app.waitForLogin()
+    if (!auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)) {
+      wx.showModal({
+        title: '无权限',
+        content: '您没有业务部访问权限，请联系管理员',
+        showCancel: false,
+        success: () => wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/company/index' }) })
+      })
+      return
+    }
+    this.setData({ canManage: auth.hasPermission(PERMISSIONS.BUSINESS_MANAGE) })
     this._getUserLocation()
   },
 

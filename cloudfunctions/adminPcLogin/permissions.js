@@ -5,6 +5,11 @@ const PERMISSIONS = {
   MODULE_ENGINEERING: 'module:engineering',
   MODULE_BOILER: 'module:boiler',
   MODULE_COMPANY: 'module:company',
+  MODULE_BUSINESS: 'module:business',
+
+  // 业务部（酒店/POI 匹配绑定）
+  BUSINESS_VIEW: 'business:view',
+  BUSINESS_MANAGE: 'business:manage',
 
   // 工程部 - 记录与巡检
   RECORD_WRITE: 'record:write',
@@ -151,6 +156,16 @@ var ROLE_TEMPLATES = {
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.AI_USE,
     PERMISSIONS.PC_LOGIN,
+  ],
+  Business: [
+    PERMISSIONS.MODULE_COMPANY,
+    PERMISSIONS.MODULE_BUSINESS,
+    PERMISSIONS.BUSINESS_VIEW,
+    PERMISSIONS.BUSINESS_MANAGE,
+  ],
+  BusinessViewer: [
+    PERMISSIONS.MODULE_BUSINESS,
+    PERMISSIONS.BUSINESS_VIEW,
   ],
 }
 

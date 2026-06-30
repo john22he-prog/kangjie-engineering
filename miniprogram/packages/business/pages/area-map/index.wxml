@@ -186,9 +186,11 @@
       <!-- 操作按钮 -->
       <view class="detail-actions">
         <view class="action-btn ghost" bind:tap="onNavigateTo">导航</view>
-        <view class="action-btn primary" wx:if="{{selectedPoi.matchStatus === 'suggested'}}" bind:tap="onConfirmBind">确认绑定</view>
-        <view class="action-btn danger" wx:elif="{{selectedPoi.matchStatus === 'bound'}}" bind:tap="onUnbind">解除绑定</view>
-        <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId && !selectedPoi.bestCandidateTaken}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
+        <block wx:if="{{canManage}}">
+          <view class="action-btn primary" wx:if="{{selectedPoi.matchStatus === 'suggested'}}" bind:tap="onConfirmBind">确认绑定</view>
+          <view class="action-btn danger" wx:elif="{{selectedPoi.matchStatus === 'bound'}}" bind:tap="onUnbind">解除绑定</view>
+          <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId && !selectedPoi.bestCandidateTaken}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
+        </block>
       </view>
     </block>
   </view>

@@ -77,7 +77,7 @@
   </view>
 
   <!-- 业务部 -->
-  <view class="co-dept" bindtap="onGoBusiness">
+  <view class="co-dept" wx:if="{{canBusiness}}" bindtap="onGoBusiness">
     <view class="co-dept-left">
       <view class="co-dept-icon" style="background:#409EFF;">业</view>
       <view class="co-dept-text">

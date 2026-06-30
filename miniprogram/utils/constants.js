@@ -15,7 +15,9 @@ const ROLES = {
   VIEWER: 'Viewer',
   SUPERVISOR: 'Supervisor',
   MANAGEMENT: 'Management',
-  ADMIN: 'Admin'
+  ADMIN: 'Admin',
+  BUSINESS: 'Business',
+  BUSINESS_VIEWER: 'BusinessViewer'
 }
 
 // 报警状态
