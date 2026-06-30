@@ -8,6 +8,11 @@ const { migratePermissions, hasPermission, PERMISSIONS, ACTION_PERMISSION_MAP } 
 
 const AMAP_KEY = process.env.AMAP_KEY || ''
 
+// 内部受信任调用令牌（pcGateway 已完成 JWT 鉴权后转发时使用）
+// 同环境下两个云函数计算出相同默认值，无需额外配置即可工作；也可用环境变量覆盖
+const INTERNAL_CALL_TOKEN = process.env.INTERNAL_CALL_TOKEN ||
+  ('kangjie-internal-' + (process.env.TCB_ENV || 'dev'))
+
 // 匹配阈值（可被入参覆盖）
 const DEFAULT_SUGGEST_THRESHOLD = 0.55   // 达到此分才作为"建议匹配"
 const DEFAULT_HIGH_THRESHOLD = 0.8       // 达到此分为"强烈建议"
@@ -840,8 +845,19 @@ async function getCurrentUser() {
 }
 
 // 校验当前用户是否有执行该 action 的权限
-async function authorize(action) {
+async function authorize(action, payload) {
   const required = ACTION_PERMISSION_MAP[action] || PERMISSIONS.BUSINESS_VIEW
+
+  // 受信任的内部调用（来自 pcGateway，调用方已通过 JWT 鉴权）
+  if (payload && payload._internalToken && payload._internalToken === INTERNAL_CALL_TOKEN) {
+    const iu = payload._internalUser || {}
+    const perms = iu.permissions || []
+    if (!hasPermission(perms, required)) {
+      return { ok: false, res: { code: 403, message: '无权限执行该操作（需业务部权限）' } }
+    }
+    return { ok: true, user: { userId: iu.userId || '', displayName: iu.displayName || '', permissions: perms } }
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return { ok: false, res: { code: 401, message: '未绑定账号或无法识别身份，请联系管理员' } }
@@ -880,7 +896,7 @@ exports.main = async (event) => {
   }
 
   try {
-    const auth = await authorize(action)
+    const auth = await authorize(action, payload)
     if (!auth.ok) return auth.res
     return await handlers[action](payload, auth.user)
   } catch (err) {

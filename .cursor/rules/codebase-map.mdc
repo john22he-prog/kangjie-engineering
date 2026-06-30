@@ -76,7 +76,11 @@ alwaysApply: true
 - boiler-auth/: 登录+用户+配置
 
 ### 业务部（1个合并函数）
-- business-geocode/: 地理编码+酒店CRUD（高德API地址→经纬度转换）
+- business-geocode/: 地理编码+POI检索+智能匹配引擎+客户CRUD+POI绑定（严格1:1）
+  - 匹配维度：名称(0.6)+坐标(0.25)+地址(0.15)，缺失维度按比例重分配权重
+  - action: geocode/searchPOI/searchAndMatch/listHotels/listBindings/bindPOI/unbindPOI/batchMatch/saveHotelFromPOI/saveHotel/updateHotel/deleteHotel
+  - 鉴权：默认走 getWXContext(OPENID)；支持 pcGateway 内部信任令牌(INTERNAL_CALL_TOKEN)免 OPENID 调用
+  - 权限：读=business:view，写=business:manage
 
 ## PC管理后台 (pc-admin/)
 
@@ -97,7 +101,9 @@ alwaysApply: true
 | src/utils/mock-data.js | Mock测试数据 |
 
 ### 页面模块
-views/login/, views/company/, views/dashboard/, views/records/, views/alerts/, views/assets/, views/parts/, views/thresholds/, views/users/, views/factories/, views/inventory/, views/inspection/, views/settings/ai, views/boiler/(dashboard/records/trend/alerts)
+views/login/, views/company/, views/dashboard/, views/records/, views/alerts/, views/assets/, views/parts/, views/thresholds/, views/users/, views/factories/, views/inventory/, views/inspection/, views/settings/ai, views/boiler/(dashboard/records/trend/alerts), views/business/(hotels客户档案/match片区匹配复核)
+
+> 业务部 PC 端：pcGateway 收到 business action 后用 INTERNAL_CALL_TOKEN 转发到 business-geocode（JWT→内部信任，复用同一匹配引擎）。四种 api 模式均提供 bizXxx 方法。
 
 ## PC网关 (pc-server/)
 index.js — Express网关，管理access_token，转发到adminPcLogin/pcGateway

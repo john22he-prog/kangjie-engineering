@@ -210,4 +210,18 @@ export const httpApi = {
     return call("getDailyTimeline", { date, factoryId: factoryId || undefined })
   },
 
+  // ====== 业务部模块（地图/POI 匹配） ======
+  async bizGeocode(address, city) { return call('geocode', { address, city }) },
+  async bizSearchPOI(params = {}) { return call('searchPOI', params) },
+  async bizSearchAndMatch(params = {}) { return call('searchAndMatch', params) },
+  async bizListHotels(params = {}) { return call('listHotels', params) },
+  async bizListBindings(params = {}) { return call('listBindings', params) },
+  async bizBatchMatch(params = {}) { return call('batchMatch', params) },
+  async bizBindPOI(data) { return call('bindPOI', data) },
+  async bizUnbindPOI(data) { return call('unbindPOI', data) },
+  async bizSaveHotelFromPOI(data) { return call('saveHotelFromPOI', data) },
+  async bizSaveHotel(data) { return call('saveHotel', data) },
+  async bizUpdateHotel(data) { return call('updateHotel', data) },
+  async bizDeleteHotel(hotelId) { return call('deleteHotel', { hotelId }) },
+
 }

@@ -130,6 +130,24 @@
         </el-card>
       </el-col>
 
+      <!-- 业务部 -->
+      <el-col v-if="canBusiness" :xs="24" :sm="12">
+        <el-card shadow="hover" class="dept-card" @click="$router.push('/business/match')">
+          <div class="dept-header">
+            <div class="dept-icon dept-icon-business">
+              <el-icon :size="28"><MapLocation /></el-icon>
+            </div>
+            <div class="dept-info">
+              <span class="dept-name">业务部</span>
+              <el-tag type="success" size="small" round>片区匹配</el-tag>
+            </div>
+          </div>
+          <div class="placeholder-body">
+            <p class="dept-desc">高德地图片区检索、POI 与内部客户智能匹配（严格 1:1 绑定）、批量复核与客户档案管理。</p>
+          </div>
+        </el-card>
+      </el-col>
+
       <!-- 生产部（预留） -->
       <el-col :xs="24" :sm="12">
         <el-card shadow="never" class="dept-card dept-card-placeholder">
@@ -210,13 +228,17 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { api } from '@/utils/api'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
+import { PERMISSIONS } from '@/utils/permissions'
 import {
   Monitor, Sunrise, Document, Box, Warning, Bell,
-  SetUp, Van, OfficeBuilding, Coin,
+  SetUp, Van, OfficeBuilding, Coin, MapLocation,
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const canBusiness = computed(() => authStore.hasPermission(PERMISSIONS.MODULE_BUSINESS))
 
 const currentMonth = ref(dayjs().format('YYYY年MM月'))
 
@@ -362,6 +384,17 @@ onMounted(loadData)
 
   .dept-icon-finance {
     background: linear-gradient(135deg, #E6A23C, #cf8a1e);
+  }
+
+  .dept-icon-business {
+    background: linear-gradient(135deg, #8e44ad, #5b2c91);
+  }
+
+  .dept-desc {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: #606266;
+    line-height: 1.6;
   }
 
   .dept-info {

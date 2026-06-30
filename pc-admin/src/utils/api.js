@@ -29,6 +29,16 @@ const clone = (obj) => JSON.parse(JSON.stringify(obj))
 
 // AI 分析配置（模拟 system_config，仅 Admin 可改）
 const _aiConfig = { apiKey: "", model: "gpt-4o-mini", prompts: {} }
+
+// ===== 业务部模块 mock 状态 =====
+const _bizHotels = [
+  { _id: 'hotel-b001', name: '锦江之星昆明店', address: '云南省昆明市五华区东风西路18号', latitude: 25.045, longitude: 102.705, contact: '李经理', amapPoiId: 'B0FF800201', boundPoiName: '锦江之星昆明店', bindingId: 'bind-b001', locateSource: 'poi', geoLevel: 'POI', status: 'active', createdAt: Date.now() - 86400000 },
+  { _id: 'hotel-b002', name: '如家酒店翠湖店', address: '云南省昆明市五华区翠湖南路', latitude: 25.052, longitude: 102.708, contact: '王店长', locateSource: 'manual', status: 'active', createdAt: Date.now() - 172800000 },
+  { _id: 'hotel-b003', name: '汉庭酒店火车站店', address: '云南省昆明市官渡区北京路', latitude: 25.012, longitude: 102.728, contact: '', locateSource: 'manual', status: 'active', createdAt: Date.now() - 259200000 },
+]
+const _bizBindings = [
+  { bindingId: 'bind-b001', poiId: 'B0FF800201', poiName: '锦江之星昆明店', hotelId: 'hotel-b001', hotelName: '锦江之星昆明店' },
+]
 // AI 报告历史：工程部与锅炉房完全独立存储，数据不串联
 let _aiReportHistoryEng = []
 let _aiReportHistoryBoiler = []
@@ -498,6 +508,131 @@ const mockApi = {
   async boilerAcknowledgeAlert(alertId) { await delay(); return { ok: true, data: { alertId, status: 'acknowledged' } } },
   async boilerResolveAlert(alertId, resolveNote) { await delay(); return { ok: true, data: { alertId, status: 'resolved' } } },
   async getFacilityOutboundSummary() { await delay(); return { ok: true, data: { totalQty: 0, totalCost: 0 } } },
+
+  // ====== 业务部模块 mock ======
+  async bizGeocode(address) {
+    await delay(200)
+    return { ok: true, data: { latitude: 25.04 + Math.random() * 0.1, longitude: 102.7 + Math.random() * 0.1, formattedAddress: address, level: '门牌号' } }
+  },
+  async bizSearchPOI(params = {}) {
+    await delay(300)
+    const kw = params.keywords || '酒店'
+    const page = params.page || 1, pageSize = params.pageSize || 25
+    const list = []
+    for (let i = 0; i < pageSize; i++) {
+      const n = (page - 1) * pageSize + i + 1
+      list.push({
+        id: `B0FF${String(1000 + n)}`, name: `${kw}${n}号店`,
+        address: `云南省昆明市${params.city || '五华区'}某路${n}号`,
+        latitude: 25.04 + Math.random() * 0.08, longitude: 102.70 + Math.random() * 0.08,
+        tel: '', type: '餐饮服务', typecode: '050000',
+      })
+    }
+    return { ok: true, data: { pois: list, total: 120, page, pageSize } }
+  },
+  async bizSearchAndMatch(params = {}) {
+    await delay(400)
+    const poiRes = await this.bizSearchPOI(params)
+    const hotelRes = await this.bizListHotels({})
+    const hotels = hotelRes.data.list
+    const pois = poiRes.data.pois.map((poi, idx) => {
+      const bound = _bizBindings.find(b => b.poiId === poi.id)
+      if (bound) {
+        return { ...poi, matchStatus: 'bound', matchLevel: 'bound', boundHotelId: bound.hotelId, boundHotelName: bound.hotelName, bindingId: bound.bindingId, matchScore: { total: 1, name: 1, coordinate: 1, address: 1 } }
+      }
+      const cand = hotels.find(h => !h.amapPoiId && h.name && poi.name.includes(h.name.slice(0, 2)))
+      if (cand && idx % 3 === 0) {
+        const total = 0.6 + Math.random() * 0.38
+        return { ...poi, matchStatus: 'suggested', matchLevel: total >= 0.8 ? 'high' : 'medium', suggestedHotelId: cand._id, suggestedHotelName: cand.name, matchScore: { total, name: total, coordinate: total * 0.9, address: total * 0.8 } }
+      }
+      return { ...poi, matchStatus: 'unmatched', matchLevel: 'none', matchScore: { total: 0.2, name: 0.2, coordinate: 0, address: 0 } }
+    })
+    const stats = { total: pois.length, bound: pois.filter(p => p.matchStatus === 'bound').length, suggested: pois.filter(p => p.matchStatus === 'suggested').length, unmatched: pois.filter(p => p.matchStatus === 'unmatched').length }
+    const hotelLayer = hotels.filter(h => h.latitude != null).map(h => ({ hotelId: h._id, name: h.name, latitude: h.latitude, longitude: h.longitude, bound: !!h.amapPoiId, matchedHere: pois.some(p => p.suggestedHotelId === h._id || p.boundHotelId === h._id) }))
+    return { ok: true, data: { pois, total: poiRes.data.total, page: poiRes.data.page, pageSize: poiRes.data.pageSize, stats, hotelCount: hotels.length, unboundHotelCount: hotels.filter(h => !h.amapPoiId).length, hotelLayer, blindCount: hotelLayer.filter(h => !h.matchedHere && !h.bound).length } }
+  },
+  async bizListHotels(params = {}) {
+    await delay(200)
+    let list = clone(_bizHotels).filter(h => h.status !== 'deleted')
+    if (params.onlyUnbound) list = list.filter(h => !h.amapPoiId)
+    return { ok: true, data: { list, total: list.length, page: 1, pageSize: list.length } }
+  },
+  async bizListBindings() {
+    await delay(150)
+    return { ok: true, data: { list: clone(_bizBindings), total: _bizBindings.length } }
+  },
+  async bizBatchMatch() {
+    await delay(600)
+    const unbound = _bizHotels.filter(h => h.status !== 'deleted' && !h.amapPoiId)
+    const results = unbound.map((h, i) => {
+      const total = i % 4 === 3 ? 0.4 : (0.55 + Math.random() * 0.4)
+      const suggested = total >= 0.55
+      return {
+        hotelId: h._id, hotelName: h.name, hotelAddress: h.address,
+        bestPoi: suggested ? { id: `B0FFM${i}`, name: `${h.name}（高德）`, address: h.address, latitude: h.latitude, longitude: h.longitude, tel: '' } : null,
+        matchScore: suggested ? { total, name: total, coordinate: total * 0.9, address: total * 0.8 } : null,
+        matchLevel: suggested ? (total >= 0.8 ? 'high' : 'medium') : 'none',
+        matchStatus: suggested ? 'suggested' : 'unmatched',
+      }
+    })
+    return { ok: true, data: { total: results.length, matched: results.filter(r => r.matchStatus === 'suggested').length, results } }
+  },
+  async bizBindPOI(data) {
+    await delay(200)
+    if (_bizBindings.some(b => b.poiId === data.poiId && b.hotelId !== data.hotelId)) return { ok: false, error: { code: 'CONFLICT', message: '该外部客户已绑定其他内部客户' } }
+    if (_bizBindings.some(b => b.hotelId === data.hotelId && b.poiId !== data.poiId)) return { ok: false, error: { code: 'CONFLICT', message: '该内部客户已绑定其他外部客户' } }
+    const existing = _bizBindings.find(b => b.poiId === data.poiId && b.hotelId === data.hotelId)
+    if (existing) return { ok: true, data: { bindingId: existing.bindingId, alreadyBound: true } }
+    const bindingId = genId('bind')
+    _bizBindings.push({ bindingId, poiId: data.poiId, poiName: data.poiName, hotelId: data.hotelId, hotelName: data.hotelName })
+    const h = _bizHotels.find(x => x._id === data.hotelId)
+    if (h) { h.amapPoiId = data.poiId; h.boundPoiName = data.poiName; h.bindingId = bindingId }
+    return { ok: true, data: { bindingId, created: true } }
+  },
+  async bizUnbindPOI(data) {
+    await delay(200)
+    const idx = _bizBindings.findIndex(b => (data.hotelId && b.hotelId === data.hotelId) || (data.poiId && b.poiId === data.poiId))
+    if (idx >= 0) {
+      const b = _bizBindings[idx]
+      const h = _bizHotels.find(x => x._id === b.hotelId)
+      if (h) { delete h.amapPoiId; delete h.boundPoiName; delete h.bindingId }
+      _bizBindings.splice(idx, 1)
+    }
+    return { ok: true, data: {} }
+  },
+  async bizSaveHotelFromPOI(data) {
+    await delay(300)
+    const poi = data.poi || {}
+    const _id = genId('hotel')
+    const hotel = { _id, name: poi.name, address: poi.address, latitude: poi.latitude, longitude: poi.longitude, amapPoiId: poi.id, locateSource: 'poi', geoLevel: 'POI', contact: data.contact || '', remark: data.remark || '', status: 'active', createdAt: Date.now() }
+    _bizHotels.unshift(hotel)
+    if (data.autoBind !== false) {
+      const bindingId = genId('bind')
+      _bizBindings.push({ bindingId, poiId: poi.id, poiName: poi.name, hotelId: _id, hotelName: poi.name })
+      hotel.bindingId = bindingId; hotel.boundPoiName = poi.name
+    }
+    return { ok: true, data: { hotelId: _id } }
+  },
+  async bizSaveHotel(data) {
+    await delay(300)
+    const _id = genId('hotel')
+    _bizHotels.unshift({ _id, name: data.name, address: data.address, latitude: data.latitude, longitude: data.longitude, contact: data.contact || '', remark: data.remark || '', locateSource: 'manual', status: 'active', createdAt: Date.now() })
+    return { ok: true, data: { hotelId: _id } }
+  },
+  async bizUpdateHotel(data) {
+    await delay(200)
+    const h = _bizHotels.find(x => x._id === data.hotelId)
+    if (!h) return { ok: false, error: { code: 'NOT_FOUND', message: '客户不存在' } }
+    Object.assign(h, data)
+    return { ok: true, data: {} }
+  },
+  async bizDeleteHotel(hotelId) {
+    await delay(200)
+    await this.bizUnbindPOI({ hotelId })
+    const h = _bizHotels.find(x => x._id === hotelId)
+    if (h) h.status = 'deleted'
+    return { ok: true, data: {} }
+  },
 }
 
 // 模式选择：http > cloud > real > mock

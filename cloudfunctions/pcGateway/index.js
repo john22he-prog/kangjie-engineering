@@ -4434,6 +4434,31 @@ async function boilerGetCustomerStats(db, data) {
   }
 }
 
+// ====== 业务部模块：转发到 business-geocode 云函数（携带内部信任令牌） ======
+const BUSINESS_INTERNAL_TOKEN = process.env.INTERNAL_CALL_TOKEN ||
+  ('kangjie-internal-' + (process.env.TCB_ENV || 'dev'))
+
+async function callBusinessGeocode(action, data, meUser) {
+  const res = await cloud.callFunction({
+    name: 'business-geocode',
+    data: {
+      action,
+      ...data,
+      _internalToken: BUSINESS_INTERNAL_TOKEN,
+      _internalUser: {
+        userId: meUser.userId,
+        displayName: meUser.displayName || '',
+        permissions: meUser.permissions || [],
+      },
+    },
+  })
+  const r = res && res.result ? res.result : {}
+  if (r.code === 0) {
+    return { ok: true, data: r.data }
+  }
+  return { ok: false, error: { code: r.code || 'BUSINESS_ERROR', message: r.message || '业务部服务调用失败' } }
+}
+
 exports.main = async (event, context) => {
   // 首次调用时自动初始化所有数据库集合
   await ensureAllCollections(db)
@@ -4454,7 +4479,8 @@ exports.main = async (event, context) => {
     }
     const fullUser = await loadMe(db, me.userId)
     const mePermissions = fullUser ? migratePermissions(fullUser) : migratePermissions({ role: me.role, canPcLogin: true })
-    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null, permissions: mePermissions }
+    const meDisplayName = (fullUser && (fullUser.displayName || fullUser.username)) || me.displayName || ''
+    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null, permissions: mePermissions, displayName: meDisplayName }
 
     const requiredPerm = ACTION_PERMISSION_MAP[action]
     if (requiredPerm && !hasPermission(mePermissions, requiredPerm)) {
@@ -4591,6 +4617,21 @@ exports.main = async (event, context) => {
 
       case 'generateAssetQr': return await generateAssetQr(data)
       case 'batchGenerateAssetQr': return await batchGenerateAssetQr(db, data)
+
+      // 业务部模块（转发到 business-geocode）
+      case 'geocode':
+      case 'searchPOI':
+      case 'searchAndMatch':
+      case 'listHotels':
+      case 'listBindings':
+      case 'bindPOI':
+      case 'unbindPOI':
+      case 'batchMatch':
+      case 'saveHotelFromPOI':
+      case 'saveHotel':
+      case 'updateHotel':
+      case 'deleteHotel':
+        return await callBusinessGeocode(action, data, meUser)
 
       default:
         return { ok: false, error: { code: 'UNKNOWN_ACTION', message: '不支持的 action: ' + action } }

@@ -4,6 +4,10 @@ export const PERMISSIONS = {
   MODULE_ENGINEERING: 'module:engineering',
   MODULE_BOILER: 'module:boiler',
   MODULE_COMPANY: 'module:company',
+  MODULE_BUSINESS: 'module:business',
+
+  BUSINESS_VIEW: 'business:view',
+  BUSINESS_MANAGE: 'business:manage',
 
   RECORD_WRITE: 'record:write',
   RECORD_DELETE: 'record:delete',
@@ -49,6 +53,14 @@ export const PERMISSION_GROUPS = [
       { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
       { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
       { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
+      { key: PERMISSIONS.MODULE_BUSINESS, label: '业务部' },
+    ],
+  },
+  {
+    label: '业务部操作',
+    items: [
+      { key: PERMISSIONS.BUSINESS_VIEW, label: '查看酒店/片区匹配' },
+      { key: PERMISSIONS.BUSINESS_MANAGE, label: '酒店建档/POI绑定管理' },
     ],
   },
   {
@@ -124,6 +136,8 @@ export const ROLE_TEMPLATES = {
     PERMISSIONS.MODULE_ENGINEERING,
     PERMISSIONS.MODULE_BOILER,
     PERMISSIONS.MODULE_COMPANY,
+    PERMISSIONS.MODULE_BUSINESS,
+    PERMISSIONS.BUSINESS_VIEW,
     PERMISSIONS.ALERT_VIEW,
     PERMISSIONS.ALERT_ACK,
     PERMISSIONS.COST_VIEW,
@@ -176,6 +190,16 @@ export const ROLE_TEMPLATES = {
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.AI_USE,
     PERMISSIONS.PC_LOGIN,
+  ],
+  Business: [
+    PERMISSIONS.MODULE_COMPANY,
+    PERMISSIONS.MODULE_BUSINESS,
+    PERMISSIONS.BUSINESS_VIEW,
+    PERMISSIONS.BUSINESS_MANAGE,
+  ],
+  BusinessViewer: [
+    PERMISSIONS.MODULE_BUSINESS,
+    PERMISSIONS.BUSINESS_VIEW,
   ],
 }
 
