@@ -61,6 +61,16 @@
             <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
           </el-sub-menu>
 
+          <!-- 业务部 -->
+          <el-sub-menu v-if="canBusiness" index="dept-business">
+            <template #title>
+              <el-icon><MapLocation /></el-icon>
+              <span>业务部</span>
+            </template>
+            <el-menu-item index="/business/hotels">客户档案</el-menu-item>
+            <el-menu-item index="/business/match">片区匹配复核</el-menu-item>
+          </el-sub-menu>
+
           <!-- 生产部 -->
           <el-sub-menu index="dept-prod" disabled>
             <template #title>
@@ -184,6 +194,15 @@
               <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
             </el-sub-menu>
 
+            <!-- 业务部 -->
+            <el-sub-menu v-if="canBusiness" index="dept-business">
+              <template #title>
+                <el-icon><MapLocation /></el-icon>
+                <span>业务部</span>
+              </template>
+              <el-menu-item index="/business/hotels">客户档案</el-menu-item>
+              <el-menu-item index="/business/match">片区匹配复核</el-menu-item>
+            </el-sub-menu>
 
             <!-- 生产部 -->
             <el-sub-menu index="dept-prod" disabled>
@@ -332,7 +351,7 @@ import { useAppStore } from '@/stores/app'
 import { api } from '@/utils/api'
 import {
   Menu, Fold, Expand, ArrowDown, SwitchButton,
-  HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin,
+  HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin, MapLocation,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -386,9 +405,12 @@ const isGroupedSidebar = computed(() => {
   return authStore.hasPermission(PERMISSIONS.MODULE_COMPANY)
 })
 
+const canBusiness = computed(() => authStore.hasPermission(PERMISSIONS.MODULE_BUSINESS))
+
 // 工程部路由路径
 const engPaths = ['/dashboard', '/daily-timeline', '/records', '/alerts', '/assets', '/parts', '/thresholds', '/inventory']
 const boilerPaths = ['/boiler']
+const businessPaths = ['/business']
 // 系统管理路由路径
 const sysPaths = ['/users', '/factories', '/settings']
 
@@ -396,6 +418,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/settings/')) return route.path
   if (route.path.startsWith('/dashboard/')) return route.path
   if (route.path.startsWith('/boiler/')) return route.path
+  if (route.path.startsWith('/business/')) return route.path
   const p = '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/')
   return p
 })
@@ -405,6 +428,7 @@ const defaultOpeneds = computed(() => {
   const opened = []
   if (engPaths.some(ep => p.startsWith(ep))) opened.push('dept-eng')
   if (boilerPaths.some(bp => p.startsWith(bp))) opened.push('dept-boiler')
+  if (businessPaths.some(bp => p.startsWith(bp))) opened.push('dept-business')
   if (sysPaths.some(sp => p.startsWith(sp))) opened.push('system')
   return opened
 })
@@ -413,6 +437,7 @@ const currentGroup = computed(() => {
   const p = activeMenu.value
   if (engPaths.some(ep => p.startsWith(ep))) return '工程部'
   if (boilerPaths.some(bp => p.startsWith(bp))) return '锅炉房'
+  if (businessPaths.some(bp => p.startsWith(bp))) return '业务部'
   if (sysPaths.some(sp => p.startsWith(sp))) return '系统管理'
   return ''
 })

@@ -1,0 +1,202 @@
+<view class="area-page">
+  <!-- 地图 -->
+  <map
+    id="areaMap"
+    class="map-container"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    polyline="{{polyline}}"
+    polygons="{{polygons}}"
+    show-location
+    bind:tap="onMapTap"
+    bind:markertap="onMarkerTap"
+    bind:callouttap="onCalloutTap"
+  />
+
+  <!-- 顶部搜索栏 -->
+  <view class="top-bar">
+    <view class="search-row">
+      <input
+        class="search-input"
+        placeholder="搜索关键词（如：酒店）"
+        value="{{searchKeywords}}"
+        bind:input="onKeywordsInput"
+        confirm-type="search"
+        bind:confirm="onSearch"
+      />
+      <view class="search-btn" bind:tap="onSearch">搜索</view>
+      <view class="settings-btn" bind:tap="onToggleSettings">⚙</view>
+    </view>
+
+    <!-- 模式切换 -->
+    <view class="mode-tabs">
+      <view class="mode-tab {{searchMode === 'center' ? 'active' : ''}}" data-mode="center" bind:tap="onModeChange">
+        <text>📍 周边搜索</text>
+      </view>
+      <view class="mode-tab {{searchMode === 'draw' ? 'active' : ''}}" data-mode="draw" bind:tap="onModeChange">
+        <text>✏️ 画区域搜索</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 搜索设置面板 -->
+  <view class="settings-panel" wx:if="{{showSettings}}">
+    <view class="setting-item">
+      <text class="setting-label">所在城市</text>
+      <input class="setting-input" placeholder="如：昆明市（可选）" value="{{searchCity}}" bind:input="onCityInput" />
+    </view>
+    <view class="setting-item" wx:if="{{searchMode === 'center'}}">
+      <text class="setting-label">搜索半径(米)</text>
+      <input class="setting-input" type="number" value="{{searchRadius}}" bind:input="onRadiusChange" />
+    </view>
+    <view class="setting-item">
+      <text class="setting-label">建议阈值</text>
+      <input class="setting-input" type="digit" value="{{suggestThreshold}}" bind:input="onThresholdChange" />
+      <text class="setting-hint">0~1，越高越严格</text>
+    </view>
+  </view>
+
+  <!-- 绘制工具栏 -->
+  <view class="draw-toolbar" wx:if="{{drawingMode}}">
+    <text class="draw-tip">已选 {{drawPoints.length}} 个顶点</text>
+    <view class="draw-actions">
+      <view class="draw-btn" bind:tap="onUndoPoint">撤销</view>
+      <view class="draw-btn" bind:tap="onClearDraw">清空</view>
+      <view class="draw-btn primary" bind:tap="onFinishDraw">完成搜索</view>
+    </view>
+  </view>
+
+  <!-- 统计条 -->
+  <view class="stats-bar" wx:if="{{stats.total > 0 && !drawingMode}}" bind:tap="onToggleList">
+    <view class="stat-chip total">共 {{stats.total}}</view>
+    <view class="stat-chip bound">已绑 {{stats.bound}}</view>
+    <view class="stat-chip suggested">建议 {{stats.suggested}}</view>
+    <view class="stat-chip unmatched">未匹配 {{stats.unmatched}}</view>
+    <view class="stat-expand">{{showList ? '收起 ▾' : '列表 ▴'}}</view>
+  </view>
+
+  <!-- 右下角操作 -->
+  <view class="float-actions">
+    <view class="float-btn {{showHotelLayer ? 'active' : ''}}" bind:tap="onToggleHotelLayer">客户<text wx:if="{{blindCount > 0}}" class="float-badge">{{blindCount}}</text></view>
+    <view class="float-btn" wx:if="{{canManage}}" bind:tap="onGoReview">复核</view>
+    <view class="float-btn" bind:tap="onFitMarkers" wx:if="{{markers.length > 0}}">全部</view>
+  </view>
+
+  <!-- 底部列表面板 -->
+  <view class="list-mask" wx:if="{{showList}}" bind:tap="onToggleList" />
+  <view class="list-panel {{showList ? 'show' : ''}}">
+    <view class="list-tabs">
+      <view class="list-tab {{activeTab === 'all' ? 'active' : ''}}" data-tab="all" bind:tap="onTabChange">全部</view>
+      <view class="list-tab {{activeTab === 'bound' ? 'active' : ''}}" data-tab="bound" bind:tap="onTabChange">已绑定</view>
+      <view class="list-tab {{activeTab === 'suggested' ? 'active' : ''}}" data-tab="suggested" bind:tap="onTabChange">建议匹配</view>
+      <view class="list-tab {{activeTab === 'unmatched' ? 'active' : ''}}" data-tab="unmatched" bind:tap="onTabChange">未匹配</view>
+    </view>
+    <scroll-view scroll-y class="list-scroll">
+      <view
+        class="list-item"
+        wx:for="{{filteredPois}}"
+        wx:key="id"
+        data-index="{{index}}"
+        bind:tap="onSelectPoi"
+      >
+        <view class="item-left">
+          <view class="item-name">{{item.name}}</view>
+          <view class="item-addr">{{item.address}}</view>
+          <view class="item-tel" wx:if="{{item.tel}}">📞 {{item.tel}}</view>
+        </view>
+        <view class="item-right">
+          <view class="status-tag bound" wx:if="{{item.matchStatus === 'bound'}}">已绑定</view>
+          <view class="status-tag suggested" wx:elif="{{item.matchStatus === 'suggested'}}">建议 {{item.matchScore.total * 100}}%</view>
+          <view class="status-tag unmatched" wx:else>未匹配</view>
+        </view>
+      </view>
+      <view class="list-empty" wx:if="{{filteredPois.length === 0}}">暂无数据</view>
+      <view class="load-more" wx:if="{{hasMore && activeTab === 'all'}}" bind:tap="onLoadMore">
+        {{loadingMore ? '加载中...' : '加载更多 POI'}}
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- POI 详情弹窗 -->
+  <view class="detail-mask" wx:if="{{showDetail}}" bind:tap="onCloseDetail" />
+  <view class="detail-panel {{showDetail ? 'show' : ''}}">
+    <block wx:if="{{selectedPoi}}">
+      <view class="detail-header">
+        <text class="detail-name">{{selectedPoi.name}}</text>
+        <text class="detail-close" bind:tap="onCloseDetail">✕</text>
+      </view>
+
+      <!-- 匹配状态 -->
+      <view class="match-banner bound" wx:if="{{selectedPoi.matchStatus === 'bound'}}">
+        <text class="match-icon">✅</text>
+        <view class="match-text">
+          <text class="match-title">已绑定内部客户</text>
+          <text class="match-sub">{{selectedPoi.boundHotelName}}</text>
+        </view>
+      </view>
+      <view class="match-banner suggested" wx:elif="{{selectedPoi.matchStatus === 'suggested'}}">
+        <text class="match-icon">🟡</text>
+        <view class="match-text">
+          <text class="match-title">建议匹配：{{selectedPoi.suggestedHotelName}}</text>
+          <text class="match-sub">综合匹配度 {{selectedPoi.matchScore.total * 100}}%</text>
+        </view>
+      </view>
+      <view class="match-banner unmatched" wx:else>
+        <text class="match-icon">⚪</text>
+        <view class="match-text">
+          <text class="match-title">未匹配到内部客户</text>
+          <text class="match-sub" wx:if="{{selectedPoi.bestCandidateName && selectedPoi.bestCandidateTaken}}">最接近：{{selectedPoi.bestCandidateName}}（已被占用·1:1）</text>
+          <text class="match-sub" wx:elif="{{selectedPoi.bestCandidateName}}">最接近：{{selectedPoi.bestCandidateName}}（{{selectedPoi.matchScore.total * 100}}%，未达阈值）</text>
+          <text class="match-sub" wx:else>该区域暂无相近客户</text>
+        </view>
+      </view>
+
+      <!-- 匹配度明细（名称 + 距离 + 地址；缺失维度不计权重） -->
+      <view class="score-detail" wx:if="{{selectedPoi.matchStatus !== 'bound' && selectedPoi.matchScore}}">
+        <view class="score-row">
+          <text class="score-label">名称</text>
+          <view class="score-bar"><view class="score-fill" style="width:{{selectedPoi.matchScore.name * 100}}%"></view></view>
+          <text class="score-val">{{selectedPoi.matchScore.name * 100}}%</text>
+        </view>
+        <view class="score-row">
+          <text class="score-label">距离</text>
+          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedCoordinate ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.coordinate * 100}}%"></view></view>
+          <text class="score-val">{{selectedPoi.matchScore.usedCoordinate ? selectedPoi.matchScore.coordinate * 100 + '%' : '—'}}</text>
+        </view>
+        <view class="score-row">
+          <text class="score-label">地址</text>
+          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedAddress ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.address * 100}}%"></view></view>
+          <text class="score-val">{{selectedPoi.matchScore.usedAddress ? selectedPoi.matchScore.address * 100 + '%' : '—'}}</text>
+        </view>
+      </view>
+
+      <!-- POI 信息 -->
+      <view class="detail-body">
+        <view class="detail-row">
+          <text class="detail-label">地址</text>
+          <text class="detail-value">{{selectedPoi.address || '—'}}</text>
+        </view>
+        <view class="detail-row" wx:if="{{selectedPoi.tel}}">
+          <text class="detail-label">电话</text>
+          <text class="detail-value phone" bind:tap="onCallPhone">{{selectedPoi.tel}}</text>
+        </view>
+        <view class="detail-row">
+          <text class="detail-label">类型</text>
+          <text class="detail-value">{{selectedPoi.type}}</text>
+        </view>
+      </view>
+
+      <!-- 操作按钮 -->
+      <view class="detail-actions">
+        <view class="action-btn ghost" bind:tap="onNavigateTo">导航</view>
+        <block wx:if="{{canManage}}">
+          <view class="action-btn primary" wx:if="{{selectedPoi.matchStatus === 'suggested'}}" bind:tap="onConfirmBind">确认绑定</view>
+          <view class="action-btn danger" wx:elif="{{selectedPoi.matchStatus === 'bound'}}" bind:tap="onUnbind">解除绑定</view>
+          <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId && !selectedPoi.bestCandidateTaken}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
+        </block>
+      </view>
+    </block>
+  </view>
+</view>

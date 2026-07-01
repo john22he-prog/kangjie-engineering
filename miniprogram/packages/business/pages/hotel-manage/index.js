@@ -1,5 +1,9 @@
 const app = getApp()
 const api = require('../../utils/api')
+const auth = require('../../../../utils/auth')
+const { PERMISSIONS } = require('../../../../utils/permissions')
+
+const POI_TYPES = '100000|120000'
 
 Page({
   data: {
@@ -16,11 +20,30 @@ Page({
       remark: ''
     },
     editingId: null,
-    geocodeResult: null
+    geocodeResult: null,
+    canManage: false,
+
+    // POI 搜索建档
+    addMode: 'poi',
+    poiKeyword: '',
+    poiCity: '',
+    poiSearching: false,
+    poiResults: [],
+    selectedPoi: null
   },
 
   async onLoad() {
     await app.waitForLogin()
+    if (!auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)) {
+      wx.showModal({
+        title: '无权限',
+        content: '您没有业务部访问权限，请联系管理员',
+        showCancel: false,
+        success: () => wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/company/index' }) })
+      })
+      return
+    }
+    this.setData({ canManage: auth.hasPermission(PERMISSIONS.BUSINESS_MANAGE) })
     await this.loadHotels()
   },
 
@@ -41,6 +64,11 @@ Page({
       showAddForm: true,
       editingId: null,
       geocodeResult: null,
+      addMode: 'poi',
+      poiKeyword: '',
+      poiCity: '',
+      poiResults: [],
+      selectedPoi: null,
       form: { name: '', address: '', city: '', phone: '', contact: '', remark: '' }
     })
   },
@@ -49,7 +77,10 @@ Page({
     const hotel = e.currentTarget.dataset.hotel
     this.setData({
       showAddForm: true,
+      addMode: 'manual',
       editingId: hotel._id,
+      selectedPoi: null,
+      poiResults: [],
       geocodeResult: hotel.latitude ? {
         latitude: hotel.latitude,
         longitude: hotel.longitude,
@@ -67,13 +98,81 @@ Page({
   },
 
   onCancel() {
-    this.setData({ showAddForm: false, editingId: null, geocodeResult: null })
+    this.setData({ showAddForm: false, editingId: null, geocodeResult: null, selectedPoi: null, poiResults: [] })
+  },
+
+  onModeChange(e) {
+    this.setData({ addMode: e.currentTarget.dataset.mode })
   },
 
   onInput(e) {
     const field = e.currentTarget.dataset.field
     this.setData({ [`form.${field}`]: e.detail.value })
   },
+
+  // ─── POI 搜索建档 ───
+
+  onPoiKeywordInput(e) {
+    this.setData({ poiKeyword: e.detail.value })
+  },
+
+  onPoiCityInput(e) {
+    this.setData({ poiCity: e.detail.value })
+  },
+
+  async onSearchPoi() {
+    const { poiKeyword, poiCity } = this.data
+    if (!poiKeyword.trim()) {
+      wx.showToast({ title: '请输入名称关键词', icon: 'none' })
+      return
+    }
+    this.setData({ poiSearching: true, poiResults: [] })
+    try {
+      const result = await api.searchPOI({
+        keywords: poiKeyword,
+        city: poiCity,
+        types: POI_TYPES,
+        pageSize: 20
+      })
+      this.setData({ poiResults: result.pois || [], poiSearching: false })
+      if (!result.pois || result.pois.length === 0) {
+        wx.showToast({ title: '未搜到相关POI，可改用手动录入', icon: 'none' })
+      }
+    } catch (err) {
+      console.error('[onSearchPoi]', err)
+      wx.showToast({ title: err.message || '搜索失败', icon: 'none' })
+      this.setData({ poiSearching: false })
+    }
+  },
+
+  async onPickPoi(e) {
+    const poi = e.currentTarget.dataset.poi
+    this.setData({ selectedPoi: poi })
+
+    wx.showModal({
+      title: '确认建档',
+      content: `将「${poi.name}」录入为内部客户？\n地址：${poi.address || '—'}`,
+      confirmText: '建档',
+      success: async (res) => {
+        if (!res.confirm) return
+        this.setData({ submitting: true })
+        wx.showLoading({ title: '建档中...' })
+        try {
+          await api.saveHotelFromPOI({ poi })
+          wx.hideLoading()
+          wx.showToast({ title: '建档成功', icon: 'success' })
+          this.setData({ showAddForm: false, submitting: false, selectedPoi: null, poiResults: [] })
+          await this.loadHotels()
+        } catch (err) {
+          wx.hideLoading()
+          wx.showToast({ title: err.message || '建档失败', icon: 'none' })
+          this.setData({ submitting: false })
+        }
+      }
+    })
+  },
+
+  // ─── 手动/地址录入（地理编码兜底） ───
 
   async onTestGeocode() {
     const { address, city } = this.data.form
@@ -129,7 +228,11 @@ Page({
       if (editingId) {
         await api.updateHotel({ hotelId: editingId, ...form })
       } else {
-        await api.saveHotel(form)
+        const res = await api.saveHotel(form)
+        if (res && res.warning) {
+          wx.hideLoading()
+          wx.showModal({ title: '已保存（提醒）', content: res.warning, showCancel: false })
+        }
       }
       wx.hideLoading()
       wx.showToast({ title: '保存成功', icon: 'success' })
@@ -146,7 +249,7 @@ Page({
     const hotel = e.currentTarget.dataset.hotel
     wx.showModal({
       title: '确认删除',
-      content: `确定要删除「${hotel.name}」吗？`,
+      content: `确定要删除「${hotel.name}」吗？将同时解除其POI绑定。`,
       success: async (res) => {
         if (!res.confirm) return
         try {

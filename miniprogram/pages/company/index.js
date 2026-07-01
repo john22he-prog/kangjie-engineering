@@ -12,6 +12,7 @@ Page({
     factories: [],
     currentFactoryId: null,
     currentFactoryName: '全部工厂',
+    canBusiness: false,
     engStatus: 'normal',
     engStatusText: '运行正常',
     stats: {
@@ -50,7 +51,8 @@ Page({
 
     this.setData({
       loading: false,
-      userInfo: auth.getUser()
+      userInfo: auth.getUser(),
+      canBusiness: auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)
     })
     this.loadFactories()
     this.loadData()

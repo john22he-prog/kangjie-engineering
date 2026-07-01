@@ -52,6 +52,15 @@ alwaysApply: true
 | viewer | 查看所有工厂、统计和AI分析 |
 | admin | +用户管理、工厂/锅炉/客户管理、价格和预警配置 |
 
+### 业务部
+| 角色 | 权限 |
+|------|------|
+| BusinessViewer | 查看酒店/片区匹配(business:view) |
+| Business | +酒店建档、POI搜索、1:1绑定管理(business:manage) |
+| Admin/Management | Admin全权限；Management含业务部查看 |
+
+> 权限键：`module:business` / `business:view` / `business:manage`；云函数 business-geocode 入口按 ACTION_PERMISSION_MAP 校验（读操作需 business:view，写操作需 business:manage）。
+
 ## 关键业务规则
 
 1. **数据隔离**: 非 Admin/Management 用户只能看到自己 factoryId 的数据

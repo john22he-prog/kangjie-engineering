@@ -8,7 +8,10 @@
         "runtime": "Nodejs16.13",
         "handler": "index.main",
         "timeout": 120,
-        "installDependency": true
+        "installDependency": true,
+        "envVariables": {
+          "INTERNAL_CALL_TOKEN": "kangjie-internal-cloud1-0g0grbwt8c230b0d"
+        }
       }
     },
     {
@@ -232,10 +235,11 @@
       "config": {
         "runtime": "Nodejs16.13",
         "handler": "index.main",
-        "timeout": 15,
+        "timeout": 60,
         "installDependency": true,
         "envVariables": {
-          "AMAP_KEY": "YOUR_AMAP_WEB_SERVICE_KEY"
+          "AMAP_KEY": "YOUR_AMAP_WEB_SERVICE_KEY",
+          "INTERNAL_CALL_TOKEN": "kangjie-internal-cloud1-0g0grbwt8c230b0d"
         }
       }
     },

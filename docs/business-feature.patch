@@ -1,0 +1,5762 @@
+diff --git a/.cursor/rules/business-context.mdc b/.cursor/rules/business-context.mdc
+index af94dda..da308fa 100644
+--- a/.cursor/rules/business-context.mdc
++++ b/.cursor/rules/business-context.mdc
+@@ -52,6 +52,15 @@ alwaysApply: true
+ | viewer | 查看所有工厂、统计和AI分析 |
+ | admin | +用户管理、工厂/锅炉/客户管理、价格和预警配置 |
+ 
++### 业务部
++| 角色 | 权限 |
++|------|------|
++| BusinessViewer | 查看酒店/片区匹配(business:view) |
++| Business | +酒店建档、POI搜索、1:1绑定管理(business:manage) |
++| Admin/Management | Admin全权限；Management含业务部查看 |
++
++> 权限键：`module:business` / `business:view` / `business:manage`；云函数 business-geocode 入口按 ACTION_PERMISSION_MAP 校验（读操作需 business:view，写操作需 business:manage）。
++
+ ## 关键业务规则
+ 
+ 1. **数据隔离**: 非 Admin/Management 用户只能看到自己 factoryId 的数据
+diff --git a/.cursor/rules/codebase-map.mdc b/.cursor/rules/codebase-map.mdc
+index c47bebf..01e1333 100644
+--- a/.cursor/rules/codebase-map.mdc
++++ b/.cursor/rules/codebase-map.mdc
+@@ -33,6 +33,16 @@ alwaysApply: true
+ | packages/boiler/pages/alerts/ | 预警管理 |
+ | packages/boiler/pages/trend/ | 趋势分析 |
+ 
++### 业务部分包 (packages/business/)
++| 路径 | 用途 |
++|------|------|
++| packages/business/pages/map/ | 业务地图（酒店标注+导航） |
++| packages/business/pages/hotel-manage/ | 酒店管理（增删改+地理编码） |
++| packages/business/pages/area-map/ | 片区态势图（画区域/周边搜索高德POI+智能匹配内部客户+严格1:1绑定+我方客户盲区图层+POI分页） |
++| packages/business/pages/match-review/ | 批量匹配复核（按客户名批量搜POI给1:1建议，逐条/一键接受高分） |
++| packages/business/pages/hotel-manage/ 录入 | 支持「POI搜索建档(推荐,精确)」与「手动地址录入(地理编码兜底)」两种方式 |
++| packages/business/utils/api.js | 业务部API封装 |
++
+ ### 公共模块 (utils/ & components/)
+ | 文件 | 用途 |
+ |------|------|
+@@ -65,6 +75,13 @@ alwaysApply: true
+ - boiler-analysis/: 统计+预警+AI
+ - boiler-auth/: 登录+用户+配置
+ 
++### 业务部（1个合并函数）
++- business-geocode/: 地理编码+POI检索+智能匹配引擎+客户CRUD+POI绑定（严格1:1）
++  - 匹配维度：名称(0.6)+坐标(0.25)+地址(0.15)，缺失维度按比例重分配权重
++  - action: geocode/searchPOI/searchAndMatch/listHotels/listBindings/bindPOI/unbindPOI/batchMatch/saveHotelFromPOI/saveHotel/updateHotel/deleteHotel
++  - 鉴权：默认走 getWXContext(OPENID)；支持 pcGateway 内部信任令牌(INTERNAL_CALL_TOKEN)免 OPENID 调用
++  - 权限：读=business:view，写=business:manage
++
+ ## PC管理后台 (pc-admin/)
+ 
+ ### 核心文件
+@@ -84,7 +101,9 @@ alwaysApply: true
+ | src/utils/mock-data.js | Mock测试数据 |
+ 
+ ### 页面模块
+-views/login/, views/company/, views/dashboard/, views/records/, views/alerts/, views/assets/, views/parts/, views/thresholds/, views/users/, views/factories/, views/inventory/, views/inspection/, views/settings/ai, views/boiler/(dashboard/records/trend/alerts)
++views/login/, views/company/, views/dashboard/, views/records/, views/alerts/, views/assets/, views/parts/, views/thresholds/, views/users/, views/factories/, views/inventory/, views/inspection/, views/settings/ai, views/boiler/(dashboard/records/trend/alerts), views/business/(hotels客户档案/match片区匹配复核)
++
++> 业务部 PC 端：pcGateway 收到 business action 后用 INTERNAL_CALL_TOKEN 转发到 business-geocode（JWT→内部信任，复用同一匹配引擎）。四种 api 模式均提供 bizXxx 方法。
+ 
+ ## PC网关 (pc-server/)
+ index.js — Express网关，管理access_token，转发到adminPcLogin/pcGateway
+diff --git a/cloudbaserc.json b/cloudbaserc.json
+index d52f8f5..fe8d359 100644
+--- a/cloudbaserc.json
++++ b/cloudbaserc.json
+@@ -8,7 +8,10 @@
+         "runtime": "Nodejs16.13",
+         "handler": "index.main",
+         "timeout": 120,
+-        "installDependency": true
++        "installDependency": true,
++        "envVariables": {
++          "INTERNAL_CALL_TOKEN": "kangjie-internal-cloud1-0g0grbwt8c230b0d"
++        }
+       }
+     },
+     {
+@@ -227,6 +230,19 @@
+         "installDependency": true
+       }
+     },
++    {
++      "name": "business-geocode",
++      "config": {
++        "runtime": "Nodejs16.13",
++        "handler": "index.main",
++        "timeout": 60,
++        "installDependency": true,
++        "envVariables": {
++          "AMAP_KEY": "YOUR_AMAP_WEB_SERVICE_KEY",
++          "INTERNAL_CALL_TOKEN": "kangjie-internal-cloud1-0g0grbwt8c230b0d"
++        }
++      }
++    },
+     {
+       "name": "boiler-core",
+       "config": {
+diff --git a/cloudfunctions/adminPcLogin/permissions.js b/cloudfunctions/adminPcLogin/permissions.js
+index a5cec5f..b137af1 100644
+--- a/cloudfunctions/adminPcLogin/permissions.js
++++ b/cloudfunctions/adminPcLogin/permissions.js
+@@ -5,6 +5,11 @@ const PERMISSIONS = {
+   MODULE_ENGINEERING: 'module:engineering',
+   MODULE_BOILER: 'module:boiler',
+   MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  // 业务部（酒店/POI 匹配绑定）
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
+ 
+   // 工程部 - 记录与巡检
+   RECORD_WRITE: 'record:write',
+@@ -152,6 +157,16 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.AI_USE,
+     PERMISSIONS.PC_LOGIN,
+   ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
+ }
+ 
+ function getPermissionsForRole(role) {
+diff --git a/cloudfunctions/business-geocode/index.js b/cloudfunctions/business-geocode/index.js
+new file mode 100644
+index 0000000..a970bef
+--- /dev/null
++++ b/cloudfunctions/business-geocode/index.js
+@@ -0,0 +1,907 @@
++const cloud = require('wx-server-sdk')
++const https = require('https')
++
++cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
++const db = cloud.database()
++
++const { migratePermissions, hasPermission, PERMISSIONS, ACTION_PERMISSION_MAP } = require('./permissions')
++
++const AMAP_KEY = process.env.AMAP_KEY || ''
++
++// 内部受信任调用令牌（pcGateway 已完成 JWT 鉴权后转发时使用）
++// 同环境下两个云函数计算出相同默认值，无需额外配置即可工作；也可用环境变量覆盖
++const INTERNAL_CALL_TOKEN = process.env.INTERNAL_CALL_TOKEN ||
++  ('kangjie-internal-' + (process.env.TCB_ENV || 'dev'))
++
++// 匹配阈值（可被入参覆盖）
++const DEFAULT_SUGGEST_THRESHOLD = 0.55   // 达到此分才作为"建议匹配"
++const DEFAULT_HIGH_THRESHOLD = 0.8       // 达到此分为"强烈建议"
++const SAME_CITY_MAX_METERS = 50000       // 超过此距离视为不同地点，跳过比对
++
++// 匹配维度基础权重（去除电话维度）
++const BASE_WEIGHTS = { name: 0.6, coordinate: 0.25, address: 0.15 }
++
++const COLL_HOTELS = 'business_hotels'
++const COLL_BINDINGS = 'business_poi_bindings'
++
++// ─────────────────────────── HTTP 工具 ───────────────────────────
++
++function httpGetOnce(url, timeoutMs) {
++  return new Promise((resolve, reject) => {
++    const req = https.get(url, (res) => {
++      let data = ''
++      res.on('data', chunk => { data += chunk })
++      res.on('end', () => {
++        try { resolve(JSON.parse(data)) } catch (e) { reject(new Error('高德返回解析失败')) }
++      })
++    })
++    req.on('error', reject)
++    req.setTimeout(timeoutMs, () => {
++      req.destroy(new Error('高德请求超时'))
++    })
++  })
++}
++
++async function httpGet(url, { timeoutMs = 8000, retry = 2 } = {}) {
++  let lastErr
++  for (let i = 0; i <= retry; i++) {
++    try {
++      return await httpGetOnce(url, timeoutMs)
++    } catch (e) {
++      lastErr = e
++      if (i < retry) await sleep(300 * (i + 1))
++    }
++  }
++  throw lastErr
++}
++
++function sleep(ms) {
++  return new Promise(resolve => setTimeout(resolve, ms))
++}
++
++// 统一处理高德返回的业务状态码
++function checkAmapStatus(result) {
++  if (result.status === '1') return
++  const info = result.info || ''
++  if (/LIMIT|QUOTA|CONCURRENCY/i.test(info)) {
++    throw { code: 429, message: `高德API配额/频率受限：${info}` }
++  }
++  if (/INVALID_USER_KEY|KEY/i.test(info)) {
++    throw { code: 401, message: `高德API Key无效：${info}` }
++  }
++  // status:0 且非以上明确错误，多为"无结果"，交由上层判断
++}
++
++// ─────────────────────────── 高德 API ───────────────────────────
++
++async function geocode(address, city) {
++  if (!AMAP_KEY) throw { code: 500, message: '未配置 AMAP_KEY 环境变量' }
++  const params = new URLSearchParams({ key: AMAP_KEY, address, output: 'JSON' })
++  if (city) params.set('city', city)
++  const url = `https://restapi.amap.com/v3/geocode/geo?${params.toString()}`
++
++  const result = await httpGet(url)
++  checkAmapStatus(result)
++  if (!result.geocodes || result.geocodes.length === 0) return null
++
++  const geo = result.geocodes[0]
++  const [lng, lat] = geo.location.split(',')
++  return {
++    latitude: parseFloat(lat),
++    longitude: parseFloat(lng),
++    formatted_address: geo.formatted_address,
++    province: geo.province,
++    city: geo.city,
++    district: geo.district,
++    level: geo.level || ''
++  }
++}
++
++async function searchPOI({ keywords, city, types, location, radius, polygon, page = 1, pageSize = 25 }) {
++  if (!AMAP_KEY) throw { code: 500, message: '未配置 AMAP_KEY 环境变量' }
++
++  const params = new URLSearchParams({
++    key: AMAP_KEY,
++    output: 'JSON',
++    offset: String(pageSize),
++    page: String(page),
++    extensions: 'all'
++  })
++  if (keywords) params.set('keywords', keywords)
++  if (types) params.set('types', types)
++  if (city) params.set('city', city)
++
++  if (polygon) {
++    params.set('polygon', polygon)
++  } else if (location && radius) {
++    params.set('location', location)
++    params.set('radius', String(radius))
++    params.set('sortrule', 'distance')
++  }
++
++  const url = `https://restapi.amap.com/v3/place/text?${params.toString()}`
++  const result = await httpGet(url)
++  checkAmapStatus(result)
++
++  const pois = (result.pois || []).map(poi => {
++    const [lng, lat] = (poi.location || '').split(',')
++    return {
++      id: poi.id,
++      name: poi.name,
++      type: poi.type,
++      typecode: poi.typecode,
++      address: poi.address || '',
++      tel: normalizeTel(poi.tel || ''),
++      province: poi.pname || '',
++      city: poi.cityname || '',
++      district: poi.adname || '',
++      latitude: lat ? parseFloat(lat) : null,
++      longitude: lng ? parseFloat(lng) : null,
++      distance: poi.distance ? parseFloat(poi.distance) : null
++    }
++  })
++
++  return { pois, total: parseInt(result.count || '0', 10), page, pageSize }
++}
++
++// ─────────────────────────── 文本/地理匹配工具 ───────────────────────────
++
++function normalizeName(name) {
++  if (!name) return ''
++  return String(name)
++    .replace(/[\s\-_·•‧・/\\()（）【】[\]「」『』""''《》<>{}|,，.。]/g, '')
++    .replace(/(大酒店|酒店|大饭店|饭店|宾馆|客栈|民宿|旅社|旅馆|公寓|inn|hotel|resort)$/i, '')
++    .replace(/(连锁|国际|有限公司|分店|店)$/i, '')
++    .toLowerCase()
++}
++
++function normalizeTel(tel) {
++  if (!tel) return ''
++  return String(tel).replace(/[\s\-—–()（）+]/g, '').replace(/;+/g, ';')
++}
++
++function levenshteinDistance(a, b) {
++  if (!a || !b) return Math.max((a || '').length, (b || '').length)
++  const la = a.length, lb = b.length
++  if (la === 0) return lb
++  if (lb === 0) return la
++
++  let prev = new Array(lb + 1)
++  let cur = new Array(lb + 1)
++  for (let j = 0; j <= lb; j++) prev[j] = j
++
++  for (let i = 1; i <= la; i++) {
++    cur[0] = i
++    for (let j = 1; j <= lb; j++) {
++      const cost = a[i - 1] === b[j - 1] ? 0 : 1
++      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
++    }
++    const tmp = prev; prev = cur; cur = tmp
++  }
++  return prev[lb]
++}
++
++function extractBigrams(str) {
++  if (!str || str.length < 2) return str ? [str] : []
++  const tokens = []
++  for (let i = 0; i < str.length - 1; i++) tokens.push(str.substring(i, i + 2))
++  return [...new Set(tokens)]
++}
++
++function bigramScore(a, b) {
++  const ta = extractBigrams(a), tb = extractBigrams(b)
++  if (ta.length === 0 || tb.length === 0) return 0
++  const setB = new Set(tb)
++  let overlap = 0
++  for (const t of ta) if (setB.has(t)) overlap++
++  return (2 * overlap) / (ta.length + tb.length)
++}
++
++function nameSimilarity(a, b) {
++  const na = normalizeName(a), nb = normalizeName(b)
++  if (!na || !nb) return 0
++  if (na === nb) return 1
++  if (na.includes(nb) || nb.includes(na)) {
++    const shorter = Math.min(na.length, nb.length)
++    const longer = Math.max(na.length, nb.length)
++    return 0.7 + 0.3 * (shorter / longer)
++  }
++  const maxLen = Math.max(na.length, nb.length)
++  const editRatio = 1 - levenshteinDistance(na, nb) / maxLen
++  return Math.max(editRatio, bigramScore(na, nb))
++}
++
++function haversineDistance(lat1, lon1, lat2, lon2) {
++  const R = 6371000
++  const toRad = x => x * Math.PI / 180
++  const dLat = toRad(lat2 - lat1)
++  const dLon = toRad(lon2 - lon1)
++  const a = Math.sin(dLat / 2) ** 2 +
++            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
++  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
++}
++
++function coordinateScore(lat1, lon1, lat2, lon2) {
++  const dist = haversineDistance(lat1, lon1, lat2, lon2)
++  if (dist <= 50) return 1
++  if (dist <= 100) return 0.9
++  if (dist <= 200) return 0.75
++  if (dist <= 500) return 0.5
++  if (dist <= 1000) return 0.25
++  return 0
++}
++
++function addressSimilarity(addrA, addrB) {
++  if (!addrA || !addrB) return 0
++  const a = String(addrA).replace(/[\s,，。.·、/\\]/g, '')
++  const b = String(addrB).replace(/[\s,，。.·、/\\]/g, '')
++  if (!a || !b) return 0
++  if (a === b) return 1
++  if (a.includes(b) || b.includes(a)) return 0.8
++  const maxLen = Math.max(a.length, b.length)
++  return Math.max(1 - levenshteinDistance(a, b) / maxLen, bigramScore(a, b))
++}
++
++/**
++ * 综合匹配评分（无电话维度）
++ * 维度：名称(主) + 坐标距离 + 地址
++ * 缺失维度（数据不全）时，将其权重按比例重新分配给其它有效维度，避免被当成 0 分惩罚。
++ */
++function calculateMatchScore(poi, hotel) {
++  const nameScore = nameSimilarity(poi.name, hotel.name)
++
++  const hasCoord = poi.latitude != null && poi.longitude != null &&
++                   hotel.latitude != null && hotel.longitude != null
++  const hasAddr = !!(poi.address && hotel.address)
++
++  const coordScore = hasCoord
++    ? coordinateScore(poi.latitude, poi.longitude, hotel.latitude, hotel.longitude)
++    : 0
++  const addrScore = hasAddr ? addressSimilarity(poi.address, hotel.address) : 0
++
++  const weights = { name: BASE_WEIGHTS.name }
++  weights.coordinate = hasCoord ? BASE_WEIGHTS.coordinate : 0
++  weights.address = hasAddr ? BASE_WEIGHTS.address : 0
++
++  const sum = weights.name + weights.coordinate + weights.address
++  const wName = weights.name / sum
++  const wCoord = weights.coordinate / sum
++  const wAddr = weights.address / sum
++
++  const total = nameScore * wName + coordScore * wCoord + addrScore * wAddr
++
++  return {
++    total: round2(total),
++    name: round2(nameScore),
++    coordinate: round2(coordScore),
++    address: round2(addrScore),
++    usedCoordinate: hasCoord,
++    usedAddress: hasAddr
++  }
++}
++
++function matchLevel(total, suggestThreshold, highThreshold) {
++  if (total >= highThreshold) return 'high'
++  if (total >= suggestThreshold) return 'medium'
++  return 'none'
++}
++
++function round2(n) {
++  return Math.round(n * 100) / 100
++}
++
++// ─────────────────────────── 数据读取（分页拉全量） ───────────────────────────
++
++async function getAllActive(collName) {
++  const all = []
++  const pageSize = 500
++  let skip = 0
++  let hasMore = true
++  while (hasMore) {
++    const res = await db.collection(collName)
++      .where({ status: 'active' })
++      .skip(skip)
++      .limit(pageSize)
++      .get()
++      .catch(() => ({ data: [] }))
++    all.push(...res.data)
++    hasMore = res.data.length === pageSize
++    skip += pageSize
++  }
++  return all
++}
++
++function getAllActiveHotels() {
++  return getAllActive(COLL_HOTELS)
++}
++
++function getAllActiveBindings() {
++  return getAllActive(COLL_BINDINGS)
++}
++
++// ─────────────────────────── Action: 地理编码 ───────────────────────────
++
++async function handleGeocode(event) {
++  const { address, city } = event
++  if (!address) return { code: 400, message: '缺少 address 参数' }
++  const result = await geocode(address, city)
++  if (!result) return { code: 404, message: '无法解析该地址' }
++  return { code: 0, data: result }
++}
++
++// ─────────────────────────── Action: POI 检索 ───────────────────────────
++
++async function handleSearchPOI(event) {
++  const { keywords, city, types, location, radius, polygon, page, pageSize } = event
++  if (!keywords && !types) return { code: 400, message: '请提供 keywords 或 types 参数' }
++  const result = await searchPOI({ keywords, city, types, location, radius, polygon, page, pageSize })
++  return { code: 0, data: result }
++}
++
++// ─────────────────────────── Action: 检索 + 智能匹配（1:1 贪心分配） ───────────────────────────
++
++async function handleSearchAndMatch(event) {
++  const {
++    keywords, city, types, location, radius, polygon, page, pageSize,
++    suggestThreshold = DEFAULT_SUGGEST_THRESHOLD,
++    highThreshold = DEFAULT_HIGH_THRESHOLD
++  } = event
++
++  if (!keywords && !types) return { code: 400, message: '请提供 keywords 或 types 参数' }
++
++  const [poiResult, hotels, bindings] = await Promise.all([
++    searchPOI({ keywords, city, types, location, radius, polygon, page, pageSize }),
++    getAllActiveHotels(),
++    getAllActiveBindings()
++  ])
++
++  const bindingByPoi = {}
++  const boundHotelIds = new Set()
++  for (const b of bindings) {
++    bindingByPoi[b.poiId] = b
++    boundHotelIds.add(b.hotelId)
++  }
++  const hotelMap = {}
++  for (const h of hotels) hotelMap[h._id] = h
++
++  const pois = poiResult.pois
++  const unboundHotels = hotels.filter(h => !boundHotelIds.has(h._id))
++
++  // 1) 收集所有达到建议阈值的候选 (poi × 未绑定hotel)
++  const candidates = []
++  const bestByPoi = {} // poiIndex -> {hotel, score}
++  pois.forEach((poi, pIdx) => {
++    if (bindingByPoi[poi.id]) return // 已绑定的 POI 不参与建议
++    for (const hotel of unboundHotels) {
++      if (poi.latitude != null && hotel.latitude != null &&
++          haversineDistance(poi.latitude, poi.longitude, hotel.latitude, hotel.longitude) > SAME_CITY_MAX_METERS) {
++        continue
++      }
++      const score = calculateMatchScore(poi, hotel)
++      if (!bestByPoi[pIdx] || score.total > bestByPoi[pIdx].score.total) {
++        bestByPoi[pIdx] = { hotel, score }
++      }
++      if (score.total >= suggestThreshold) {
++        candidates.push({ pIdx, hotelId: hotel._id, score })
++      }
++    }
++  })
++
++  // 2) 贪心最优分配（保证 1:1）：按分数降序，每个 POI、每个 hotel 各用一次
++  candidates.sort((a, b) => b.score.total - a.score.total)
++  const assignedPoi = new Set()
++  const assignedHotel = new Set()
++  const assignment = {} // pIdx -> {hotelId, score}
++  for (const c of candidates) {
++    if (assignedPoi.has(c.pIdx) || assignedHotel.has(c.hotelId)) continue
++    assignedPoi.add(c.pIdx)
++    assignedHotel.add(c.hotelId)
++    assignment[c.pIdx] = { hotelId: c.hotelId, score: c.score }
++  }
++
++  // 3) 组装结果
++  const matchedPois = pois.map((poi, pIdx) => {
++    const existing = bindingByPoi[poi.id]
++    if (existing) {
++      const hotel = hotelMap[existing.hotelId]
++      return {
++        ...poi,
++        matchStatus: 'bound',
++        matchLevel: 'bound',
++        boundHotelId: existing.hotelId,
++        boundHotelName: hotel ? hotel.name : existing.hotelName,
++        bindingId: existing._id,
++        matchScore: { total: 1, name: 1, coordinate: 1, address: 1 }
++      }
++    }
++
++    const assigned = assignment[pIdx]
++    if (assigned) {
++      const hotel = hotelMap[assigned.hotelId]
++      return {
++        ...poi,
++        matchStatus: 'suggested',
++        matchLevel: matchLevel(assigned.score.total, suggestThreshold, highThreshold),
++        suggestedHotelId: assigned.hotelId,
++        suggestedHotelName: hotel ? hotel.name : '',
++        matchScore: assigned.score
++      }
++    }
++
++    // 未分配：给出最接近候选（仅供参考，可能已被占用或低于阈值）
++    const best = bestByPoi[pIdx]
++    return {
++      ...poi,
++      matchStatus: 'unmatched',
++      matchLevel: 'none',
++      matchScore: best ? best.score : { total: 0, name: 0, coordinate: 0, address: 0 },
++      bestCandidateId: best ? best.hotel._id : null,
++      bestCandidateName: best ? best.hotel.name : null,
++      bestCandidateTaken: best ? (assignedHotel.has(best.hotel._id) || boundHotelIds.has(best.hotel._id)) : false
++    }
++  })
++
++  const stats = {
++    total: matchedPois.length,
++    bound: matchedPois.filter(p => p.matchStatus === 'bound').length,
++    suggested: matchedPois.filter(p => p.matchStatus === 'suggested').length,
++    unmatched: matchedPois.filter(p => p.matchStatus === 'unmatched').length
++  }
++
++  // 我方客户图层：本次搜索命中（已绑/被建议）的客户 id 集合，其余即"盲区客户"
++  const matchedHotelIds = new Set()
++  matchedPois.forEach(p => {
++    if (p.boundHotelId) matchedHotelIds.add(p.boundHotelId)
++    if (p.suggestedHotelId) matchedHotelIds.add(p.suggestedHotelId)
++  })
++  const hotelLayer = hotels
++    .filter(h => h.latitude != null && h.longitude != null)
++    .map(h => ({
++      hotelId: h._id,
++      name: h.name,
++      latitude: h.latitude,
++      longitude: h.longitude,
++      bound: !!h.amapPoiId,
++      matchedHere: matchedHotelIds.has(h._id)
++    }))
++  const blindCount = hotelLayer.filter(h => !h.matchedHere && !h.bound).length
++
++  return {
++    code: 0,
++    data: {
++      pois: matchedPois,
++      total: poiResult.total,
++      page: poiResult.page,
++      pageSize: poiResult.pageSize,
++      stats,
++      hotelCount: hotels.length,
++      unboundHotelCount: unboundHotels.length,
++      hotelLayer,
++      blindCount
++    }
++  }
++}
++
++// ─────────────────────────── Action: 绑定（严格 1:1） ───────────────────────────
++
++async function handleBindPOI(event, user) {
++  const { poiId, poiName, hotelId, hotelName, poiData } = event
++  if (!poiId || !hotelId) return { code: 400, message: '缺少 poiId 或 hotelId' }
++
++  // 校验 POI 是否已被其它内部客户绑定
++  const poiBound = await db.collection(COLL_BINDINGS)
++    .where({ poiId, status: 'active' })
++    .get()
++  if (poiBound.data.length > 0 && poiBound.data[0].hotelId !== hotelId) {
++    return { code: 409, message: `该外部客户已绑定到「${poiBound.data[0].hotelName || '其他客户'}」，请先解除原绑定` }
++  }
++
++  // 校验内部客户是否已绑定其它 POI
++  const hotelBound = await db.collection(COLL_BINDINGS)
++    .where({ hotelId, status: 'active' })
++    .get()
++  if (hotelBound.data.length > 0 && hotelBound.data[0].poiId !== poiId) {
++    return { code: 409, message: `该内部客户已绑定到「${hotelBound.data[0].poiName || '其他POI'}」，请先解除原绑定` }
++  }
++
++  // 幂等：同一对已绑定
++  if (poiBound.data.length > 0 && poiBound.data[0].hotelId === hotelId) {
++    return { code: 0, data: { bindingId: poiBound.data[0]._id, alreadyBound: true } }
++  }
++
++  const bindingData = {
++    poiId,
++    poiName: poiName || (poiData && poiData.name) || '',
++    hotelId,
++    hotelName: hotelName || '',
++    poiData: poiData || {},
++    status: 'active',
++    boundByUserId: user ? user.userId : '',
++    boundByName: user ? user.displayName : '',
++    createdAt: db.serverDate(),
++    updatedAt: db.serverDate()
++  }
++  const res = await db.collection(COLL_BINDINGS).add({ data: bindingData })
++
++  // 回写到内部客户档案：amapPoiId + 精确坐标（实现复访精确匹配）
++  const hotelUpdate = {
++    amapPoiId: poiId,
++    boundPoiName: bindingData.poiName,
++    bindingId: res._id,
++    updatedAt: db.serverDate()
++  }
++  if (poiData && poiData.latitude != null && poiData.longitude != null) {
++    hotelUpdate.latitude = poiData.latitude
++    hotelUpdate.longitude = poiData.longitude
++    hotelUpdate.locateSource = 'poi'
++    hotelUpdate.geoLevel = 'poi'
++  }
++  await db.collection(COLL_HOTELS).doc(hotelId).update({ data: hotelUpdate }).catch(() => {})
++
++  return { code: 0, data: { bindingId: res._id, created: true } }
++}
++
++async function handleUnbindPOI(event) {
++  const { poiId, bindingId, hotelId } = event
++  if (!poiId && !bindingId && !hotelId) {
++    return { code: 400, message: '缺少 poiId / bindingId / hotelId' }
++  }
++
++  let records = []
++  if (bindingId) {
++    const r = await db.collection(COLL_BINDINGS).doc(bindingId).get().catch(() => null)
++    if (r && r.data) records = [r.data]
++  } else {
++    const where = { status: 'active' }
++    if (poiId) where.poiId = poiId
++    if (hotelId) where.hotelId = hotelId
++    const r = await db.collection(COLL_BINDINGS).where(where).get()
++    records = r.data || []
++  }
++
++  for (const rec of records) {
++    await db.collection(COLL_BINDINGS).doc(rec._id).update({
++      data: { status: 'deleted', updatedAt: db.serverDate() }
++    })
++    // 清理内部客户档案上的绑定标记
++    if (rec.hotelId) {
++      await db.collection(COLL_HOTELS).doc(rec.hotelId).update({
++        data: {
++          amapPoiId: '',
++          boundPoiName: '',
++          bindingId: '',
++          updatedAt: db.serverDate()
++        }
++      }).catch(() => {})
++    }
++  }
++
++  return { code: 0, message: '已解除绑定', data: { count: records.length } }
++}
++
++async function handleListBindings(event) {
++  const { page = 1, pageSize = 100 } = event
++  const skip = (page - 1) * pageSize
++
++  const [countRes, listRes, hotels] = await Promise.all([
++    db.collection(COLL_BINDINGS).where({ status: 'active' }).count(),
++    db.collection(COLL_BINDINGS)
++      .where({ status: 'active' })
++      .orderBy('createdAt', 'desc')
++      .skip(skip)
++      .limit(pageSize)
++      .get(),
++    getAllActiveHotels()
++  ])
++
++  const hotelIds = new Set(hotels.map(h => h._id))
++  // 标记孤儿绑定（内部客户已被删除）
++  const list = listRes.data.map(b => ({
++    ...b,
++    orphaned: !hotelIds.has(b.hotelId)
++  }))
++
++  return { code: 0, data: { list, total: countRes.total, page, pageSize } }
++}
++
++// ─────────────────────────── Action: 批量匹配建议 ───────────────────────────
++
++async function handleBatchMatch(event) {
++  const { suggestThreshold = DEFAULT_SUGGEST_THRESHOLD, highThreshold = DEFAULT_HIGH_THRESHOLD } = event
++
++  const [hotels, bindings] = await Promise.all([getAllActiveHotels(), getAllActiveBindings()])
++  const boundHotelIds = new Set(bindings.map(b => b.hotelId))
++  const boundPoiIds = new Set(bindings.map(b => b.poiId))
++  const unboundHotels = hotels.filter(h => !boundHotelIds.has(h._id))
++
++  if (unboundHotels.length === 0) {
++    return { code: 0, data: { total: 0, matched: 0, results: [], message: '所有内部客户已绑定' } }
++  }
++
++  const results = []
++  const usedPoiIds = new Set() // 批内 1:1：同一 POI 不重复建议给多个客户
++  for (const hotel of unboundHotels) {
++    const searchName = (hotel.name || '').replace(/[()（）[\]【】]/g, ' ').trim()
++    const cityHint = hotel.city || hotel.district || ''
++    try {
++      const poiResult = await searchPOI({
++        keywords: searchName,
++        city: cityHint,
++        types: '100000|120000',
++        pageSize: 8
++      })
++
++      let best = null
++      for (const poi of poiResult.pois) {
++        if (boundPoiIds.has(poi.id) || usedPoiIds.has(poi.id)) continue
++        const score = calculateMatchScore(poi, hotel)
++        if (!best || score.total > best.score.total) best = { poi, score }
++      }
++
++      const status = best && best.score.total >= suggestThreshold ? 'suggested' : 'unmatched'
++      if (status === 'suggested') usedPoiIds.add(best.poi.id)
++
++      results.push({
++        hotelId: hotel._id,
++        hotelName: hotel.name,
++        hotelAddress: hotel.address,
++        bestPoi: best ? {
++          id: best.poi.id, name: best.poi.name, address: best.poi.address,
++          latitude: best.poi.latitude, longitude: best.poi.longitude, tel: best.poi.tel
++        } : null,
++        matchScore: best ? best.score : null,
++        matchLevel: best ? matchLevel(best.score.total, suggestThreshold, highThreshold) : 'none',
++        matchStatus: status
++      })
++
++      await sleep(120) // 限速，规避高德 QPS 限制
++    } catch (err) {
++      results.push({
++        hotelId: hotel._id, hotelName: hotel.name,
++        bestPoi: null, matchScore: null, matchStatus: 'error', error: err.message
++      })
++    }
++  }
++
++  return {
++    code: 0,
++    data: {
++      total: results.length,
++      matched: results.filter(r => r.matchStatus === 'suggested').length,
++      results
++    }
++  }
++}
++
++// ─────────────────────────── Action: 内部客户 CRUD ───────────────────────────
++
++// POI 优先录入：直接用选定的高德 POI 建档（坐标精确、带 amapPoiId）
++async function handleSaveHotelFromPOI(event, user) {
++  const { poi, contact, remark, autoBind = true } = event
++  if (!poi || !poi.name) return { code: 400, message: '缺少 POI 信息' }
++
++  // 若该 POI 已绑定其它客户，禁止重复建档
++  if (poi.id) {
++    const bound = await db.collection(COLL_BINDINGS).where({ poiId: poi.id, status: 'active' }).get()
++    if (bound.data.length > 0) {
++      return { code: 409, message: `该POI已绑定到「${bound.data[0].hotelName || '其他客户'}」` }
++    }
++  }
++
++  const hotelData = {
++    name: poi.name,
++    address: poi.address || '',
++    formatted_address: poi.address || '',
++    city: poi.city || '',
++    province: poi.province || '',
++    district: poi.district || '',
++    phone: normalizeTel(poi.tel || ''),
++    contact: contact || '',
++    remark: remark || '',
++    latitude: poi.latitude != null ? poi.latitude : null,
++    longitude: poi.longitude != null ? poi.longitude : null,
++    amapPoiId: poi.id || '',
++    locateSource: 'poi',
++    geoLevel: 'poi',
++    status: 'active',
++    createdByUserId: user ? user.userId : '',
++    createdByName: user ? user.displayName : '',
++    createdAt: db.serverDate(),
++    updatedAt: db.serverDate()
++  }
++
++  const res = await db.collection(COLL_HOTELS).add({ data: hotelData })
++
++  // POI 优先录入天然形成 1:1 绑定
++  if (autoBind && poi.id) {
++    await db.collection(COLL_BINDINGS).add({
++      data: {
++        poiId: poi.id, poiName: poi.name,
++        hotelId: res._id, hotelName: poi.name,
++        poiData: poi, status: 'active',
++        boundByUserId: user ? user.userId : '',
++        boundByName: user ? user.displayName : '',
++        createdAt: db.serverDate(), updatedAt: db.serverDate()
++      }
++    })
++    await db.collection(COLL_HOTELS).doc(res._id).update({
++      data: { boundPoiName: poi.name, updatedAt: db.serverDate() }
++    }).catch(() => {})
++  }
++
++  return { code: 0, data: { hotelId: res._id, ...hotelData } }
++}
++
++// 手动/地址录入（地理编码兜底，记录精度等级）
++async function handleSaveHotel(event) {
++  const { name, address, city, phone, contact, remark } = event
++  if (!name || !address) return { code: 400, message: '酒店名称和地址为必填项' }
++
++  const geo = await geocode(address, city)
++  if (!geo) return { code: 404, message: '无法解析酒店地址' }
++
++  const coarse = geo.level && !/兴趣点|门牌号|POI/.test(geo.level)
++
++  const hotelData = {
++    name, address,
++    city: geo.city || city || '',
++    province: geo.province || '',
++    district: geo.district || '',
++    phone: normalizeTel(phone || ''),
++    contact: contact || '',
++    remark: remark || '',
++    latitude: geo.latitude,
++    longitude: geo.longitude,
++    formatted_address: geo.formatted_address,
++    locateSource: 'geocode',
++    geoLevel: geo.level || '',
++    status: 'active',
++    createdAt: db.serverDate(),
++    updatedAt: db.serverDate()
++  }
++
++  const res = await db.collection(COLL_HOTELS).add({ data: hotelData })
++  return {
++    code: 0,
++    data: { hotelId: res._id, ...hotelData },
++    warning: coarse ? `地址仅解析到「${geo.level}」级别，定位可能不精确，建议改用POI搜索录入` : undefined
++  }
++}
++
++async function handleUpdateHotel(event) {
++  const { hotelId, name, address, city, phone, contact, remark } = event
++  if (!hotelId) return { code: 400, message: '缺少 hotelId' }
++
++  const updateData = { updatedAt: db.serverDate() }
++  if (name) updateData.name = name
++  if (phone !== undefined) updateData.phone = normalizeTel(phone)
++  if (contact !== undefined) updateData.contact = contact
++  if (remark !== undefined) updateData.remark = remark
++
++  if (address) {
++    const geo = await geocode(address, city)
++    if (!geo) return { code: 404, message: '无法解析新地址' }
++    updateData.address = address
++    updateData.latitude = geo.latitude
++    updateData.longitude = geo.longitude
++    updateData.formatted_address = geo.formatted_address
++    updateData.province = geo.province || ''
++    updateData.city = geo.city || city || ''
++    updateData.district = geo.district || ''
++    updateData.locateSource = 'geocode'
++    updateData.geoLevel = geo.level || ''
++  }
++
++  await db.collection(COLL_HOTELS).doc(hotelId).update({ data: updateData })
++  return { code: 0, data: { hotelId, ...updateData } }
++}
++
++async function handleListHotels(event) {
++  const { page = 1, pageSize = 100, status, onlyUnbound } = event
++  const where = {}
++  if (status) where.status = status
++
++  const countRes = await db.collection(COLL_HOTELS).where(where).count()
++  const skip = (page - 1) * pageSize
++  const listRes = await db.collection(COLL_HOTELS)
++    .where(where)
++    .orderBy('createdAt', 'desc')
++    .skip(skip)
++    .limit(pageSize)
++    .get()
++
++  let list = listRes.data
++  if (onlyUnbound) {
++    list = list.filter(h => !h.amapPoiId)
++  }
++
++  return { code: 0, data: { list, total: countRes.total, page, pageSize } }
++}
++
++async function handleDeleteHotel(event) {
++  const { hotelId } = event
++  if (!hotelId) return { code: 400, message: '缺少 hotelId' }
++  // 删除同时解除其绑定，避免孤儿数据
++  await handleUnbindPOI({ hotelId })
++  await db.collection(COLL_HOTELS).doc(hotelId).update({
++    data: { status: 'deleted', updatedAt: db.serverDate() }
++  })
++  return { code: 0, message: '已删除' }
++}
++
++// ─────────────────────────── 鉴权 ───────────────────────────
++
++// 始终以 getWXContext 的 openid 为准，不信任前端传入
++async function getCurrentUser() {
++  const wxContext = cloud.getWXContext()
++  const openid = wxContext.OPENID
++  if (!openid) return null
++  const { data } = await db.collection('users').where({ openid }).limit(1).get()
++  if (data.length === 0) return null
++  const user = data[0]
++  if (user.status === 'disabled') return { ...user, _disabled: true }
++  user.permissions = migratePermissions(user)
++  return user
++}
++
++// 校验当前用户是否有执行该 action 的权限
++async function authorize(action, payload) {
++  const required = ACTION_PERMISSION_MAP[action] || PERMISSIONS.BUSINESS_VIEW
++
++  // 受信任的内部调用（来自 pcGateway，调用方已通过 JWT 鉴权）
++  if (payload && payload._internalToken && payload._internalToken === INTERNAL_CALL_TOKEN) {
++    const iu = payload._internalUser || {}
++    const perms = iu.permissions || []
++    if (!hasPermission(perms, required)) {
++      return { ok: false, res: { code: 403, message: '无权限执行该操作（需业务部权限）' } }
++    }
++    return { ok: true, user: { userId: iu.userId || '', displayName: iu.displayName || '', permissions: perms } }
++  }
++
++  const user = await getCurrentUser()
++  if (!user) {
++    return { ok: false, res: { code: 401, message: '未绑定账号或无法识别身份，请联系管理员' } }
++  }
++  if (user._disabled) {
++    return { ok: false, res: { code: 403, message: '账号已被禁用' } }
++  }
++  if (!hasPermission(user.permissions, required)) {
++    return { ok: false, res: { code: 403, message: '无权限执行该操作（需业务部权限）' } }
++  }
++  return { ok: true, user }
++}
++
++// ─────────────────────────── 入口路由 ───────────────────────────
++
++exports.main = async (event) => {
++  const { action, ...payload } = event
++
++  const handlers = {
++    geocode: handleGeocode,
++    searchPOI: handleSearchPOI,
++    searchAndMatch: handleSearchAndMatch,
++    bindPOI: handleBindPOI,
++    unbindPOI: handleUnbindPOI,
++    listBindings: handleListBindings,
++    batchMatch: handleBatchMatch,
++    saveHotelFromPOI: handleSaveHotelFromPOI,
++    saveHotel: handleSaveHotel,
++    updateHotel: handleUpdateHotel,
++    listHotels: handleListHotels,
++    deleteHotel: handleDeleteHotel
++  }
++
++  if (!action || !handlers[action]) {
++    return { code: 400, message: `未知 action: ${action}，可用: ${Object.keys(handlers).join(', ')}` }
++  }
++
++  try {
++    const auth = await authorize(action, payload)
++    if (!auth.ok) return auth.res
++    return await handlers[action](payload, auth.user)
++  } catch (err) {
++    console.error(`[business-geocode] ${action} 错误:`, err)
++    if (err.code && err.message) return { code: err.code, message: err.message }
++    return { code: 500, message: err.message || '服务器内部错误' }
++  }
++}
+diff --git a/cloudfunctions/business-geocode/package.json b/cloudfunctions/business-geocode/package.json
+new file mode 100644
+index 0000000..53e8958
+--- /dev/null
++++ b/cloudfunctions/business-geocode/package.json
+@@ -0,0 +1,9 @@
++{
++  "name": "business-geocode",
++  "version": "1.0.0",
++  "description": "业务部地理编码云函数 — 调用高德API将地址转为经纬度",
++  "main": "index.js",
++  "dependencies": {
++    "wx-server-sdk": "~2.6.3"
++  }
++}
+diff --git a/cloudfunctions/business-geocode/permissions.js b/cloudfunctions/business-geocode/permissions.js
+new file mode 100644
+index 0000000..81c979d
+--- /dev/null
++++ b/cloudfunctions/business-geocode/permissions.js
+@@ -0,0 +1,308 @@
++// utils/permissions.js — 权限定义、角色模板、分组（小程序 / PC端 / 云函数共享）
++
++const PERMISSIONS = {
++  // 模块访问
++  MODULE_ENGINEERING: 'module:engineering',
++  MODULE_BOILER: 'module:boiler',
++  MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  // 业务部（酒店/POI 匹配绑定）
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
++
++  // 工程部 - 记录与巡检
++  RECORD_WRITE: 'record:write',
++  RECORD_DELETE: 'record:delete',
++  INSPECTION_WRITE: 'inspection:write',
++  INSPECTION_MANAGE: 'inspection:manage',
++
++  // 锅炉房操作
++  BOILER_WRITE: 'boiler:write',
++  BOILER_MANAGE: 'boiler:manage',
++
++  // 报警
++  ALERT_VIEW: 'alert:view',
++  ALERT_ACK: 'alert:ack',
++
++  // 数据与看板
++  DASHBOARD_VIEW: 'dashboard:view',
++  COST_VIEW: 'cost:view',
++  EXPORT_DATA: 'export:data',
++  DATA_IMPORT: 'data:import',
++  AI_USE: 'ai:use',
++
++  // 设备与库存管理
++  ASSET_MANAGE: 'asset:manage',
++  PART_MANAGE: 'part:manage',
++  INVENTORY_MANAGE: 'inventory:manage',
++  THRESHOLD_MANAGE: 'threshold:manage',
++
++  // 消息通知
++  NOTIFY_REPLACEMENT: 'notify:replacement',
++  NOTIFY_INSPECTION: 'notify:inspection',
++  NOTIFY_THRESHOLD: 'notify:threshold',
++  NOTIFY_INVENTORY: 'notify:inventory',
++  NOTIFY_FAULT: 'notify:fault',
++  NOTIFY_BOILER_DAILY: 'notify:boiler_daily',
++
++  // 系统管理
++  FACTORY_MANAGE: 'factory:manage',
++  FACTORY_SWITCH: 'factory:switch',
++  PC_LOGIN: 'pc:login',
++  USER_MANAGE: 'user:manage',
++  SYSTEM_ADMIN: 'system:admin',
++}
++
++const PERMISSION_GROUPS = [
++  {
++    label: '模块访问',
++    items: [
++      { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
++      { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
++      { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
++      { key: PERMISSIONS.MODULE_BUSINESS, label: '业务部' },
++    ],
++  },
++  {
++    label: '业务部操作',
++    items: [
++      { key: PERMISSIONS.BUSINESS_VIEW, label: '查看酒店/片区匹配' },
++      { key: PERMISSIONS.BUSINESS_MANAGE, label: '酒店建档/POI绑定管理' },
++    ],
++  },
++  {
++    label: '工程部操作',
++    items: [
++      { key: PERMISSIONS.RECORD_WRITE, label: '提交更换记录' },
++      { key: PERMISSIONS.RECORD_DELETE, label: '删除/修改记录' },
++      { key: PERMISSIONS.INSPECTION_WRITE, label: '提交巡检记录' },
++      { key: PERMISSIONS.INSPECTION_MANAGE, label: '配置巡检计划' },
++    ],
++  },
++  {
++    label: '锅炉房操作',
++    items: [
++      { key: PERMISSIONS.BOILER_WRITE, label: '录入运行数据' },
++      { key: PERMISSIONS.BOILER_MANAGE, label: '设备配置管理' },
++    ],
++  },
++  {
++    label: '报警',
++    items: [
++      { key: PERMISSIONS.ALERT_VIEW, label: '查看报警' },
++      { key: PERMISSIONS.ALERT_ACK, label: '确认/处理报警' },
++    ],
++  },
++  {
++    label: '数据与看板',
++    items: [
++      { key: PERMISSIONS.DASHBOARD_VIEW, label: '查看数据看板' },
++      { key: PERMISSIONS.COST_VIEW, label: '查看成本数据' },
++      { key: PERMISSIONS.EXPORT_DATA, label: '导出数据' },
++      { key: PERMISSIONS.DATA_IMPORT, label: '导入数据' },
++      { key: PERMISSIONS.AI_USE, label: '数据分析报告' },
++    ],
++  },
++  {
++    label: '设备与库存管理',
++    items: [
++      { key: PERMISSIONS.ASSET_MANAGE, label: '管理设备' },
++      { key: PERMISSIONS.PART_MANAGE, label: '管理配件' },
++      { key: PERMISSIONS.INVENTORY_MANAGE, label: '库存管理' },
++      { key: PERMISSIONS.THRESHOLD_MANAGE, label: '管理阈值' },
++    ],
++  },
++  {
++    label: '消息通知',
++    items: [
++      { key: PERMISSIONS.NOTIFY_REPLACEMENT, label: '更换记录通知' },
++      { key: PERMISSIONS.NOTIFY_INSPECTION, label: '巡检记录通知' },
++      { key: PERMISSIONS.NOTIFY_THRESHOLD, label: '阈值报警通知' },
++      { key: PERMISSIONS.NOTIFY_INVENTORY, label: '低库存预警通知' },
++      { key: PERMISSIONS.NOTIFY_FAULT, label: '故障申报通知' },
++      { key: PERMISSIONS.NOTIFY_BOILER_DAILY, label: '锅炉房日报通知' },
++    ],
++  },
++  {
++    label: '系统管理',
++    items: [
++      { key: PERMISSIONS.FACTORY_MANAGE, label: '管理工厂' },
++      { key: PERMISSIONS.FACTORY_SWITCH, label: '切换工厂' },
++      { key: PERMISSIONS.PC_LOGIN, label: 'PC端登录' },
++      { key: PERMISSIONS.USER_MANAGE, label: '用户管理' },
++      { key: PERMISSIONS.SYSTEM_ADMIN, label: '系统管理员（最高权限）' },
++    ],
++  },
++]
++
++var ALL_PERMISSION_KEYS = Object.values(PERMISSIONS)
++
++var ROLE_TEMPLATES = {
++  Admin: ALL_PERMISSION_KEYS.slice(),
++  Management: [
++    PERMISSIONS.MODULE_ENGINEERING,
++    PERMISSIONS.MODULE_BOILER,
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.ALERT_VIEW,
++    PERMISSIONS.ALERT_ACK,
++    PERMISSIONS.COST_VIEW,
++    PERMISSIONS.DASHBOARD_VIEW,
++    PERMISSIONS.AI_USE,
++    PERMISSIONS.EXPORT_DATA,
++    PERMISSIONS.FACTORY_SWITCH,
++    PERMISSIONS.PC_LOGIN,
++    PERMISSIONS.NOTIFY_REPLACEMENT,
++    PERMISSIONS.NOTIFY_INSPECTION,
++    PERMISSIONS.NOTIFY_THRESHOLD,
++    PERMISSIONS.NOTIFY_INVENTORY,
++    PERMISSIONS.NOTIFY_FAULT,
++    PERMISSIONS.NOTIFY_BOILER_DAILY,
++  ],
++  Supervisor: [
++    PERMISSIONS.MODULE_ENGINEERING,
++    PERMISSIONS.ALERT_VIEW,
++    PERMISSIONS.ALERT_ACK,
++    PERMISSIONS.INSPECTION_MANAGE,
++    PERMISSIONS.COST_VIEW,
++    PERMISSIONS.DASHBOARD_VIEW,
++    PERMISSIONS.INVENTORY_MANAGE,
++    PERMISSIONS.AI_USE,
++    PERMISSIONS.PC_LOGIN,
++    PERMISSIONS.NOTIFY_REPLACEMENT,
++    PERMISSIONS.NOTIFY_INSPECTION,
++    PERMISSIONS.NOTIFY_THRESHOLD,
++    PERMISSIONS.NOTIFY_INVENTORY,
++    PERMISSIONS.NOTIFY_FAULT,
++  ],
++  BoilerOperator: [
++    PERMISSIONS.MODULE_BOILER,
++    PERMISSIONS.BOILER_WRITE,
++    PERMISSIONS.ALERT_VIEW,
++    PERMISSIONS.DASHBOARD_VIEW,
++    PERMISSIONS.NOTIFY_BOILER_DAILY,
++  ],
++  Engineer: [
++    PERMISSIONS.MODULE_ENGINEERING,
++    PERMISSIONS.RECORD_WRITE,
++    PERMISSIONS.ALERT_VIEW,
++    PERMISSIONS.INSPECTION_WRITE,
++    PERMISSIONS.DASHBOARD_VIEW,
++    PERMISSIONS.NOTIFY_FAULT,
++  ],
++  Viewer: [
++    PERMISSIONS.MODULE_ENGINEERING,
++    PERMISSIONS.ALERT_VIEW,
++    PERMISSIONS.DASHBOARD_VIEW,
++    PERMISSIONS.AI_USE,
++    PERMISSIONS.PC_LOGIN,
++  ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
++}
++
++function getPermissionsForRole(role) {
++  return (ROLE_TEMPLATES[role] || []).slice()
++}
++
++function hasPermission(permissions, key) {
++  if (!Array.isArray(permissions)) return false
++  if (permissions.includes(PERMISSIONS.SYSTEM_ADMIN)) return true
++  return permissions.includes(key)
++}
++
++function migratePermissions(user) {
++  if (Array.isArray(user.permissions) && user.permissions.length > 0) {
++    return user.permissions
++  }
++  var perms = getPermissionsForRole(user.role || 'Viewer')
++  if (user.canPcLogin && perms.indexOf(PERMISSIONS.PC_LOGIN) === -1) {
++    perms.push(PERMISSIONS.PC_LOGIN)
++  }
++  return perms
++}
++
++var ACTION_PERMISSION_MAP = {
++  listUsers: PERMISSIONS.USER_MANAGE,
++  createUser: PERMISSIONS.USER_MANAGE,
++  updateUser: PERMISSIONS.USER_MANAGE,
++  disableUser: PERMISSIONS.USER_MANAGE,
++  deleteUser: PERMISSIONS.USER_MANAGE,
++  unbindOpenid: PERMISSIONS.USER_MANAGE,
++  bindOpenid: PERMISSIONS.USER_MANAGE,
++
++  createFactory: PERMISSIONS.FACTORY_MANAGE,
++  updateFactory: PERMISSIONS.FACTORY_MANAGE,
++
++  createAsset: PERMISSIONS.ASSET_MANAGE,
++  updateAsset: PERMISSIONS.ASSET_MANAGE,
++  setAssetStatus: PERMISSIONS.ASSET_MANAGE,
++
++  createPart: PERMISSIONS.PART_MANAGE,
++  updatePart: PERMISSIONS.PART_MANAGE,
++  deletePart: PERMISSIONS.PART_MANAGE,
++  batchSetPartsActive: PERMISSIONS.PART_MANAGE,
++  batchDeleteParts: PERMISSIONS.PART_MANAGE,
++  importPartsCommit: PERMISSIONS.PART_MANAGE,
++
++  deleteInboundLog: PERMISSIONS.INVENTORY_MANAGE,
++  deleteOutboundLog: PERMISSIONS.INVENTORY_MANAGE,
++
++  setAIConfig: PERMISSIONS.SYSTEM_ADMIN,
++
++  upsertThreshold: PERMISSIONS.THRESHOLD_MANAGE,
++  batchUpsertThresholds: PERMISSIONS.THRESHOLD_MANAGE,
++  deleteThreshold: PERMISSIONS.THRESHOLD_MANAGE,
++
++  ackAlert: PERMISSIONS.ALERT_ACK,
++  submitFacilityLog: PERMISSIONS.RECORD_WRITE,
++  editReplacementLogItems: PERMISSIONS.RECORD_DELETE,
++  toggleLogStatus: PERMISSIONS.RECORD_DELETE,
++
++  setInspectionPlan: PERMISSIONS.INSPECTION_MANAGE,
++
++  inventoryInbound: PERMISSIONS.INVENTORY_MANAGE,
++  updateInventoryThreshold: PERMISSIONS.INVENTORY_MANAGE,
++
++  cleanupParts: PERMISSIONS.PART_MANAGE,
++  migratePartsToFactory: PERMISSIONS.PART_MANAGE,
++
++  boilerCreateRecord: PERMISSIONS.BOILER_WRITE,
++  boilerSaveConfig: PERMISSIONS.BOILER_MANAGE,
++  boilerDeleteRecord: PERMISSIONS.BOILER_MANAGE,
++
++  // 业务部 business-geocode actions
++  geocode: PERMISSIONS.BUSINESS_VIEW,
++  searchPOI: PERMISSIONS.BUSINESS_VIEW,
++  searchAndMatch: PERMISSIONS.BUSINESS_VIEW,
++  listHotels: PERMISSIONS.BUSINESS_VIEW,
++  listBindings: PERMISSIONS.BUSINESS_VIEW,
++  bindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  unbindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  batchMatch: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotelFromPOI: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotel: PERMISSIONS.BUSINESS_MANAGE,
++  updateHotel: PERMISSIONS.BUSINESS_MANAGE,
++  deleteHotel: PERMISSIONS.BUSINESS_MANAGE,
++}
++
++module.exports = {
++  PERMISSIONS: PERMISSIONS,
++  PERMISSION_GROUPS: PERMISSION_GROUPS,
++  ALL_PERMISSION_KEYS: ALL_PERMISSION_KEYS,
++  ROLE_TEMPLATES: ROLE_TEMPLATES,
++  getPermissionsForRole: getPermissionsForRole,
++  hasPermission: hasPermission,
++  migratePermissions: migratePermissions,
++  ACTION_PERMISSION_MAP: ACTION_PERMISSION_MAP,
++}
+diff --git a/cloudfunctions/getMe/permissions.js b/cloudfunctions/getMe/permissions.js
+index e6eeac5..81c979d 100644
+--- a/cloudfunctions/getMe/permissions.js
++++ b/cloudfunctions/getMe/permissions.js
+@@ -5,6 +5,11 @@ const PERMISSIONS = {
+   MODULE_ENGINEERING: 'module:engineering',
+   MODULE_BOILER: 'module:boiler',
+   MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  // 业务部（酒店/POI 匹配绑定）
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
+ 
+   // 工程部 - 记录与巡检
+   RECORD_WRITE: 'record:write',
+@@ -56,6 +61,14 @@ const PERMISSION_GROUPS = [
+       { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
+       { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
+       { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
++      { key: PERMISSIONS.MODULE_BUSINESS, label: '业务部' },
++    ],
++  },
++  {
++    label: '业务部操作',
++    items: [
++      { key: PERMISSIONS.BUSINESS_VIEW, label: '查看酒店/片区匹配' },
++      { key: PERMISSIONS.BUSINESS_MANAGE, label: '酒店建档/POI绑定管理' },
+     ],
+   },
+   {
+@@ -131,6 +144,8 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.MODULE_ENGINEERING,
+     PERMISSIONS.MODULE_BOILER,
+     PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
+     PERMISSIONS.ALERT_VIEW,
+     PERMISSIONS.ALERT_ACK,
+     PERMISSIONS.COST_VIEW,
+@@ -184,6 +199,16 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.AI_USE,
+     PERMISSIONS.PC_LOGIN,
+   ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
+ }
+ 
+ function getPermissionsForRole(role) {
+@@ -255,6 +280,20 @@ var ACTION_PERMISSION_MAP = {
+   boilerCreateRecord: PERMISSIONS.BOILER_WRITE,
+   boilerSaveConfig: PERMISSIONS.BOILER_MANAGE,
+   boilerDeleteRecord: PERMISSIONS.BOILER_MANAGE,
++
++  // 业务部 business-geocode actions
++  geocode: PERMISSIONS.BUSINESS_VIEW,
++  searchPOI: PERMISSIONS.BUSINESS_VIEW,
++  searchAndMatch: PERMISSIONS.BUSINESS_VIEW,
++  listHotels: PERMISSIONS.BUSINESS_VIEW,
++  listBindings: PERMISSIONS.BUSINESS_VIEW,
++  bindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  unbindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  batchMatch: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotelFromPOI: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotel: PERMISSIONS.BUSINESS_MANAGE,
++  updateHotel: PERMISSIONS.BUSINESS_MANAGE,
++  deleteHotel: PERMISSIONS.BUSINESS_MANAGE,
+ }
+ 
+ module.exports = {
+diff --git a/cloudfunctions/pcGateway/index.js b/cloudfunctions/pcGateway/index.js
+index 993c301..b0ad6e4 100644
+--- a/cloudfunctions/pcGateway/index.js
++++ b/cloudfunctions/pcGateway/index.js
+@@ -4434,6 +4434,31 @@ async function boilerGetCustomerStats(db, data) {
+   }
+ }
+ 
++// ====== 业务部模块：转发到 business-geocode 云函数（携带内部信任令牌） ======
++const BUSINESS_INTERNAL_TOKEN = process.env.INTERNAL_CALL_TOKEN ||
++  ('kangjie-internal-' + (process.env.TCB_ENV || 'dev'))
++
++async function callBusinessGeocode(action, data, meUser) {
++  const res = await cloud.callFunction({
++    name: 'business-geocode',
++    data: {
++      action,
++      ...data,
++      _internalToken: BUSINESS_INTERNAL_TOKEN,
++      _internalUser: {
++        userId: meUser.userId,
++        displayName: meUser.displayName || '',
++        permissions: meUser.permissions || [],
++      },
++    },
++  })
++  const r = res && res.result ? res.result : {}
++  if (r.code === 0) {
++    return { ok: true, data: r.data }
++  }
++  return { ok: false, error: { code: r.code || 'BUSINESS_ERROR', message: r.message || '业务部服务调用失败' } }
++}
++
+ exports.main = async (event, context) => {
+   // 首次调用时自动初始化所有数据库集合
+   await ensureAllCollections(db)
+@@ -4454,7 +4479,8 @@ exports.main = async (event, context) => {
+     }
+     const fullUser = await loadMe(db, me.userId)
+     const mePermissions = fullUser ? migratePermissions(fullUser) : migratePermissions({ role: me.role, canPcLogin: true })
+-    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null, permissions: mePermissions }
++    const meDisplayName = (fullUser && (fullUser.displayName || fullUser.username)) || me.displayName || ''
++    const meUser = { userId: me.userId, role: me.role, factoryId: me.factoryId || null, permissions: mePermissions, displayName: meDisplayName }
+ 
+     const requiredPerm = ACTION_PERMISSION_MAP[action]
+     if (requiredPerm && !hasPermission(mePermissions, requiredPerm)) {
+@@ -4592,6 +4618,21 @@ exports.main = async (event, context) => {
+       case 'generateAssetQr': return await generateAssetQr(data)
+       case 'batchGenerateAssetQr': return await batchGenerateAssetQr(db, data)
+ 
++      // 业务部模块（转发到 business-geocode）
++      case 'geocode':
++      case 'searchPOI':
++      case 'searchAndMatch':
++      case 'listHotels':
++      case 'listBindings':
++      case 'bindPOI':
++      case 'unbindPOI':
++      case 'batchMatch':
++      case 'saveHotelFromPOI':
++      case 'saveHotel':
++      case 'updateHotel':
++      case 'deleteHotel':
++        return await callBusinessGeocode(action, data, meUser)
++
+       default:
+         return { ok: false, error: { code: 'UNKNOWN_ACTION', message: '不支持的 action: ' + action } }
+     }
+diff --git a/cloudfunctions/pcGateway/permissions.js b/cloudfunctions/pcGateway/permissions.js
+index 60d84b4..042f850 100644
+--- a/cloudfunctions/pcGateway/permissions.js
++++ b/cloudfunctions/pcGateway/permissions.js
+@@ -5,6 +5,11 @@ const PERMISSIONS = {
+   MODULE_ENGINEERING: 'module:engineering',
+   MODULE_BOILER: 'module:boiler',
+   MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  // 业务部（酒店/POI 匹配绑定）
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
+ 
+   // 工程部 - 记录与巡检
+   RECORD_WRITE: 'record:write',
+@@ -152,6 +157,16 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.AI_USE,
+     PERMISSIONS.PC_LOGIN,
+   ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
+ }
+ 
+ function getPermissionsForRole(role) {
+@@ -225,6 +240,20 @@ var ACTION_PERMISSION_MAP = {
+   boilerCreateRecord: PERMISSIONS.BOILER_WRITE,
+   boilerSaveConfig: PERMISSIONS.BOILER_MANAGE,
+   boilerDeleteRecord: PERMISSIONS.BOILER_MANAGE,
++
++  // 业务部 business-geocode actions（pcGateway 转发）
++  geocode: PERMISSIONS.BUSINESS_VIEW,
++  searchPOI: PERMISSIONS.BUSINESS_VIEW,
++  searchAndMatch: PERMISSIONS.BUSINESS_VIEW,
++  listHotels: PERMISSIONS.BUSINESS_VIEW,
++  listBindings: PERMISSIONS.BUSINESS_VIEW,
++  bindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  unbindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  batchMatch: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotelFromPOI: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotel: PERMISSIONS.BUSINESS_MANAGE,
++  updateHotel: PERMISSIONS.BUSINESS_MANAGE,
++  deleteHotel: PERMISSIONS.BUSINESS_MANAGE,
+ }
+ 
+ module.exports = {
+diff --git a/miniprogram/app.json b/miniprogram/app.json
+index 0ec9b45..7326f0e 100644
+--- a/miniprogram/app.json
++++ b/miniprogram/app.json
+@@ -53,6 +53,16 @@
+         "pages/alerts/index",
+         "pages/trend/index"
+       ]
++    },
++    {
++      "root": "packages/business",
++      "name": "business",
++      "pages": [
++        "pages/map/index",
++        "pages/hotel-manage/index",
++        "pages/area-map/index",
++        "pages/match-review/index"
++      ]
+     }
+   ],
+   "sitemapLocation": "sitemap.json",
+diff --git a/miniprogram/packages/business/pages/area-map/index.js b/miniprogram/packages/business/pages/area-map/index.js
+new file mode 100644
+index 0000000..73f6916
+--- /dev/null
++++ b/miniprogram/packages/business/pages/area-map/index.js
+@@ -0,0 +1,559 @@
++const app = getApp()
++const api = require('../../utils/api')
++const auth = require('../../../../utils/auth')
++const { PERMISSIONS } = require('../../../../utils/permissions')
++
++const POI_TYPES = '100000|120000'
++
++Page({
++  data: {
++    loading: false,
++    latitude: 25.0389,
++    longitude: 102.7183,
++    scale: 13,
++    markers: [],
++    polygons: [],
++
++    // 搜索
++    searchKeywords: '酒店',
++    searchCity: '',
++    searchRadius: 3000,
++    searchMode: 'center',
++
++    // 绘制区域
++    drawingMode: false,
++    drawPoints: [],
++    polyline: [],
++
++    // POI 结果
++    pois: [],
++    poiTotal: 0,
++    poiMarkers: [],
++    stats: { total: 0, bound: 0, suggested: 0, unmatched: 0 },
++
++    // 分页
++    currentPage: 1,
++    hasMore: false,
++    loadingMore: false,
++
++    // 我方客户图层（盲区）
++    showHotelLayer: false,
++    hotelLayer: [],
++    hotelMarkers: [],
++    blindCount: 0,
++
++    // 详情面板
++    showDetail: false,
++    selectedPoi: null,
++    suggestThreshold: 0.55,
++
++    // 底部列表
++    showList: false,
++    activeTab: 'all',
++    filteredPois: [],
++
++    // 搜索设置面板
++    showSettings: false,
++
++    canManage: false
++  },
++
++  async onLoad() {
++    await app.waitForLogin()
++    if (!auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)) {
++      wx.showModal({
++        title: '无权限',
++        content: '您没有业务部访问权限，请联系管理员',
++        showCancel: false,
++        success: () => wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/company/index' }) })
++      })
++      return
++    }
++    this.setData({ canManage: auth.hasPermission(PERMISSIONS.BUSINESS_MANAGE) })
++    this._getUserLocation()
++  },
++
++  _getUserLocation() {
++    wx.getLocation({
++      type: 'gcj02',
++      success: (res) => {
++        this.setData({
++          latitude: res.latitude,
++          longitude: res.longitude
++        })
++      }
++    })
++  },
++
++  // ─── 搜索设置 ───
++
++  onToggleSettings() {
++    this.setData({ showSettings: !this.data.showSettings })
++  },
++
++  onKeywordsInput(e) {
++    this.setData({ searchKeywords: e.detail.value })
++  },
++
++  onCityInput(e) {
++    this.setData({ searchCity: e.detail.value })
++  },
++
++  onRadiusChange(e) {
++    this.setData({ searchRadius: parseInt(e.detail.value, 10) || 3000 })
++  },
++
++  onThresholdChange(e) {
++    this.setData({ suggestThreshold: parseFloat(e.detail.value) || 0.55 })
++  },
++
++  onModeChange(e) {
++    const mode = e.currentTarget.dataset.mode
++    this.setData({ searchMode: mode })
++    if (mode === 'draw') {
++      this.setData({ drawingMode: true, drawPoints: [], polyline: [], polygons: [] })
++      wx.showToast({ title: '请在地图上点选区域顶点', icon: 'none', duration: 2000 })
++    } else {
++      this.setData({ drawingMode: false, drawPoints: [], polyline: [] })
++    }
++  },
++
++  // ─── 区域绘制 ───
++
++  onMapTap(e) {
++    if (!this.data.drawingMode) return
++    const { latitude, longitude } = e.detail
++    const points = [...this.data.drawPoints, { latitude, longitude }]
++
++    const polyline = points.length >= 2 ? [{
++      points: [...points, points[0]],
++      color: '#409EFF',
++      width: 3,
++      dottedLine: points.length < 3
++    }] : []
++
++    const drawMarkers = points.map((p, idx) => ({
++      id: 10000 + idx,
++      latitude: p.latitude,
++      longitude: p.longitude,
++      width: 16,
++      height: 16,
++      anchor: { x: 0.5, y: 0.5 },
++      callout: {
++        content: `${idx + 1}`,
++        color: '#fff',
++        fontSize: 12,
++        borderRadius: 10,
++        bgColor: '#409EFF',
++        padding: 4,
++        display: 'ALWAYS'
++      }
++    }))
++
++    this.setData({
++      drawPoints: points,
++      polyline,
++      markers: drawMarkers
++    })
++  },
++
++  onUndoPoint() {
++    const points = this.data.drawPoints.slice(0, -1)
++
++    const polyline = points.length >= 2 ? [{
++      points: [...points, points[0]],
++      color: '#409EFF',
++      width: 3,
++      dottedLine: points.length < 3
++    }] : []
++
++    const drawMarkers = points.map((p, idx) => ({
++      id: 10000 + idx,
++      latitude: p.latitude,
++      longitude: p.longitude,
++      width: 16,
++      height: 16,
++      anchor: { x: 0.5, y: 0.5 },
++      callout: {
++        content: `${idx + 1}`,
++        color: '#fff',
++        fontSize: 12,
++        borderRadius: 10,
++        bgColor: '#409EFF',
++        padding: 4,
++        display: 'ALWAYS'
++      }
++    }))
++
++    this.setData({ drawPoints: points, polyline, markers: drawMarkers })
++  },
++
++  onClearDraw() {
++    this.setData({
++      drawPoints: [],
++      polyline: [],
++      polygons: [],
++      markers: [],
++      poiMarkers: [],
++      hotelMarkers: [],
++      pois: [],
++      filteredPois: [],
++      hotelLayer: [],
++      blindCount: 0,
++      hasMore: false,
++      stats: { total: 0, bound: 0, suggested: 0, unmatched: 0 }
++    })
++  },
++
++  onFinishDraw() {
++    if (this.data.drawPoints.length < 3) {
++      wx.showToast({ title: '至少需要3个顶点', icon: 'none' })
++      return
++    }
++    const points = this.data.drawPoints
++    this.setData({
++      drawingMode: false,
++      polyline: [],
++      polygons: [{
++        points,
++        strokeColor: '#409EFF',
++        strokeWidth: 3,
++        fillColor: '#409EFF33'
++      }]
++    })
++    this._doSearch()
++  },
++
++  // ─── 搜索执行 ───
++
++  onSearch() {
++    if (this.data.searchMode === 'draw' && this.data.drawPoints.length >= 3) {
++      this.onFinishDraw()
++    } else if (this.data.searchMode === 'center') {
++      this._doSearch()
++    }
++  },
++
++  _buildSearchParams(page) {
++    const { searchKeywords, searchCity, searchRadius, searchMode, drawPoints, suggestThreshold } = this.data
++    const params = {
++      keywords: searchKeywords,
++      city: searchCity,
++      types: POI_TYPES,
++      suggestThreshold,
++      page,
++      pageSize: 25
++    }
++    if (searchMode === 'draw' && drawPoints.length >= 3) {
++      params.polygon = drawPoints.map(p => `${p.longitude},${p.latitude}`).join('|')
++    } else {
++      params.location = `${this.data.longitude},${this.data.latitude}`
++      params.radius = searchRadius
++    }
++    return params
++  },
++
++  _poiMarker(p, idx) {
++    let bgColor = '#999'
++    if (p.matchStatus === 'bound') bgColor = '#07C160'
++    else if (p.matchStatus === 'suggested') bgColor = '#E6A23C'
++    return {
++      id: idx,
++      latitude: p.latitude,
++      longitude: p.longitude,
++      title: p.name,
++      width: 28,
++      height: 36,
++      anchor: { x: 0.5, y: 1 },
++      callout: {
++        content: this._getCalloutText(p),
++        color: '#333', fontSize: 12, borderRadius: 8,
++        borderWidth: 1, borderColor: bgColor, bgColor: '#fff',
++        padding: 6, display: 'BYCLICK', textAlign: 'left'
++      }
++    }
++  },
++
++  // 我方客户图层标记（盲区客户用紫色突出）
++  _buildHotelMarkers(hotelLayer) {
++    if (!this.data.showHotelLayer) return []
++    return (hotelLayer || [])
++      .filter(h => !h.matchedHere)
++      .map((h, i) => ({
++        id: 50000 + i,
++        latitude: h.latitude,
++        longitude: h.longitude,
++        width: 22,
++        height: 22,
++        anchor: { x: 0.5, y: 0.5 },
++        callout: {
++          content: (h.bound ? '🔒 ' : '🏠 ') + h.name + (h.bound ? '' : '（盲区）'),
++          color: '#fff', fontSize: 12, borderRadius: 8,
++          bgColor: h.bound ? '#909399' : '#8E44AD',
++          padding: 6, display: 'BYCLICK', textAlign: 'left'
++        }
++      }))
++  },
++
++  _syncMarkers() {
++    this.setData({ markers: [...this.data.poiMarkers, ...this.data.hotelMarkers] })
++  },
++
++  async _doSearch() {
++    if (!this.data.searchKeywords) {
++      wx.showToast({ title: '请输入搜索关键词', icon: 'none' })
++      return
++    }
++    this.setData({ loading: true, showSettings: false, currentPage: 1 })
++    wx.showLoading({ title: '搜索匹配中...' })
++    try {
++      const result = await api.searchAndMatch(this._buildSearchParams(1))
++      const pois = result.pois || []
++      const poiMarkers = pois.filter(p => p.latitude && p.longitude).map((p, idx) => this._poiMarker(p, idx))
++      const hotelLayer = result.hotelLayer || []
++
++      this.setData({
++        pois,
++        poiTotal: result.total || 0,
++        stats: result.stats || { total: 0, bound: 0, suggested: 0, unmatched: 0 },
++        poiMarkers,
++        hotelLayer,
++        blindCount: result.blindCount || 0,
++        hasMore: pois.length < (result.total || 0),
++        loading: false
++      })
++      this.setData({ hotelMarkers: this._buildHotelMarkers(hotelLayer) })
++      this._syncMarkers()
++      this._refreshFiltered()
++      wx.hideLoading()
++
++      const { bound, suggested } = result.stats || {}
++      wx.showToast({
++        title: `${pois.length}条 | 已绑${bound} 建议${suggested} 盲区${result.blindCount || 0}`,
++        icon: 'none',
++        duration: 2500
++      })
++    } catch (err) {
++      wx.hideLoading()
++      console.error('[_doSearch]', err)
++      wx.showToast({ title: err.message || '搜索失败', icon: 'none' })
++      this.setData({ loading: false })
++    }
++  },
++
++  async onLoadMore() {
++    if (!this.data.hasMore || this.data.loadingMore) return
++    const nextPage = this.data.currentPage + 1
++    this.setData({ loadingMore: true })
++    try {
++      const result = await api.searchAndMatch(this._buildSearchParams(nextPage))
++      const newPois = result.pois || []
++      const merged = [...this.data.pois, ...newPois]
++      const poiMarkers = merged.filter(p => p.latitude && p.longitude).map((p, idx) => this._poiMarker(p, idx))
++      this.setData({
++        pois: merged,
++        poiMarkers,
++        currentPage: nextPage,
++        stats: result.stats || this.data.stats,
++        hotelLayer: result.hotelLayer || this.data.hotelLayer,
++        blindCount: result.blindCount || this.data.blindCount,
++        hasMore: merged.length < (result.total || 0),
++        loadingMore: false
++      })
++      this.setData({ hotelMarkers: this._buildHotelMarkers(this.data.hotelLayer) })
++      this._syncMarkers()
++      this._refreshFiltered()
++    } catch (err) {
++      console.error('[onLoadMore]', err)
++      wx.showToast({ title: '加载更多失败', icon: 'none' })
++      this.setData({ loadingMore: false })
++    }
++  },
++
++  onToggleHotelLayer() {
++    const next = !this.data.showHotelLayer
++    this.setData({ showHotelLayer: next })
++    this.setData({ hotelMarkers: this._buildHotelMarkers(this.data.hotelLayer) })
++    this._syncMarkers()
++  },
++
++  _getCalloutText(poi) {
++    let text = poi.name
++    if (poi.matchStatus === 'bound') {
++      text += `\n✅ 已绑定: ${poi.boundHotelName}`
++    } else if (poi.matchStatus === 'suggested') {
++      text += `\n🟡 建议匹配: ${poi.suggestedHotelName}`
++      text += `\n匹配度: ${Math.round(poi.matchScore.total * 100)}%`
++    } else {
++      text += '\n⚪ 未匹配'
++    }
++    return text
++  },
++
++  // ─── 标记/列表交互 ───
++
++  onMarkerTap(e) {
++    const idx = e.markerId
++    if (idx >= 50000) return // 我方客户图层标记，仅展示 callout
++    const poi = this.data.pois[idx]
++    if (poi) {
++      this.setData({ selectedPoi: poi, showDetail: true })
++    }
++  },
++
++  onCalloutTap(e) {
++    this.onMarkerTap(e)
++  },
++
++  onCloseDetail() {
++    this.setData({ showDetail: false, selectedPoi: null })
++  },
++
++  onToggleList() {
++    this.setData({ showList: !this.data.showList })
++  },
++
++  onTabChange(e) {
++    this.setData({ activeTab: e.currentTarget.dataset.tab })
++    this._refreshFiltered()
++  },
++
++  onSelectPoi(e) {
++    const idx = e.currentTarget.dataset.index
++    const poi = this.data.pois[idx]
++    if (poi) {
++      this.setData({
++        selectedPoi: poi,
++        showDetail: true,
++        showList: false,
++        latitude: poi.latitude,
++        longitude: poi.longitude,
++        scale: 16
++      })
++    }
++  },
++
++  // ─── 绑定操作 ───
++
++  async onConfirmBind() {
++    const poi = this.data.selectedPoi
++    if (!poi) return
++
++    if (poi.matchStatus === 'unmatched' && poi.bestCandidateTaken) {
++      wx.showToast({ title: '最佳候选已被占用（1:1）', icon: 'none' })
++      return
++    }
++
++    const hotelId = poi.matchStatus === 'suggested' ? poi.suggestedHotelId : poi.bestCandidateId
++    const hotelName = poi.matchStatus === 'suggested' ? poi.suggestedHotelName : poi.bestCandidateName
++
++    if (!hotelId) {
++      wx.showToast({ title: '没有可绑定的内部客户', icon: 'none' })
++      return
++    }
++
++    wx.showModal({
++      title: '确认绑定',
++      content: `将高德POI「${poi.name}」绑定到内部客户「${hotelName}」？`,
++      success: async (res) => {
++        if (!res.confirm) return
++        wx.showLoading({ title: '绑定中...' })
++        try {
++          await api.bindPOI({
++            poiId: poi.id,
++            poiName: poi.name,
++            hotelId,
++            hotelName,
++            poiData: {
++              name: poi.name,
++              address: poi.address,
++              tel: poi.tel,
++              latitude: poi.latitude,
++              longitude: poi.longitude
++            }
++          })
++          wx.hideLoading()
++          wx.showToast({ title: '绑定成功', icon: 'success' })
++          this.setData({ showDetail: false })
++          this._doSearch()
++        } catch (err) {
++          wx.hideLoading()
++          wx.showToast({ title: err.message || '绑定失败', icon: 'none' })
++        }
++      }
++    })
++  },
++
++  async onUnbind() {
++    const poi = this.data.selectedPoi
++    if (!poi || poi.matchStatus !== 'bound') return
++
++    wx.showModal({
++      title: '确认解绑',
++      content: `确定要解除「${poi.name}」和「${poi.boundHotelName}」的绑定？`,
++      success: async (res) => {
++        if (!res.confirm) return
++        wx.showLoading({ title: '解绑中...' })
++        try {
++          await api.unbindPOI({
++            poiId: poi.id,
++            bindingId: poi.bindingId
++          })
++          wx.hideLoading()
++          wx.showToast({ title: '已解绑', icon: 'success' })
++          this.setData({ showDetail: false })
++          this._doSearch()
++        } catch (err) {
++          wx.hideLoading()
++          wx.showToast({ title: err.message || '解绑失败', icon: 'none' })
++        }
++      }
++    })
++  },
++
++  onNavigateTo() {
++    const poi = this.data.selectedPoi
++    if (!poi) return
++    wx.openLocation({
++      latitude: poi.latitude,
++      longitude: poi.longitude,
++      name: poi.name,
++      address: poi.address,
++      scale: 18
++    })
++  },
++
++  onCallPhone() {
++    const poi = this.data.selectedPoi
++    if (poi && poi.tel) {
++      const phone = poi.tel.split(';')[0].split(',')[0]
++      wx.makePhoneCall({ phoneNumber: phone })
++    }
++  },
++
++  // ─── 全部显示 ───
++
++  onGoReview() {
++    wx.navigateTo({ url: '/packages/business/pages/match-review/index' })
++  },
++
++  onFitMarkers() {
++    if (this.data.markers.length === 0) return
++    const mapCtx = wx.createMapContext('areaMap', this)
++    mapCtx.includePoints({
++      points: this.data.markers.map(m => ({
++        latitude: m.latitude,
++        longitude: m.longitude
++      })),
++      padding: [80, 80, 80, 80]
++    })
++  },
++
++  _refreshFiltered() {
++    const { pois, activeTab } = this.data
++    const filteredPois = activeTab === 'all'
++      ? pois
++      : pois.filter(p => p.matchStatus === activeTab)
++    this.setData({ filteredPois })
++  }
++})
+diff --git a/miniprogram/packages/business/pages/area-map/index.json b/miniprogram/packages/business/pages/area-map/index.json
+new file mode 100644
+index 0000000..f0a6561
+--- /dev/null
++++ b/miniprogram/packages/business/pages/area-map/index.json
+@@ -0,0 +1,4 @@
++{
++  "navigationBarTitleText": "片区态势图",
++  "usingComponents": {}
++}
+diff --git a/miniprogram/packages/business/pages/area-map/index.wxml b/miniprogram/packages/business/pages/area-map/index.wxml
+new file mode 100644
+index 0000000..310d771
+--- /dev/null
++++ b/miniprogram/packages/business/pages/area-map/index.wxml
+@@ -0,0 +1,202 @@
++<view class="area-page">
++  <!-- 地图 -->
++  <map
++    id="areaMap"
++    class="map-container"
++    latitude="{{latitude}}"
++    longitude="{{longitude}}"
++    scale="{{scale}}"
++    markers="{{markers}}"
++    polyline="{{polyline}}"
++    polygons="{{polygons}}"
++    show-location
++    bind:tap="onMapTap"
++    bind:markertap="onMarkerTap"
++    bind:callouttap="onCalloutTap"
++  />
++
++  <!-- 顶部搜索栏 -->
++  <view class="top-bar">
++    <view class="search-row">
++      <input
++        class="search-input"
++        placeholder="搜索关键词（如：酒店）"
++        value="{{searchKeywords}}"
++        bind:input="onKeywordsInput"
++        confirm-type="search"
++        bind:confirm="onSearch"
++      />
++      <view class="search-btn" bind:tap="onSearch">搜索</view>
++      <view class="settings-btn" bind:tap="onToggleSettings">⚙</view>
++    </view>
++
++    <!-- 模式切换 -->
++    <view class="mode-tabs">
++      <view class="mode-tab {{searchMode === 'center' ? 'active' : ''}}" data-mode="center" bind:tap="onModeChange">
++        <text>📍 周边搜索</text>
++      </view>
++      <view class="mode-tab {{searchMode === 'draw' ? 'active' : ''}}" data-mode="draw" bind:tap="onModeChange">
++        <text>✏️ 画区域搜索</text>
++      </view>
++    </view>
++  </view>
++
++  <!-- 搜索设置面板 -->
++  <view class="settings-panel" wx:if="{{showSettings}}">
++    <view class="setting-item">
++      <text class="setting-label">所在城市</text>
++      <input class="setting-input" placeholder="如：昆明市（可选）" value="{{searchCity}}" bind:input="onCityInput" />
++    </view>
++    <view class="setting-item" wx:if="{{searchMode === 'center'}}">
++      <text class="setting-label">搜索半径(米)</text>
++      <input class="setting-input" type="number" value="{{searchRadius}}" bind:input="onRadiusChange" />
++    </view>
++    <view class="setting-item">
++      <text class="setting-label">建议阈值</text>
++      <input class="setting-input" type="digit" value="{{suggestThreshold}}" bind:input="onThresholdChange" />
++      <text class="setting-hint">0~1，越高越严格</text>
++    </view>
++  </view>
++
++  <!-- 绘制工具栏 -->
++  <view class="draw-toolbar" wx:if="{{drawingMode}}">
++    <text class="draw-tip">已选 {{drawPoints.length}} 个顶点</text>
++    <view class="draw-actions">
++      <view class="draw-btn" bind:tap="onUndoPoint">撤销</view>
++      <view class="draw-btn" bind:tap="onClearDraw">清空</view>
++      <view class="draw-btn primary" bind:tap="onFinishDraw">完成搜索</view>
++    </view>
++  </view>
++
++  <!-- 统计条 -->
++  <view class="stats-bar" wx:if="{{stats.total > 0 && !drawingMode}}" bind:tap="onToggleList">
++    <view class="stat-chip total">共 {{stats.total}}</view>
++    <view class="stat-chip bound">已绑 {{stats.bound}}</view>
++    <view class="stat-chip suggested">建议 {{stats.suggested}}</view>
++    <view class="stat-chip unmatched">未匹配 {{stats.unmatched}}</view>
++    <view class="stat-expand">{{showList ? '收起 ▾' : '列表 ▴'}}</view>
++  </view>
++
++  <!-- 右下角操作 -->
++  <view class="float-actions">
++    <view class="float-btn {{showHotelLayer ? 'active' : ''}}" bind:tap="onToggleHotelLayer">客户<text wx:if="{{blindCount > 0}}" class="float-badge">{{blindCount}}</text></view>
++    <view class="float-btn" wx:if="{{canManage}}" bind:tap="onGoReview">复核</view>
++    <view class="float-btn" bind:tap="onFitMarkers" wx:if="{{markers.length > 0}}">全部</view>
++  </view>
++
++  <!-- 底部列表面板 -->
++  <view class="list-mask" wx:if="{{showList}}" bind:tap="onToggleList" />
++  <view class="list-panel {{showList ? 'show' : ''}}">
++    <view class="list-tabs">
++      <view class="list-tab {{activeTab === 'all' ? 'active' : ''}}" data-tab="all" bind:tap="onTabChange">全部</view>
++      <view class="list-tab {{activeTab === 'bound' ? 'active' : ''}}" data-tab="bound" bind:tap="onTabChange">已绑定</view>
++      <view class="list-tab {{activeTab === 'suggested' ? 'active' : ''}}" data-tab="suggested" bind:tap="onTabChange">建议匹配</view>
++      <view class="list-tab {{activeTab === 'unmatched' ? 'active' : ''}}" data-tab="unmatched" bind:tap="onTabChange">未匹配</view>
++    </view>
++    <scroll-view scroll-y class="list-scroll">
++      <view
++        class="list-item"
++        wx:for="{{filteredPois}}"
++        wx:key="id"
++        data-index="{{index}}"
++        bind:tap="onSelectPoi"
++      >
++        <view class="item-left">
++          <view class="item-name">{{item.name}}</view>
++          <view class="item-addr">{{item.address}}</view>
++          <view class="item-tel" wx:if="{{item.tel}}">📞 {{item.tel}}</view>
++        </view>
++        <view class="item-right">
++          <view class="status-tag bound" wx:if="{{item.matchStatus === 'bound'}}">已绑定</view>
++          <view class="status-tag suggested" wx:elif="{{item.matchStatus === 'suggested'}}">建议 {{item.matchScore.total * 100}}%</view>
++          <view class="status-tag unmatched" wx:else>未匹配</view>
++        </view>
++      </view>
++      <view class="list-empty" wx:if="{{filteredPois.length === 0}}">暂无数据</view>
++      <view class="load-more" wx:if="{{hasMore && activeTab === 'all'}}" bind:tap="onLoadMore">
++        {{loadingMore ? '加载中...' : '加载更多 POI'}}
++      </view>
++    </scroll-view>
++  </view>
++
++  <!-- POI 详情弹窗 -->
++  <view class="detail-mask" wx:if="{{showDetail}}" bind:tap="onCloseDetail" />
++  <view class="detail-panel {{showDetail ? 'show' : ''}}">
++    <block wx:if="{{selectedPoi}}">
++      <view class="detail-header">
++        <text class="detail-name">{{selectedPoi.name}}</text>
++        <text class="detail-close" bind:tap="onCloseDetail">✕</text>
++      </view>
++
++      <!-- 匹配状态 -->
++      <view class="match-banner bound" wx:if="{{selectedPoi.matchStatus === 'bound'}}">
++        <text class="match-icon">✅</text>
++        <view class="match-text">
++          <text class="match-title">已绑定内部客户</text>
++          <text class="match-sub">{{selectedPoi.boundHotelName}}</text>
++        </view>
++      </view>
++      <view class="match-banner suggested" wx:elif="{{selectedPoi.matchStatus === 'suggested'}}">
++        <text class="match-icon">🟡</text>
++        <view class="match-text">
++          <text class="match-title">建议匹配：{{selectedPoi.suggestedHotelName}}</text>
++          <text class="match-sub">综合匹配度 {{selectedPoi.matchScore.total * 100}}%</text>
++        </view>
++      </view>
++      <view class="match-banner unmatched" wx:else>
++        <text class="match-icon">⚪</text>
++        <view class="match-text">
++          <text class="match-title">未匹配到内部客户</text>
++          <text class="match-sub" wx:if="{{selectedPoi.bestCandidateName && selectedPoi.bestCandidateTaken}}">最接近：{{selectedPoi.bestCandidateName}}（已被占用·1:1）</text>
++          <text class="match-sub" wx:elif="{{selectedPoi.bestCandidateName}}">最接近：{{selectedPoi.bestCandidateName}}（{{selectedPoi.matchScore.total * 100}}%，未达阈值）</text>
++          <text class="match-sub" wx:else>该区域暂无相近客户</text>
++        </view>
++      </view>
++
++      <!-- 匹配度明细（名称 + 距离 + 地址；缺失维度不计权重） -->
++      <view class="score-detail" wx:if="{{selectedPoi.matchStatus !== 'bound' && selectedPoi.matchScore}}">
++        <view class="score-row">
++          <text class="score-label">名称</text>
++          <view class="score-bar"><view class="score-fill" style="width:{{selectedPoi.matchScore.name * 100}}%"></view></view>
++          <text class="score-val">{{selectedPoi.matchScore.name * 100}}%</text>
++        </view>
++        <view class="score-row">
++          <text class="score-label">距离</text>
++          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedCoordinate ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.coordinate * 100}}%"></view></view>
++          <text class="score-val">{{selectedPoi.matchScore.usedCoordinate ? selectedPoi.matchScore.coordinate * 100 + '%' : '—'}}</text>
++        </view>
++        <view class="score-row">
++          <text class="score-label">地址</text>
++          <view class="score-bar"><view class="score-fill {{selectedPoi.matchScore.usedAddress ? '' : 'muted'}}" style="width:{{selectedPoi.matchScore.address * 100}}%"></view></view>
++          <text class="score-val">{{selectedPoi.matchScore.usedAddress ? selectedPoi.matchScore.address * 100 + '%' : '—'}}</text>
++        </view>
++      </view>
++
++      <!-- POI 信息 -->
++      <view class="detail-body">
++        <view class="detail-row">
++          <text class="detail-label">地址</text>
++          <text class="detail-value">{{selectedPoi.address || '—'}}</text>
++        </view>
++        <view class="detail-row" wx:if="{{selectedPoi.tel}}">
++          <text class="detail-label">电话</text>
++          <text class="detail-value phone" bind:tap="onCallPhone">{{selectedPoi.tel}}</text>
++        </view>
++        <view class="detail-row">
++          <text class="detail-label">类型</text>
++          <text class="detail-value">{{selectedPoi.type}}</text>
++        </view>
++      </view>
++
++      <!-- 操作按钮 -->
++      <view class="detail-actions">
++        <view class="action-btn ghost" bind:tap="onNavigateTo">导航</view>
++        <block wx:if="{{canManage}}">
++          <view class="action-btn primary" wx:if="{{selectedPoi.matchStatus === 'suggested'}}" bind:tap="onConfirmBind">确认绑定</view>
++          <view class="action-btn danger" wx:elif="{{selectedPoi.matchStatus === 'bound'}}" bind:tap="onUnbind">解除绑定</view>
++          <view class="action-btn primary" wx:elif="{{selectedPoi.matchStatus === 'unmatched' && selectedPoi.bestCandidateId && !selectedPoi.bestCandidateTaken}}" bind:tap="onConfirmBind">绑定到最接近客户</view>
++        </block>
++      </view>
++    </block>
++  </view>
++</view>
+diff --git a/miniprogram/packages/business/pages/area-map/index.wxss b/miniprogram/packages/business/pages/area-map/index.wxss
+new file mode 100644
+index 0000000..15dbd34
+--- /dev/null
++++ b/miniprogram/packages/business/pages/area-map/index.wxss
+@@ -0,0 +1,544 @@
++.area-page {
++  width: 100%;
++  height: 100vh;
++  position: relative;
++  overflow: hidden;
++}
++
++.map-container {
++  width: 100%;
++  height: 100%;
++}
++
++/* 顶部搜索栏 */
++.top-bar {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  padding: calc(env(safe-area-inset-top) + 88rpx) 24rpx 0;
++  z-index: 100;
++}
++
++.search-row {
++  display: flex;
++  align-items: center;
++  gap: 12rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 8rpx 8rpx 8rpx 24rpx;
++  box-shadow: 0 4rpx 16rpx rgba(0,0,0,0.12);
++}
++
++.search-input {
++  flex: 1;
++  font-size: 28rpx;
++  height: 64rpx;
++}
++
++.search-btn {
++  background: #409EFF;
++  color: #fff;
++  font-size: 28rpx;
++  padding: 0 28rpx;
++  height: 64rpx;
++  line-height: 64rpx;
++  border-radius: 12rpx;
++}
++
++.settings-btn {
++  width: 64rpx;
++  height: 64rpx;
++  line-height: 64rpx;
++  text-align: center;
++  font-size: 32rpx;
++  color: #666;
++}
++
++.mode-tabs {
++  display: flex;
++  gap: 12rpx;
++  margin-top: 16rpx;
++}
++
++.mode-tab {
++  flex: 1;
++  background: rgba(255,255,255,0.95);
++  border-radius: 12rpx;
++  padding: 14rpx 0;
++  text-align: center;
++  font-size: 26rpx;
++  color: #666;
++  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.08);
++}
++
++.mode-tab.active {
++  background: #409EFF;
++  color: #fff;
++}
++
++/* 设置面板 */
++.settings-panel {
++  position: fixed;
++  top: calc(env(safe-area-inset-top) + 260rpx);
++  left: 24rpx;
++  right: 24rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  z-index: 99;
++  box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.15);
++}
++
++.setting-item {
++  display: flex;
++  align-items: center;
++  margin-bottom: 20rpx;
++}
++
++.setting-item:last-child {
++  margin-bottom: 0;
++}
++
++.setting-label {
++  width: 180rpx;
++  font-size: 26rpx;
++  color: #333;
++  flex-shrink: 0;
++}
++
++.setting-input {
++  flex: 1;
++  border: 2rpx solid #e0e0e0;
++  border-radius: 10rpx;
++  padding: 12rpx 20rpx;
++  font-size: 26rpx;
++}
++
++.setting-hint {
++  font-size: 22rpx;
++  color: #999;
++  margin-left: 12rpx;
++  flex-shrink: 0;
++}
++
++/* 绘制工具栏 */
++.draw-toolbar {
++  position: fixed;
++  bottom: calc(env(safe-area-inset-bottom) + 40rpx);
++  left: 24rpx;
++  right: 24rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 20rpx 24rpx;
++  z-index: 150;
++  box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.15);
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++}
++
++.draw-tip {
++  font-size: 26rpx;
++  color: #333;
++}
++
++.draw-actions {
++  display: flex;
++  gap: 16rpx;
++}
++
++.draw-btn {
++  font-size: 26rpx;
++  color: #666;
++  padding: 12rpx 24rpx;
++  background: #f0f0f0;
++  border-radius: 10rpx;
++}
++
++.draw-btn.primary {
++  background: #409EFF;
++  color: #fff;
++}
++
++/* 统计条 */
++.stats-bar {
++  position: fixed;
++  top: calc(env(safe-area-inset-top) + 250rpx);
++  left: 24rpx;
++  right: 24rpx;
++  background: rgba(255,255,255,0.96);
++  border-radius: 14rpx;
++  padding: 16rpx 20rpx;
++  z-index: 90;
++  display: flex;
++  align-items: center;
++  gap: 12rpx;
++  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.1);
++  flex-wrap: wrap;
++}
++
++.stat-chip {
++  font-size: 24rpx;
++  padding: 6rpx 16rpx;
++  border-radius: 20rpx;
++}
++
++.stat-chip.total { background: #f0f0f0; color: #333; }
++.stat-chip.bound { background: #e8f5e9; color: #07C160; }
++.stat-chip.suggested { background: #fff3e0; color: #E6A23C; }
++.stat-chip.unmatched { background: #f5f5f5; color: #999; }
++
++.stat-expand {
++  margin-left: auto;
++  font-size: 24rpx;
++  color: #409EFF;
++}
++
++/* 浮动操作 */
++.float-actions {
++  position: fixed;
++  right: 24rpx;
++  bottom: calc(env(safe-area-inset-bottom) + 200rpx);
++  z-index: 80;
++}
++
++.float-actions {
++  display: flex;
++  flex-direction: column;
++  gap: 16rpx;
++}
++
++.float-btn {
++  position: relative;
++  width: 88rpx;
++  height: 88rpx;
++  background: #fff;
++  border-radius: 50%;
++  box-shadow: 0 4rpx 16rpx rgba(0,0,0,0.15);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  font-size: 26rpx;
++  color: #333;
++}
++
++.float-btn.active {
++  background: #8E44AD;
++  color: #fff;
++}
++
++.float-badge {
++  position: absolute;
++  top: -6rpx;
++  right: -6rpx;
++  min-width: 32rpx;
++  height: 32rpx;
++  line-height: 32rpx;
++  padding: 0 6rpx;
++  background: #E6A23C;
++  color: #fff;
++  font-size: 20rpx;
++  border-radius: 16rpx;
++  text-align: center;
++}
++
++.load-more {
++  text-align: center;
++  padding: 28rpx 0;
++  color: #409EFF;
++  font-size: 28rpx;
++}
++
++/* 列表面板 */
++.list-mask {
++  position: fixed;
++  top: 0; left: 0; right: 0; bottom: 0;
++  background: rgba(0,0,0,0.3);
++  z-index: 200;
++}
++
++.list-panel {
++  position: fixed;
++  bottom: 0;
++  left: 0;
++  right: 0;
++  height: 60vh;
++  background: #fff;
++  border-radius: 24rpx 24rpx 0 0;
++  transform: translateY(100%);
++  transition: transform 0.3s ease;
++  z-index: 300;
++  display: flex;
++  flex-direction: column;
++}
++
++.list-panel.show {
++  transform: translateY(0);
++}
++
++.list-tabs {
++  display: flex;
++  border-bottom: 1rpx solid #f0f0f0;
++  padding: 16rpx 0;
++}
++
++.list-tab {
++  flex: 1;
++  text-align: center;
++  font-size: 26rpx;
++  color: #666;
++  padding: 12rpx 0;
++}
++
++.list-tab.active {
++  color: #409EFF;
++  font-weight: 600;
++}
++
++.list-scroll {
++  flex: 1;
++  overflow: hidden;
++}
++
++.list-item {
++  display: flex;
++  align-items: center;
++  padding: 24rpx;
++  border-bottom: 1rpx solid #f5f5f5;
++}
++
++.item-left {
++  flex: 1;
++  min-width: 0;
++}
++
++.item-name {
++  font-size: 30rpx;
++  font-weight: 500;
++  color: #333;
++  margin-bottom: 6rpx;
++}
++
++.item-addr {
++  font-size: 24rpx;
++  color: #999;
++  margin-bottom: 4rpx;
++}
++
++.item-tel {
++  font-size: 24rpx;
++  color: #409EFF;
++}
++
++.item-right {
++  flex-shrink: 0;
++  margin-left: 16rpx;
++}
++
++.status-tag {
++  font-size: 22rpx;
++  padding: 6rpx 16rpx;
++  border-radius: 20rpx;
++}
++
++.status-tag.bound { background: #e8f5e9; color: #07C160; }
++.status-tag.suggested { background: #fff3e0; color: #E6A23C; }
++.status-tag.unmatched { background: #f5f5f5; color: #999; }
++
++.list-empty {
++  text-align: center;
++  padding: 80rpx 0;
++  color: #999;
++  font-size: 28rpx;
++}
++
++/* 详情弹窗 */
++.detail-mask {
++  position: fixed;
++  top: 0; left: 0; right: 0; bottom: 0;
++  background: rgba(0,0,0,0.3);
++  z-index: 400;
++}
++
++.detail-panel {
++  position: fixed;
++  bottom: 0;
++  left: 0;
++  right: 0;
++  background: #fff;
++  border-radius: 24rpx 24rpx 0 0;
++  padding: 32rpx 32rpx calc(env(safe-area-inset-bottom) + 32rpx);
++  transform: translateY(100%);
++  transition: transform 0.3s ease;
++  z-index: 500;
++  max-height: 80vh;
++  overflow-y: auto;
++}
++
++.detail-panel.show {
++  transform: translateY(0);
++}
++
++.detail-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-bottom: 24rpx;
++}
++
++.detail-name {
++  font-size: 34rpx;
++  font-weight: 600;
++  color: #333;
++  flex: 1;
++}
++
++.detail-close {
++  font-size: 36rpx;
++  color: #999;
++  padding: 8rpx;
++}
++
++/* 匹配横幅 */
++.match-banner {
++  display: flex;
++  align-items: center;
++  gap: 16rpx;
++  padding: 20rpx 24rpx;
++  border-radius: 14rpx;
++  margin-bottom: 24rpx;
++}
++
++.match-banner.bound { background: #e8f5e9; }
++.match-banner.suggested { background: #fff3e0; }
++.match-banner.unmatched { background: #f5f5f5; }
++
++.match-icon {
++  font-size: 40rpx;
++}
++
++.match-text {
++  display: flex;
++  flex-direction: column;
++}
++
++.match-title {
++  font-size: 28rpx;
++  color: #333;
++  font-weight: 500;
++}
++
++.match-sub {
++  font-size: 24rpx;
++  color: #666;
++  margin-top: 4rpx;
++}
++
++/* 匹配度明细 */
++.score-detail {
++  background: #fafafa;
++  border-radius: 14rpx;
++  padding: 20rpx 24rpx;
++  margin-bottom: 24rpx;
++}
++
++.score-row {
++  display: flex;
++  align-items: center;
++  margin-bottom: 16rpx;
++}
++
++.score-row:last-child {
++  margin-bottom: 0;
++}
++
++.score-label {
++  width: 80rpx;
++  font-size: 24rpx;
++  color: #666;
++  flex-shrink: 0;
++}
++
++.score-bar {
++  flex: 1;
++  height: 12rpx;
++  background: #e8e8e8;
++  border-radius: 6rpx;
++  overflow: hidden;
++  margin: 0 16rpx;
++}
++
++.score-fill {
++  height: 100%;
++  background: #409EFF;
++  border-radius: 6rpx;
++}
++
++.score-fill.muted {
++  background: #ccc;
++}
++
++.score-val {
++  width: 80rpx;
++  text-align: right;
++  font-size: 24rpx;
++  color: #333;
++  flex-shrink: 0;
++}
++
++/* 详情信息 */
++.detail-body {
++  margin-bottom: 24rpx;
++}
++
++.detail-row {
++  display: flex;
++  padding: 12rpx 0;
++  font-size: 28rpx;
++}
++
++.detail-label {
++  color: #999;
++  width: 100rpx;
++  flex-shrink: 0;
++}
++
++.detail-value {
++  color: #333;
++  flex: 1;
++}
++
++.detail-value.phone {
++  color: #409EFF;
++}
++
++/* 操作按钮 */
++.detail-actions {
++  display: flex;
++  gap: 20rpx;
++}
++
++.action-btn {
++  flex: 1;
++  padding: 22rpx 0;
++  border-radius: 40rpx;
++  text-align: center;
++  font-size: 30rpx;
++  font-weight: 500;
++}
++
++.action-btn.primary {
++  background: #409EFF;
++  color: #fff;
++}
++
++.action-btn.ghost {
++  background: #f0f0f0;
++  color: #333;
++}
++
++.action-btn.danger {
++  background: #fef0f0;
++  color: #f56c6c;
++}
+diff --git a/miniprogram/packages/business/pages/hotel-manage/index.js b/miniprogram/packages/business/pages/hotel-manage/index.js
+new file mode 100644
+index 0000000..f7a6b7d
+--- /dev/null
++++ b/miniprogram/packages/business/pages/hotel-manage/index.js
+@@ -0,0 +1,272 @@
++const app = getApp()
++const api = require('../../utils/api')
++const auth = require('../../../../utils/auth')
++const { PERMISSIONS } = require('../../../../utils/permissions')
++
++const POI_TYPES = '100000|120000'
++
++Page({
++  data: {
++    loading: true,
++    hotels: [],
++    showAddForm: false,
++    submitting: false,
++    form: {
++      name: '',
++      address: '',
++      city: '',
++      phone: '',
++      contact: '',
++      remark: ''
++    },
++    editingId: null,
++    geocodeResult: null,
++    canManage: false,
++
++    // POI 搜索建档
++    addMode: 'poi',
++    poiKeyword: '',
++    poiCity: '',
++    poiSearching: false,
++    poiResults: [],
++    selectedPoi: null
++  },
++
++  async onLoad() {
++    await app.waitForLogin()
++    if (!auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)) {
++      wx.showModal({
++        title: '无权限',
++        content: '您没有业务部访问权限，请联系管理员',
++        showCancel: false,
++        success: () => wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/company/index' }) })
++      })
++      return
++    }
++    this.setData({ canManage: auth.hasPermission(PERMISSIONS.BUSINESS_MANAGE) })
++    await this.loadHotels()
++  },
++
++  async loadHotels() {
++    this.setData({ loading: true })
++    try {
++      const result = await api.listHotels({ status: 'active' })
++      this.setData({ hotels: result.list || [], loading: false })
++    } catch (err) {
++      console.error('[loadHotels]', err)
++      wx.showToast({ title: '加载失败', icon: 'none' })
++      this.setData({ loading: false })
++    }
++  },
++
++  onShowAdd() {
++    this.setData({
++      showAddForm: true,
++      editingId: null,
++      geocodeResult: null,
++      addMode: 'poi',
++      poiKeyword: '',
++      poiCity: '',
++      poiResults: [],
++      selectedPoi: null,
++      form: { name: '', address: '', city: '', phone: '', contact: '', remark: '' }
++    })
++  },
++
++  onEdit(e) {
++    const hotel = e.currentTarget.dataset.hotel
++    this.setData({
++      showAddForm: true,
++      addMode: 'manual',
++      editingId: hotel._id,
++      selectedPoi: null,
++      poiResults: [],
++      geocodeResult: hotel.latitude ? {
++        latitude: hotel.latitude,
++        longitude: hotel.longitude,
++        formatted_address: hotel.formatted_address
++      } : null,
++      form: {
++        name: hotel.name || '',
++        address: hotel.address || '',
++        city: hotel.city || '',
++        phone: hotel.phone || '',
++        contact: hotel.contact || '',
++        remark: hotel.remark || ''
++      }
++    })
++  },
++
++  onCancel() {
++    this.setData({ showAddForm: false, editingId: null, geocodeResult: null, selectedPoi: null, poiResults: [] })
++  },
++
++  onModeChange(e) {
++    this.setData({ addMode: e.currentTarget.dataset.mode })
++  },
++
++  onInput(e) {
++    const field = e.currentTarget.dataset.field
++    this.setData({ [`form.${field}`]: e.detail.value })
++  },
++
++  // ─── POI 搜索建档 ───
++
++  onPoiKeywordInput(e) {
++    this.setData({ poiKeyword: e.detail.value })
++  },
++
++  onPoiCityInput(e) {
++    this.setData({ poiCity: e.detail.value })
++  },
++
++  async onSearchPoi() {
++    const { poiKeyword, poiCity } = this.data
++    if (!poiKeyword.trim()) {
++      wx.showToast({ title: '请输入名称关键词', icon: 'none' })
++      return
++    }
++    this.setData({ poiSearching: true, poiResults: [] })
++    try {
++      const result = await api.searchPOI({
++        keywords: poiKeyword,
++        city: poiCity,
++        types: POI_TYPES,
++        pageSize: 20
++      })
++      this.setData({ poiResults: result.pois || [], poiSearching: false })
++      if (!result.pois || result.pois.length === 0) {
++        wx.showToast({ title: '未搜到相关POI，可改用手动录入', icon: 'none' })
++      }
++    } catch (err) {
++      console.error('[onSearchPoi]', err)
++      wx.showToast({ title: err.message || '搜索失败', icon: 'none' })
++      this.setData({ poiSearching: false })
++    }
++  },
++
++  async onPickPoi(e) {
++    const poi = e.currentTarget.dataset.poi
++    this.setData({ selectedPoi: poi })
++
++    wx.showModal({
++      title: '确认建档',
++      content: `将「${poi.name}」录入为内部客户？\n地址：${poi.address || '—'}`,
++      confirmText: '建档',
++      success: async (res) => {
++        if (!res.confirm) return
++        this.setData({ submitting: true })
++        wx.showLoading({ title: '建档中...' })
++        try {
++          await api.saveHotelFromPOI({ poi })
++          wx.hideLoading()
++          wx.showToast({ title: '建档成功', icon: 'success' })
++          this.setData({ showAddForm: false, submitting: false, selectedPoi: null, poiResults: [] })
++          await this.loadHotels()
++        } catch (err) {
++          wx.hideLoading()
++          wx.showToast({ title: err.message || '建档失败', icon: 'none' })
++          this.setData({ submitting: false })
++        }
++      }
++    })
++  },
++
++  // ─── 手动/地址录入（地理编码兜底） ───
++
++  async onTestGeocode() {
++    const { address, city } = this.data.form
++    if (!address) {
++      wx.showToast({ title: '请先输入地址', icon: 'none' })
++      return
++    }
++    wx.showLoading({ title: '解析地址...' })
++    try {
++      const result = await api.geocode(address, city)
++      this.setData({ geocodeResult: result })
++      wx.hideLoading()
++      wx.showToast({ title: '地址解析成功', icon: 'success' })
++    } catch (err) {
++      wx.hideLoading()
++      wx.showToast({ title: err.message || '地址解析失败', icon: 'none' })
++      this.setData({ geocodeResult: null })
++    }
++  },
++
++  onChooseLocation() {
++    wx.chooseLocation({
++      success: (res) => {
++        if (res.name || res.address) {
++          this.setData({
++            'form.address': res.address || res.name,
++            geocodeResult: {
++              latitude: res.latitude,
++              longitude: res.longitude,
++              formatted_address: res.address || res.name
++            }
++          })
++        }
++      }
++    })
++  },
++
++  async onSubmit() {
++    const { form, editingId } = this.data
++    if (!form.name.trim()) {
++      wx.showToast({ title: '请输入酒店名称', icon: 'none' })
++      return
++    }
++    if (!form.address.trim()) {
++      wx.showToast({ title: '请输入酒店地址', icon: 'none' })
++      return
++    }
++
++    this.setData({ submitting: true })
++    wx.showLoading({ title: '保存中...' })
++
++    try {
++      if (editingId) {
++        await api.updateHotel({ hotelId: editingId, ...form })
++      } else {
++        const res = await api.saveHotel(form)
++        if (res && res.warning) {
++          wx.hideLoading()
++          wx.showModal({ title: '已保存（提醒）', content: res.warning, showCancel: false })
++        }
++      }
++      wx.hideLoading()
++      wx.showToast({ title: '保存成功', icon: 'success' })
++      this.setData({ showAddForm: false, submitting: false, editingId: null })
++      await this.loadHotels()
++    } catch (err) {
++      wx.hideLoading()
++      wx.showToast({ title: err.message || '保存失败', icon: 'none' })
++      this.setData({ submitting: false })
++    }
++  },
++
++  onDelete(e) {
++    const hotel = e.currentTarget.dataset.hotel
++    wx.showModal({
++      title: '确认删除',
++      content: `确定要删除「${hotel.name}」吗？将同时解除其POI绑定。`,
++      success: async (res) => {
++        if (!res.confirm) return
++        try {
++          await api.deleteHotel(hotel._id)
++          wx.showToast({ title: '已删除', icon: 'success' })
++          await this.loadHotels()
++        } catch (err) {
++          wx.showToast({ title: '删除失败', icon: 'none' })
++        }
++      }
++    })
++  },
++
++  onCallPhone(e) {
++    const phone = e.currentTarget.dataset.phone
++    if (phone) {
++      wx.makePhoneCall({ phoneNumber: phone })
++    }
++  }
++})
+diff --git a/miniprogram/packages/business/pages/hotel-manage/index.json b/miniprogram/packages/business/pages/hotel-manage/index.json
+new file mode 100644
+index 0000000..6089c4b
+--- /dev/null
++++ b/miniprogram/packages/business/pages/hotel-manage/index.json
+@@ -0,0 +1,4 @@
++{
++  "navigationBarTitleText": "酒店管理",
++  "usingComponents": {}
++}
+diff --git a/miniprogram/packages/business/pages/hotel-manage/index.wxml b/miniprogram/packages/business/pages/hotel-manage/index.wxml
+new file mode 100644
+index 0000000..08d8bff
+--- /dev/null
++++ b/miniprogram/packages/business/pages/hotel-manage/index.wxml
+@@ -0,0 +1,138 @@
++<view class="manage-page">
++
++  <!-- 酒店列表 -->
++  <view class="hotel-list" wx:if="{{!showAddForm}}">
++
++    <view class="page-header">
++      <text class="page-title">酒店管理</text>
++      <view class="add-btn" wx:if="{{canManage}}" bind:tap="onShowAdd">+ 添加酒店</view>
++    </view>
++
++    <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
++
++    <view class="empty-tip" wx:if="{{!loading && hotels.length === 0}}">
++      <text>暂无酒店，点击上方按钮添加</text>
++    </view>
++
++    <view class="hotel-card" wx:for="{{hotels}}" wx:key="_id">
++      <view class="hotel-info">
++        <view class="hotel-name">{{item.name}}</view>
++        <view class="hotel-addr">{{item.formatted_address || item.address}}</view>
++        <view class="hotel-meta" wx:if="{{item.contact || item.phone}}">
++          <text wx:if="{{item.contact}}">{{item.contact}}</text>
++          <text wx:if="{{item.contact && item.phone}}"> · </text>
++          <text wx:if="{{item.phone}}" class="phone-text" bind:tap="onCallPhone" data-phone="{{item.phone}}">{{item.phone}}</text>
++        </view>
++        <view class="hotel-coords">
++          <text class="coord-tag" wx:if="{{item.latitude}}">已定位</text>
++          <text class="coord-tag warn" wx:else>未定位</text>
++          <text class="coord-tag bound" wx:if="{{item.amapPoiId}}">已绑POI</text>
++          <text class="coord-tag poi" wx:if="{{item.locateSource === 'poi'}}">POI精确</text>
++        </view>
++      </view>
++      <view class="hotel-actions" wx:if="{{canManage}}">
++        <view class="action-link" bind:tap="onEdit" data-hotel="{{item}}">编辑</view>
++        <view class="action-link danger" bind:tap="onDelete" data-hotel="{{item}}">删除</view>
++      </view>
++    </view>
++  </view>
++
++  <!-- 添加/编辑表单 -->
++  <view class="form-page" wx:if="{{showAddForm}}">
++    <view class="page-header">
++      <text class="page-title">{{editingId ? '编辑酒店' : '添加酒店'}}</text>
++      <view class="cancel-btn" bind:tap="onCancel">取消</view>
++    </view>
++
++    <!-- 录入方式切换（仅新增时） -->
++    <view class="mode-switch" wx:if="{{!editingId}}">
++      <view class="mode-opt {{addMode === 'poi' ? 'active' : ''}}" data-mode="poi" bind:tap="onModeChange">🔍 POI搜索建档（推荐·精确）</view>
++      <view class="mode-opt {{addMode === 'manual' ? 'active' : ''}}" data-mode="manual" bind:tap="onModeChange">✏️ 手动录入</view>
++    </view>
++
++    <!-- POI 搜索建档 -->
++    <block wx:if="{{addMode === 'poi' && !editingId}}">
++      <view class="form-group">
++        <view class="form-label">名称关键词</view>
++        <input class="form-input" placeholder="输入酒店名称搜索高德POI" value="{{poiKeyword}}" bind:input="onPoiKeywordInput" bind:confirm="onSearchPoi" confirm-type="search" />
++      </view>
++      <view class="form-group">
++        <view class="form-label">所在城市（辅助）</view>
++        <input class="form-input" placeholder="如：昆明市（可选，提高精度）" value="{{poiCity}}" bind:input="onPoiCityInput" />
++      </view>
++      <button class="submit-btn" bind:tap="onSearchPoi" loading="{{poiSearching}}">{{poiSearching ? '搜索中...' : '搜索POI'}}</button>
++
++      <view class="poi-list" wx:if="{{poiResults.length > 0}}">
++        <view class="poi-list-title">搜索结果（点击建档）</view>
++        <view class="poi-item" wx:for="{{poiResults}}" wx:key="id" data-poi="{{item}}" bind:tap="onPickPoi">
++          <view class="poi-name">{{item.name}}</view>
++          <view class="poi-addr">{{item.address || item.district}}</view>
++          <view class="poi-meta">
++            <text wx:if="{{item.tel}}">📞 {{item.tel}}</text>
++            <text wx:if="{{item.latitude}}" class="poi-located">· 已定位</text>
++          </view>
++        </view>
++      </view>
++
++      <view class="form-tip">💡 POI搜索建档会直接带回精确坐标和标准名称，并自动建立 1:1 绑定，匹配准确率最高。搜不到时可切换"手动录入"。</view>
++    </block>
++
++    <!-- 手动录入 -->
++    <block wx:if="{{addMode === 'manual' || editingId}}">
++    <view class="form-group">
++      <view class="form-label required">酒店名称</view>
++      <input class="form-input" placeholder="请输入酒店名称" value="{{form.name}}" data-field="name" bind:input="onInput" />
++    </view>
++
++    <view class="form-group">
++      <view class="form-label required">酒店地址</view>
++      <input class="form-input" placeholder="请输入详细地址（用于地理编码定位）" value="{{form.address}}" data-field="address" bind:input="onInput" />
++      <view class="form-help">
++        <view class="help-btn" bind:tap="onTestGeocode">🔍 测试解析</view>
++        <view class="help-btn" bind:tap="onChooseLocation">📍 地图选点</view>
++      </view>
++    </view>
++
++    <view class="form-group">
++      <view class="form-label">所在城市（辅助定位）</view>
++      <input class="form-input" placeholder="如：昆明市（可不填，提高定位精度）" value="{{form.city}}" data-field="city" bind:input="onInput" />
++    </view>
++
++    <!-- 地理编码结果 -->
++    <view class="geocode-result" wx:if="{{geocodeResult}}">
++      <view class="result-title">✅ 地址解析结果</view>
++      <view class="result-row">
++        <text class="result-label">坐标</text>
++        <text class="result-value">{{geocodeResult.latitude}}, {{geocodeResult.longitude}}</text>
++      </view>
++      <view class="result-row" wx:if="{{geocodeResult.formatted_address}}">
++        <text class="result-label">标准地址</text>
++        <text class="result-value">{{geocodeResult.formatted_address}}</text>
++      </view>
++    </view>
++
++    <view class="form-group">
++      <view class="form-label">联系人</view>
++      <input class="form-input" placeholder="请输入联系人姓名" value="{{form.contact}}" data-field="contact" bind:input="onInput" />
++    </view>
++
++    <view class="form-group">
++      <view class="form-label">联系电话</view>
++      <input class="form-input" type="number" placeholder="请输入联系电话" value="{{form.phone}}" data-field="phone" bind:input="onInput" />
++    </view>
++
++    <view class="form-group">
++      <view class="form-label">备注</view>
++      <textarea class="form-textarea" placeholder="备注信息" value="{{form.remark}}" data-field="remark" bind:input="onInput" />
++    </view>
++
++    <button class="submit-btn" bind:tap="onSubmit" disabled="{{submitting}}" loading="{{submitting}}">
++      {{submitting ? '保存中...' : '保存酒店'}}
++    </button>
++
++    <view class="form-tip">
++      💡 输入地址后点击「测试解析」可预览定位效果。保存时会自动调用高德地理编码获取坐标（精度可能不如POI搜索）。
++    </view>
++    </block>
++  </view>
++</view>
+diff --git a/miniprogram/packages/business/pages/hotel-manage/index.wxss b/miniprogram/packages/business/pages/hotel-manage/index.wxss
+new file mode 100644
+index 0000000..1afd37e
+--- /dev/null
++++ b/miniprogram/packages/business/pages/hotel-manage/index.wxss
+@@ -0,0 +1,294 @@
++.manage-page {
++  min-height: 100vh;
++  background: #f5f5f5;
++  padding: 24rpx;
++  box-sizing: border-box;
++}
++
++.page-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-bottom: 24rpx;
++}
++
++.page-title {
++  font-size: 36rpx;
++  font-weight: 600;
++  color: #333;
++}
++
++.add-btn {
++  background: #07C160;
++  color: #fff;
++  padding: 12rpx 28rpx;
++  border-radius: 32rpx;
++  font-size: 28rpx;
++}
++
++.cancel-btn {
++  color: #999;
++  font-size: 28rpx;
++  padding: 12rpx 20rpx;
++}
++
++.loading-tip, .empty-tip {
++  text-align: center;
++  padding: 80rpx 0;
++  color: #999;
++  font-size: 28rpx;
++}
++
++/* 酒店卡片 */
++.hotel-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 20rpx;
++  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
++}
++
++.hotel-name {
++  font-size: 32rpx;
++  font-weight: 600;
++  color: #333;
++  margin-bottom: 8rpx;
++}
++
++.hotel-addr {
++  font-size: 26rpx;
++  color: #666;
++  margin-bottom: 8rpx;
++}
++
++.hotel-meta {
++  font-size: 24rpx;
++  color: #999;
++  margin-bottom: 8rpx;
++}
++
++.phone-text {
++  color: #07C160;
++}
++
++.hotel-coords {
++  display: flex;
++  align-items: center;
++  gap: 12rpx;
++  margin-top: 8rpx;
++}
++
++.coord-tag {
++  font-size: 22rpx;
++  padding: 4rpx 12rpx;
++  border-radius: 8rpx;
++  background: #e8f5e9;
++  color: #07C160;
++}
++
++.coord-tag.warn {
++  background: #fff3e0;
++  color: #E65100;
++}
++
++.coord-tag.bound {
++  background: #e8f5e9;
++  color: #07C160;
++}
++
++.coord-tag.poi {
++  background: #e3f2fd;
++  color: #1976D2;
++}
++
++/* 录入方式切换 */
++.mode-switch {
++  display: flex;
++  gap: 12rpx;
++  margin-bottom: 24rpx;
++}
++
++.mode-opt {
++  flex: 1;
++  text-align: center;
++  font-size: 24rpx;
++  color: #666;
++  padding: 16rpx 8rpx;
++  background: #fff;
++  border: 2rpx solid #e0e0e0;
++  border-radius: 12rpx;
++}
++
++.mode-opt.active {
++  background: #409EFF;
++  color: #fff;
++  border-color: #409EFF;
++}
++
++/* POI 搜索结果 */
++.poi-list {
++  margin-top: 24rpx;
++}
++
++.poi-list-title {
++  font-size: 26rpx;
++  color: #999;
++  margin-bottom: 12rpx;
++}
++
++.poi-item {
++  background: #fff;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  margin-bottom: 16rpx;
++  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
++}
++
++.poi-name {
++  font-size: 30rpx;
++  font-weight: 500;
++  color: #333;
++  margin-bottom: 6rpx;
++}
++
++.poi-addr {
++  font-size: 24rpx;
++  color: #666;
++  margin-bottom: 6rpx;
++}
++
++.poi-meta {
++  font-size: 22rpx;
++  color: #999;
++}
++
++.poi-located {
++  color: #07C160;
++  margin-left: 8rpx;
++}
++
++.coord-text {
++  font-size: 22rpx;
++  color: #999;
++  font-family: monospace;
++}
++
++.hotel-actions {
++  display: flex;
++  gap: 24rpx;
++  margin-top: 16rpx;
++  padding-top: 16rpx;
++  border-top: 1rpx solid #f0f0f0;
++}
++
++.action-link {
++  font-size: 26rpx;
++  color: #07C160;
++}
++
++.action-link.danger {
++  color: #e53935;
++}
++
++/* 表单 */
++.form-group {
++  margin-bottom: 24rpx;
++}
++
++.form-label {
++  font-size: 28rpx;
++  color: #333;
++  margin-bottom: 8rpx;
++  font-weight: 500;
++}
++
++.form-label.required::before {
++  content: '* ';
++  color: #e53935;
++}
++
++.form-input {
++  background: #fff;
++  border: 2rpx solid #e0e0e0;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  font-size: 28rpx;
++}
++
++.form-textarea {
++  background: #fff;
++  border: 2rpx solid #e0e0e0;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  font-size: 28rpx;
++  width: 100%;
++  height: 160rpx;
++  box-sizing: border-box;
++}
++
++.form-help {
++  display: flex;
++  gap: 20rpx;
++  margin-top: 12rpx;
++}
++
++.help-btn {
++  font-size: 26rpx;
++  color: #07C160;
++  padding: 8rpx 0;
++}
++
++/* 地理编码结果 */
++.geocode-result {
++  background: #f0faf4;
++  border: 2rpx solid #c8e6c9;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  margin-bottom: 24rpx;
++}
++
++.result-title {
++  font-size: 28rpx;
++  color: #2e7d32;
++  font-weight: 500;
++  margin-bottom: 12rpx;
++}
++
++.result-row {
++  display: flex;
++  padding: 6rpx 0;
++  font-size: 26rpx;
++}
++
++.result-label {
++  color: #999;
++  width: 140rpx;
++  flex-shrink: 0;
++}
++
++.result-value {
++  color: #333;
++  flex: 1;
++}
++
++/* 提交按钮 */
++.submit-btn {
++  background: #07C160 !important;
++  color: #fff !important;
++  border-radius: 40rpx !important;
++  font-size: 32rpx !important;
++  margin-top: 32rpx;
++  width: 100%;
++}
++
++.submit-btn[disabled] {
++  opacity: 0.6;
++}
++
++.form-tip {
++  text-align: center;
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 24rpx;
++  line-height: 1.6;
++}
+diff --git a/miniprogram/packages/business/pages/map/index.js b/miniprogram/packages/business/pages/map/index.js
+new file mode 100644
+index 0000000..4645889
+--- /dev/null
++++ b/miniprogram/packages/business/pages/map/index.js
+@@ -0,0 +1,131 @@
++const app = getApp()
++const api = require('../../utils/api')
++
++Page({
++  data: {
++    loading: true,
++    hotels: [],
++    markers: [],
++    latitude: 25.0389,
++    longitude: 102.7183,
++    scale: 12,
++    selectedHotel: null,
++    showDetail: false
++  },
++
++  async onLoad() {
++    await app.waitForLogin()
++    await this.loadHotels()
++  },
++
++  async onShow() {
++    if (!this.data.loading) {
++      await this.loadHotels()
++    }
++  },
++
++  onPullDownRefresh() {
++    this.loadHotels().then(() => wx.stopPullDownRefresh())
++  },
++
++  async loadHotels() {
++    this.setData({ loading: true })
++    try {
++      const result = await api.listHotels({ status: 'active' })
++      const hotels = result.list || []
++      const markers = hotels
++        .filter(h => h.latitude && h.longitude)
++        .map((h, idx) => ({
++          id: idx,
++          hotelId: h._id,
++          latitude: h.latitude,
++          longitude: h.longitude,
++          title: h.name,
++          width: 32,
++          height: 32,
++          callout: {
++            content: h.name,
++            color: '#333333',
++            fontSize: 14,
++            borderRadius: 8,
++            borderWidth: 1,
++            borderColor: '#07C160',
++            bgColor: '#ffffff',
++            padding: 8,
++            display: 'BYCLICK',
++            textAlign: 'center'
++          },
++          anchor: { x: 0.5, y: 1 }
++        }))
++
++      let lat = this.data.latitude
++      let lng = this.data.longitude
++      if (markers.length > 0) {
++        lat = markers.reduce((s, m) => s + m.latitude, 0) / markers.length
++        lng = markers.reduce((s, m) => s + m.longitude, 0) / markers.length
++      }
++
++      this.setData({
++        hotels,
++        markers,
++        latitude: lat,
++        longitude: lng,
++        loading: false
++      })
++    } catch (err) {
++      console.error('[loadHotels]', err)
++      wx.showToast({ title: '加载酒店失败', icon: 'none' })
++      this.setData({ loading: false })
++    }
++  },
++
++  onMarkerTap(e) {
++    const markerId = e.markerId
++    const marker = this.data.markers[markerId]
++    if (!marker) return
++    const hotel = this.data.hotels.find(h => h._id === marker.hotelId)
++    if (hotel) {
++      this.setData({ selectedHotel: hotel, showDetail: true })
++    }
++  },
++
++  onCalloutTap(e) {
++    this.onMarkerTap(e)
++  },
++
++  onCloseDetail() {
++    this.setData({ showDetail: false, selectedHotel: null })
++  },
++
++  onNavigateTo() {
++    const hotel = this.data.selectedHotel
++    if (!hotel) return
++    wx.openLocation({
++      latitude: hotel.latitude,
++      longitude: hotel.longitude,
++      name: hotel.name,
++      address: hotel.address,
++      scale: 18
++    })
++  },
++
++  onGoManage() {
++    wx.navigateTo({ url: '/packages/business/pages/hotel-manage/index' })
++  },
++
++  onGoAreaMap() {
++    wx.navigateTo({ url: '/packages/business/pages/area-map/index' })
++  },
++
++  onIncludePoints() {
++    if (this.data.markers.length === 0) return
++    const mapCtx = wx.createMapContext('hotelMap', this)
++    mapCtx.includePoints({
++      points: this.data.markers.map(m => ({
++        latitude: m.latitude,
++        longitude: m.longitude
++      })),
++      padding: [80, 80, 80, 80]
++    })
++  }
++})
+diff --git a/miniprogram/packages/business/pages/map/index.json b/miniprogram/packages/business/pages/map/index.json
+new file mode 100644
+index 0000000..158543c
+--- /dev/null
++++ b/miniprogram/packages/business/pages/map/index.json
+@@ -0,0 +1,4 @@
++{
++  "navigationBarTitleText": "业务地图",
++  "usingComponents": {}
++}
+diff --git a/miniprogram/packages/business/pages/map/index.wxml b/miniprogram/packages/business/pages/map/index.wxml
+new file mode 100644
+index 0000000..58bbe03
+--- /dev/null
++++ b/miniprogram/packages/business/pages/map/index.wxml
+@@ -0,0 +1,71 @@
++<view class="map-page">
++  <!-- 地图 -->
++  <map
++    id="hotelMap"
++    class="map-container"
++    latitude="{{latitude}}"
++    longitude="{{longitude}}"
++    scale="{{scale}}"
++    markers="{{markers}}"
++    show-location
++    bind:markertap="onMarkerTap"
++    bind:callouttap="onCalloutTap"
++  />
++
++  <!-- 顶部工具栏 -->
++  <view class="map-toolbar">
++    <view class="toolbar-left">
++      <text class="hotel-count">{{hotels.length}} 家酒店</text>
++    </view>
++    <view class="toolbar-right">
++      <view class="toolbar-btn" bind:tap="onIncludePoints">
++        <text>全部显示</text>
++      </view>
++      <view class="toolbar-btn" bind:tap="onGoAreaMap">
++        <text>片区匹配</text>
++      </view>
++      <view class="toolbar-btn primary" bind:tap="onGoManage">
++        <text>管理酒店</text>
++      </view>
++    </view>
++  </view>
++
++  <!-- 空状态 -->
++  <view class="empty-tip" wx:if="{{!loading && hotels.length === 0}}">
++    <text class="empty-icon">📍</text>
++    <text class="empty-text">暂无酒店数据</text>
++    <view class="empty-btn" bind:tap="onGoManage">添加酒店</view>
++  </view>
++
++  <!-- 酒店详情弹窗 -->
++  <view class="detail-mask" wx:if="{{showDetail}}" bind:tap="onCloseDetail" />
++  <view class="detail-panel {{showDetail ? 'show' : ''}}">
++    <view class="detail-header">
++      <text class="detail-name">{{selectedHotel.name}}</text>
++      <text class="detail-close" bind:tap="onCloseDetail">✕</text>
++    </view>
++    <view class="detail-body" wx:if="{{selectedHotel}}">
++      <view class="detail-row">
++        <text class="detail-label">地址</text>
++        <text class="detail-value">{{selectedHotel.formatted_address || selectedHotel.address}}</text>
++      </view>
++      <view class="detail-row" wx:if="{{selectedHotel.contact}}">
++        <text class="detail-label">联系人</text>
++        <text class="detail-value">{{selectedHotel.contact}}</text>
++      </view>
++      <view class="detail-row" wx:if="{{selectedHotel.phone}}">
++        <text class="detail-label">电话</text>
++        <text class="detail-value phone" bind:tap="onCallPhone" data-phone="{{selectedHotel.phone}}">{{selectedHotel.phone}}</text>
++      </view>
++      <view class="detail-row" wx:if="{{selectedHotel.remark}}">
++        <text class="detail-label">备注</text>
++        <text class="detail-value">{{selectedHotel.remark}}</text>
++      </view>
++    </view>
++    <view class="detail-actions">
++      <view class="action-btn navigate" bind:tap="onNavigateTo">
++        <text>导航前往</text>
++      </view>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/packages/business/pages/map/index.wxss b/miniprogram/packages/business/pages/map/index.wxss
+new file mode 100644
+index 0000000..4ec1631
+--- /dev/null
++++ b/miniprogram/packages/business/pages/map/index.wxss
+@@ -0,0 +1,181 @@
++.map-page {
++  width: 100%;
++  height: 100vh;
++  position: relative;
++}
++
++.map-container {
++  width: 100%;
++  height: 100%;
++}
++
++/* 顶部工具栏 */
++.map-toolbar {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  padding: calc(env(safe-area-inset-top) + 88rpx) 24rpx 16rpx;
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  z-index: 100;
++}
++
++.toolbar-left {
++  background: rgba(255,255,255,0.95);
++  padding: 12rpx 24rpx;
++  border-radius: 24rpx;
++  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.1);
++}
++
++.hotel-count {
++  font-size: 26rpx;
++  color: #333;
++  font-weight: 500;
++}
++
++.toolbar-right {
++  display: flex;
++  gap: 16rpx;
++}
++
++.toolbar-btn {
++  background: rgba(255,255,255,0.95);
++  padding: 12rpx 24rpx;
++  border-radius: 24rpx;
++  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.1);
++  font-size: 26rpx;
++  color: #333;
++}
++
++.toolbar-btn.primary {
++  background: #07C160;
++  color: #fff;
++}
++
++/* 空状态 */
++.empty-tip {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  transform: translate(-50%, -50%);
++  text-align: center;
++  background: rgba(255,255,255,0.95);
++  padding: 60rpx 80rpx;
++  border-radius: 24rpx;
++  box-shadow: 0 4rpx 24rpx rgba(0,0,0,0.1);
++}
++
++.empty-icon {
++  font-size: 80rpx;
++  display: block;
++  margin-bottom: 20rpx;
++}
++
++.empty-text {
++  font-size: 30rpx;
++  color: #999;
++  display: block;
++  margin-bottom: 30rpx;
++}
++
++.empty-btn {
++  background: #07C160;
++  color: #fff;
++  padding: 16rpx 48rpx;
++  border-radius: 40rpx;
++  font-size: 28rpx;
++  display: inline-block;
++}
++
++/* 详情弹窗 */
++.detail-mask {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  background: rgba(0,0,0,0.3);
++  z-index: 200;
++}
++
++.detail-panel {
++  position: fixed;
++  bottom: 0;
++  left: 0;
++  right: 0;
++  background: #fff;
++  border-radius: 24rpx 24rpx 0 0;
++  padding: 32rpx 32rpx calc(env(safe-area-inset-bottom) + 32rpx);
++  transform: translateY(100%);
++  transition: transform 0.3s ease;
++  z-index: 300;
++}
++
++.detail-panel.show {
++  transform: translateY(0);
++}
++
++.detail-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-bottom: 24rpx;
++}
++
++.detail-name {
++  font-size: 34rpx;
++  font-weight: 600;
++  color: #333;
++}
++
++.detail-close {
++  font-size: 36rpx;
++  color: #999;
++  padding: 8rpx;
++}
++
++.detail-body {
++  margin-bottom: 24rpx;
++}
++
++.detail-row {
++  display: flex;
++  padding: 12rpx 0;
++  font-size: 28rpx;
++}
++
++.detail-label {
++  color: #999;
++  width: 120rpx;
++  flex-shrink: 0;
++}
++
++.detail-value {
++  color: #333;
++  flex: 1;
++}
++
++.detail-value.phone {
++  color: #07C160;
++}
++
++.detail-actions {
++  display: flex;
++  gap: 20rpx;
++}
++
++.action-btn {
++  flex: 1;
++  padding: 20rpx 0;
++  border-radius: 40rpx;
++  text-align: center;
++  font-size: 30rpx;
++  font-weight: 500;
++}
++
++.action-btn.navigate {
++  background: #07C160;
++  color: #fff;
++}
+diff --git a/miniprogram/packages/business/pages/match-review/index.js b/miniprogram/packages/business/pages/match-review/index.js
+new file mode 100644
+index 0000000..d9090a3
+--- /dev/null
++++ b/miniprogram/packages/business/pages/match-review/index.js
+@@ -0,0 +1,130 @@
++const app = getApp()
++const api = require('../../utils/api')
++const auth = require('../../../../utils/auth')
++const { PERMISSIONS } = require('../../../../utils/permissions')
++
++Page({
++  data: {
++    loading: true,
++    accepting: false,
++    results: [],
++    stats: { total: 0, matched: 0, high: 0 },
++    suggestThreshold: 0.55
++  },
++
++  async onLoad() {
++    await app.waitForLogin()
++    if (!auth.hasPermission(PERMISSIONS.BUSINESS_MANAGE)) {
++      wx.showModal({
++        title: '无权限',
++        content: '您没有业务部管理权限，无法进行匹配复核',
++        showCancel: false,
++        success: () => wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/company/index' }) })
++      })
++      return
++    }
++    await this.loadReview()
++  },
++
++  onPullDownRefresh() {
++    this.loadReview().then(() => wx.stopPullDownRefresh())
++  },
++
++  async loadReview() {
++    this.setData({ loading: true })
++    wx.showLoading({ title: '批量匹配中...' })
++    try {
++      const data = await api.batchMatch({ suggestThreshold: this.data.suggestThreshold })
++      const results = (data.results || []).map(r => ({
++        ...r,
++        scorePct: r.matchScore ? Math.round(r.matchScore.total * 100) : 0,
++        accepted: false,
++        ignored: false
++      }))
++      const high = results.filter(r => r.matchLevel === 'high').length
++      this.setData({
++        results,
++        stats: { total: data.total || results.length, matched: data.matched || 0, high },
++        loading: false
++      })
++      wx.hideLoading()
++      if (results.length === 0) {
++        wx.showToast({ title: data.message || '没有待匹配客户', icon: 'none' })
++      }
++    } catch (err) {
++      wx.hideLoading()
++      console.error('[loadReview]', err)
++      wx.showToast({ title: err.message || '加载失败', icon: 'none' })
++      this.setData({ loading: false })
++    }
++  },
++
++  async _bindOne(row) {
++    await api.bindPOI({
++      poiId: row.bestPoi.id,
++      poiName: row.bestPoi.name,
++      hotelId: row.hotelId,
++      hotelName: row.hotelName,
++      poiData: row.bestPoi
++    })
++  },
++
++  async onAccept(e) {
++    const idx = e.currentTarget.dataset.index
++    const row = this.data.results[idx]
++    if (!row || !row.bestPoi) return
++    wx.showLoading({ title: '绑定中...' })
++    try {
++      await this._bindOne(row)
++      wx.hideLoading()
++      wx.showToast({ title: '已绑定', icon: 'success' })
++      this.setData({ [`results[${idx}].accepted`]: true })
++    } catch (err) {
++      wx.hideLoading()
++      wx.showToast({ title: err.message || '绑定失败', icon: 'none' })
++    }
++  },
++
++  onIgnore(e) {
++    const idx = e.currentTarget.dataset.index
++    this.setData({ [`results[${idx}].ignored`]: true })
++  },
++
++  onAcceptAllHigh() {
++    const targets = this.data.results
++      .map((r, i) => ({ r, i }))
++      .filter(({ r }) => r.matchLevel === 'high' && !r.accepted && !r.ignored && r.bestPoi)
++
++    if (targets.length === 0) {
++      wx.showToast({ title: '没有可一键接受的高分建议', icon: 'none' })
++      return
++    }
++
++    wx.showModal({
++      title: '一键接受高分建议',
++      content: `将自动绑定 ${targets.length} 条匹配度≥80% 的建议，确认继续？`,
++      success: async (res) => {
++        if (!res.confirm) return
++        this.setData({ accepting: true })
++        wx.showLoading({ title: `0/${targets.length}` })
++        let done = 0, failed = 0
++        for (const { r, i } of targets) {
++          try {
++            await this._bindOne(r)
++            this.setData({ [`results[${i}].accepted`]: true })
++          } catch (e) {
++            failed++
++          }
++          done++
++          wx.showLoading({ title: `${done}/${targets.length}` })
++        }
++        wx.hideLoading()
++        this.setData({ accepting: false })
++        wx.showToast({
++          title: `完成：成功${done - failed}${failed ? `，失败${failed}` : ''}`,
++          icon: 'none'
++        })
++      }
++    })
++  }
++})
+diff --git a/miniprogram/packages/business/pages/match-review/index.json b/miniprogram/packages/business/pages/match-review/index.json
+new file mode 100644
+index 0000000..4d78b9d
+--- /dev/null
++++ b/miniprogram/packages/business/pages/match-review/index.json
+@@ -0,0 +1,5 @@
++{
++  "navigationBarTitleText": "批量匹配复核",
++  "enablePullDownRefresh": true,
++  "usingComponents": {}
++}
+diff --git a/miniprogram/packages/business/pages/match-review/index.wxml b/miniprogram/packages/business/pages/match-review/index.wxml
+new file mode 100644
+index 0000000..2e6036a
+--- /dev/null
++++ b/miniprogram/packages/business/pages/match-review/index.wxml
+@@ -0,0 +1,64 @@
++<view class="review-page">
++  <!-- 顶部统计 -->
++  <view class="review-header">
++    <view class="review-stats">
++      <view class="rs-item">
++        <text class="rs-num">{{stats.total}}</text>
++        <text class="rs-label">待匹配客户</text>
++      </view>
++      <view class="rs-item">
++        <text class="rs-num suggest">{{stats.matched}}</text>
++        <text class="rs-label">有建议</text>
++      </view>
++      <view class="rs-item">
++        <text class="rs-num high">{{stats.high}}</text>
++        <text class="rs-label">高分(≥80%)</text>
++      </view>
++    </view>
++    <view class="accept-all-btn {{stats.high > 0 ? '' : 'disabled'}}" bind:tap="onAcceptAllHigh">一键接受高分</view>
++  </view>
++
++  <view class="review-tip">说明：系统按客户名称自动搜索高德 POI 并给出最优 1:1 建议。请逐条复核后绑定；接受后即建立绑定，下次搜索精确命中。</view>
++
++  <view class="loading-tip" wx:if="{{loading}}">批量匹配中，请稍候...</view>
++
++  <view class="empty-tip" wx:if="{{!loading && results.length === 0}}">
++    <text>暂无待匹配客户（可能均已绑定）</text>
++  </view>
++
++  <!-- 结果列表 -->
++  <view class="review-list">
++    <view class="review-card" wx:for="{{results}}" wx:key="hotelId">
++      <view class="card-head">
++        <text class="hotel-name">{{item.hotelName}}</text>
++        <view class="level-tag high" wx:if="{{item.matchLevel === 'high'}}">高 {{item.scorePct}}%</view>
++        <view class="level-tag medium" wx:elif="{{item.matchLevel === 'medium'}}">建议 {{item.scorePct}}%</view>
++        <view class="level-tag none" wx:else>无匹配</view>
++      </view>
++      <view class="hotel-addr" wx:if="{{item.hotelAddress}}">内部地址：{{item.hotelAddress}}</view>
++
++      <view class="poi-box" wx:if="{{item.bestPoi}}">
++        <view class="poi-arrow">⇣ 高德最佳匹配</view>
++        <view class="poi-name">{{item.bestPoi.name}}</view>
++        <view class="poi-addr">{{item.bestPoi.address || '—'}}</view>
++        <view class="poi-tel" wx:if="{{item.bestPoi.tel}}">📞 {{item.bestPoi.tel}}</view>
++      </view>
++      <view class="poi-box empty" wx:else>
++        <text>未搜到合适的高德 POI</text>
++      </view>
++
++      <view class="card-actions">
++        <block wx:if="{{item.accepted}}">
++          <view class="status-done">✅ 已绑定</view>
++        </block>
++        <block wx:elif="{{item.ignored}}">
++          <view class="status-ignored">已忽略</view>
++        </block>
++        <block wx:else>
++          <view class="act-btn ghost" bind:tap="onIgnore" data-index="{{index}}">忽略</view>
++          <view class="act-btn primary {{item.bestPoi ? '' : 'disabled'}}" wx:if="{{item.bestPoi}}" bind:tap="onAccept" data-index="{{index}}">接受并绑定</view>
++        </block>
++      </view>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/packages/business/pages/match-review/index.wxss b/miniprogram/packages/business/pages/match-review/index.wxss
+new file mode 100644
+index 0000000..2583878
+--- /dev/null
++++ b/miniprogram/packages/business/pages/match-review/index.wxss
+@@ -0,0 +1,183 @@
++.review-page {
++  min-height: 100vh;
++  background: #f5f5f5;
++  padding: 24rpx;
++  box-sizing: border-box;
++}
++
++.review-header {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 16rpx;
++}
++
++.review-stats {
++  display: flex;
++  justify-content: space-around;
++  margin-bottom: 20rpx;
++}
++
++.rs-item {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++}
++
++.rs-num {
++  font-size: 44rpx;
++  font-weight: 700;
++  color: #333;
++}
++
++.rs-num.suggest { color: #E6A23C; }
++.rs-num.high { color: #07C160; }
++
++.rs-label {
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 6rpx;
++}
++
++.accept-all-btn {
++  background: #07C160;
++  color: #fff;
++  text-align: center;
++  padding: 20rpx 0;
++  border-radius: 40rpx;
++  font-size: 30rpx;
++  font-weight: 500;
++}
++
++.accept-all-btn.disabled {
++  background: #c8c9cc;
++}
++
++.review-tip {
++  font-size: 24rpx;
++  color: #999;
++  line-height: 1.6;
++  padding: 0 8rpx 16rpx;
++}
++
++.loading-tip, .empty-tip {
++  text-align: center;
++  padding: 80rpx 0;
++  color: #999;
++  font-size: 28rpx;
++}
++
++.review-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 16rpx;
++  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
++}
++
++.card-head {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  margin-bottom: 8rpx;
++}
++
++.hotel-name {
++  font-size: 32rpx;
++  font-weight: 600;
++  color: #333;
++  flex: 1;
++}
++
++.level-tag {
++  font-size: 22rpx;
++  padding: 6rpx 16rpx;
++  border-radius: 20rpx;
++  flex-shrink: 0;
++}
++
++.level-tag.high { background: #e8f5e9; color: #07C160; }
++.level-tag.medium { background: #fff3e0; color: #E6A23C; }
++.level-tag.none { background: #f5f5f5; color: #999; }
++
++.hotel-addr {
++  font-size: 24rpx;
++  color: #999;
++  margin-bottom: 12rpx;
++}
++
++.poi-box {
++  background: #f0f7ff;
++  border-radius: 12rpx;
++  padding: 16rpx 20rpx;
++  margin-bottom: 16rpx;
++}
++
++.poi-box.empty {
++  background: #fafafa;
++  color: #999;
++  font-size: 26rpx;
++  text-align: center;
++}
++
++.poi-arrow {
++  font-size: 22rpx;
++  color: #409EFF;
++  margin-bottom: 8rpx;
++}
++
++.poi-name {
++  font-size: 30rpx;
++  font-weight: 500;
++  color: #333;
++  margin-bottom: 6rpx;
++}
++
++.poi-addr {
++  font-size: 24rpx;
++  color: #666;
++}
++
++.poi-tel {
++  font-size: 24rpx;
++  color: #409EFF;
++  margin-top: 6rpx;
++}
++
++.card-actions {
++  display: flex;
++  justify-content: flex-end;
++  align-items: center;
++  gap: 20rpx;
++}
++
++.act-btn {
++  padding: 14rpx 36rpx;
++  border-radius: 32rpx;
++  font-size: 28rpx;
++}
++
++.act-btn.primary {
++  background: #07C160;
++  color: #fff;
++}
++
++.act-btn.ghost {
++  background: #f0f0f0;
++  color: #666;
++}
++
++.act-btn.disabled {
++  background: #c8c9cc;
++  color: #fff;
++}
++
++.status-done {
++  color: #07C160;
++  font-size: 28rpx;
++}
++
++.status-ignored {
++  color: #999;
++  font-size: 28rpx;
++}
+diff --git a/miniprogram/packages/business/utils/api.js b/miniprogram/packages/business/utils/api.js
+new file mode 100644
+index 0000000..733ef30
+--- /dev/null
++++ b/miniprogram/packages/business/utils/api.js
+@@ -0,0 +1,78 @@
++// 业务部 API 调用封装
++function callFunction(action, data = {}) {
++  return new Promise((resolve, reject) => {
++    wx.cloud.callFunction({
++      name: 'business-geocode',
++      data: { action, ...data },
++      success: (res) => {
++        const result = res.result
++        if (result.code === 0) resolve(result.data)
++        else reject(new Error(result.message || '请求失败'))
++      },
++      fail: (err) => reject(err)
++    })
++  })
++}
++
++function geocode(address, city) {
++  return callFunction('geocode', { address, city })
++}
++
++function searchPOI(params) {
++  return callFunction('searchPOI', params)
++}
++
++function searchAndMatch(params) {
++  return callFunction('searchAndMatch', params)
++}
++
++function bindPOI(data) {
++  return callFunction('bindPOI', data)
++}
++
++function unbindPOI(data) {
++  return callFunction('unbindPOI', data)
++}
++
++function listBindings(params = {}) {
++  return callFunction('listBindings', params)
++}
++
++function batchMatch(params = {}) {
++  return callFunction('batchMatch', params)
++}
++
++function saveHotelFromPOI(data) {
++  return callFunction('saveHotelFromPOI', data)
++}
++
++function saveHotel(data) {
++  return callFunction('saveHotel', data)
++}
++
++function updateHotel(data) {
++  return callFunction('updateHotel', data)
++}
++
++function listHotels(params = {}) {
++  return callFunction('listHotels', params)
++}
++
++function deleteHotel(hotelId) {
++  return callFunction('deleteHotel', { hotelId })
++}
++
++module.exports = {
++  geocode,
++  searchPOI,
++  searchAndMatch,
++  bindPOI,
++  unbindPOI,
++  listBindings,
++  batchMatch,
++  saveHotelFromPOI,
++  saveHotel,
++  updateHotel,
++  listHotels,
++  deleteHotel
++}
+diff --git a/miniprogram/pages/company/index.js b/miniprogram/pages/company/index.js
+index 44389ba..3ea1327 100644
+--- a/miniprogram/pages/company/index.js
++++ b/miniprogram/pages/company/index.js
+@@ -12,6 +12,7 @@ Page({
+     factories: [],
+     currentFactoryId: null,
+     currentFactoryName: '全部工厂',
++    canBusiness: false,
+     engStatus: 'normal',
+     engStatusText: '运行正常',
+     stats: {
+@@ -50,7 +51,8 @@ Page({
+ 
+     this.setData({
+       loading: false,
+-      userInfo: auth.getUser()
++      userInfo: auth.getUser(),
++      canBusiness: auth.hasPermission(PERMISSIONS.MODULE_BUSINESS)
+     })
+     this.loadFactories()
+     this.loadData()
+@@ -141,5 +143,9 @@ Page({
+ 
+   onGoBoiler() {
+     wx.navigateTo({ url: '/packages/boiler/pages/home/index' })
++  },
++
++  onGoBusiness() {
++    wx.navigateTo({ url: '/packages/business/pages/map/index' })
+   }
+ })
+diff --git a/miniprogram/pages/company/index.wxml b/miniprogram/pages/company/index.wxml
+index 902ad5d..0757d9a 100644
+--- a/miniprogram/pages/company/index.wxml
++++ b/miniprogram/pages/company/index.wxml
+@@ -76,12 +76,27 @@
+     </view>
+   </view>
+ 
++  <!-- 业务部 -->
++  <view class="co-dept" wx:if="{{canBusiness}}" bindtap="onGoBusiness">
++    <view class="co-dept-left">
++      <view class="co-dept-icon" style="background:#409EFF;">业</view>
++      <view class="co-dept-text">
++        <text class="co-dept-name">业务部</text>
++        <text class="co-dept-desc">酒店地图 · 客户管理 · 业务拓展</text>
++      </view>
++    </view>
++    <view class="co-dept-right">
++      <view class="co-dept-badge badge-ok">已接入</view>
++      <text class="co-dept-go">›</text>
++    </view>
++  </view>
++
+   <!-- 即将接入 -->
+   <view class="co-section-title" style="margin-top:32rpx;">即将接入</view>
+ 
+   <view class="co-upcoming">
+     <view class="co-upcoming-item">
+-      <view class="co-upcoming-icon" style="background:#409EFF;">产</view>
++      <view class="co-upcoming-icon" style="background:#67C23A;">产</view>
+       <text>生产部</text>
+     </view>
+     <view class="co-upcoming-item">
+diff --git a/miniprogram/utils/constants.js b/miniprogram/utils/constants.js
+index 3c7a984..aaef030 100644
+--- a/miniprogram/utils/constants.js
++++ b/miniprogram/utils/constants.js
+@@ -15,7 +15,9 @@ const ROLES = {
+   VIEWER: 'Viewer',
+   SUPERVISOR: 'Supervisor',
+   MANAGEMENT: 'Management',
+-  ADMIN: 'Admin'
++  ADMIN: 'Admin',
++  BUSINESS: 'Business',
++  BUSINESS_VIEWER: 'BusinessViewer'
+ }
+ 
+ // 报警状态
+diff --git a/miniprogram/utils/permissions.js b/miniprogram/utils/permissions.js
+index e6eeac5..81c979d 100644
+--- a/miniprogram/utils/permissions.js
++++ b/miniprogram/utils/permissions.js
+@@ -5,6 +5,11 @@ const PERMISSIONS = {
+   MODULE_ENGINEERING: 'module:engineering',
+   MODULE_BOILER: 'module:boiler',
+   MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  // 业务部（酒店/POI 匹配绑定）
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
+ 
+   // 工程部 - 记录与巡检
+   RECORD_WRITE: 'record:write',
+@@ -56,6 +61,14 @@ const PERMISSION_GROUPS = [
+       { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
+       { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
+       { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
++      { key: PERMISSIONS.MODULE_BUSINESS, label: '业务部' },
++    ],
++  },
++  {
++    label: '业务部操作',
++    items: [
++      { key: PERMISSIONS.BUSINESS_VIEW, label: '查看酒店/片区匹配' },
++      { key: PERMISSIONS.BUSINESS_MANAGE, label: '酒店建档/POI绑定管理' },
+     ],
+   },
+   {
+@@ -131,6 +144,8 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.MODULE_ENGINEERING,
+     PERMISSIONS.MODULE_BOILER,
+     PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
+     PERMISSIONS.ALERT_VIEW,
+     PERMISSIONS.ALERT_ACK,
+     PERMISSIONS.COST_VIEW,
+@@ -184,6 +199,16 @@ var ROLE_TEMPLATES = {
+     PERMISSIONS.AI_USE,
+     PERMISSIONS.PC_LOGIN,
+   ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
+ }
+ 
+ function getPermissionsForRole(role) {
+@@ -255,6 +280,20 @@ var ACTION_PERMISSION_MAP = {
+   boilerCreateRecord: PERMISSIONS.BOILER_WRITE,
+   boilerSaveConfig: PERMISSIONS.BOILER_MANAGE,
+   boilerDeleteRecord: PERMISSIONS.BOILER_MANAGE,
++
++  // 业务部 business-geocode actions
++  geocode: PERMISSIONS.BUSINESS_VIEW,
++  searchPOI: PERMISSIONS.BUSINESS_VIEW,
++  searchAndMatch: PERMISSIONS.BUSINESS_VIEW,
++  listHotels: PERMISSIONS.BUSINESS_VIEW,
++  listBindings: PERMISSIONS.BUSINESS_VIEW,
++  bindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  unbindPOI: PERMISSIONS.BUSINESS_MANAGE,
++  batchMatch: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotelFromPOI: PERMISSIONS.BUSINESS_MANAGE,
++  saveHotel: PERMISSIONS.BUSINESS_MANAGE,
++  updateHotel: PERMISSIONS.BUSINESS_MANAGE,
++  deleteHotel: PERMISSIONS.BUSINESS_MANAGE,
+ }
+ 
+ module.exports = {
+diff --git a/pc-admin/src/layouts/MainLayout.vue b/pc-admin/src/layouts/MainLayout.vue
+index 9da6208..5e4e3ea 100644
+--- a/pc-admin/src/layouts/MainLayout.vue
++++ b/pc-admin/src/layouts/MainLayout.vue
+@@ -61,6 +61,16 @@
+             <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
+           </el-sub-menu>
+ 
++          <!-- 业务部 -->
++          <el-sub-menu v-if="canBusiness" index="dept-business">
++            <template #title>
++              <el-icon><MapLocation /></el-icon>
++              <span>业务部</span>
++            </template>
++            <el-menu-item index="/business/hotels">客户档案</el-menu-item>
++            <el-menu-item index="/business/match">片区匹配复核</el-menu-item>
++          </el-sub-menu>
++
+           <!-- 生产部 -->
+           <el-sub-menu index="dept-prod" disabled>
+             <template #title>
+@@ -184,6 +194,15 @@
+               <el-menu-item index="/boiler/ai-report">AI 分析</el-menu-item>
+             </el-sub-menu>
+ 
++            <!-- 业务部 -->
++            <el-sub-menu v-if="canBusiness" index="dept-business">
++              <template #title>
++                <el-icon><MapLocation /></el-icon>
++                <span>业务部</span>
++              </template>
++              <el-menu-item index="/business/hotels">客户档案</el-menu-item>
++              <el-menu-item index="/business/match">片区匹配复核</el-menu-item>
++            </el-sub-menu>
+ 
+             <!-- 生产部 -->
+             <el-sub-menu index="dept-prod" disabled>
+@@ -332,7 +351,7 @@ import { useAppStore } from '@/stores/app'
+ import { api } from '@/utils/api'
+ import {
+   Menu, Fold, Expand, ArrowDown, SwitchButton,
+-  HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin,
++  HomeFilled, Monitor, Sunrise, Setting, SetUp, Van, OfficeBuilding, Coin, MapLocation,
+ } from '@element-plus/icons-vue'
+ 
+ const route = useRoute()
+@@ -386,9 +405,12 @@ const isGroupedSidebar = computed(() => {
+   return authStore.hasPermission(PERMISSIONS.MODULE_COMPANY)
+ })
+ 
++const canBusiness = computed(() => authStore.hasPermission(PERMISSIONS.MODULE_BUSINESS))
++
+ // 工程部路由路径
+ const engPaths = ['/dashboard', '/daily-timeline', '/records', '/alerts', '/assets', '/parts', '/thresholds', '/inventory']
+ const boilerPaths = ['/boiler']
++const businessPaths = ['/business']
+ // 系统管理路由路径
+ const sysPaths = ['/users', '/factories', '/settings']
+ 
+@@ -396,6 +418,7 @@ const activeMenu = computed(() => {
+   if (route.path.startsWith('/settings/')) return route.path
+   if (route.path.startsWith('/dashboard/')) return route.path
+   if (route.path.startsWith('/boiler/')) return route.path
++  if (route.path.startsWith('/business/')) return route.path
+   const p = '/' + route.path.split('/').filter(Boolean).slice(0, 1).join('/')
+   return p
+ })
+@@ -405,6 +428,7 @@ const defaultOpeneds = computed(() => {
+   const opened = []
+   if (engPaths.some(ep => p.startsWith(ep))) opened.push('dept-eng')
+   if (boilerPaths.some(bp => p.startsWith(bp))) opened.push('dept-boiler')
++  if (businessPaths.some(bp => p.startsWith(bp))) opened.push('dept-business')
+   if (sysPaths.some(sp => p.startsWith(sp))) opened.push('system')
+   return opened
+ })
+@@ -413,6 +437,7 @@ const currentGroup = computed(() => {
+   const p = activeMenu.value
+   if (engPaths.some(ep => p.startsWith(ep))) return '工程部'
+   if (boilerPaths.some(bp => p.startsWith(bp))) return '锅炉房'
++  if (businessPaths.some(bp => p.startsWith(bp))) return '业务部'
+   if (sysPaths.some(sp => p.startsWith(sp))) return '系统管理'
+   return ''
+ })
+diff --git a/pc-admin/src/router/index.js b/pc-admin/src/router/index.js
+index dd23b6d..4912c47 100644
+--- a/pc-admin/src/router/index.js
++++ b/pc-admin/src/router/index.js
+@@ -40,6 +40,8 @@ const routes = [
+       { path: 'boiler/ai-report', name: 'BoilerAIReport', component: () => import('@/views/boiler/ai-report.vue'), meta: { title: 'AI 分析', permission: PERMISSIONS.MODULE_BOILER } },
+       { path: 'boiler/monthly', name: 'BoilerMonthly', component: () => import('@/views/boiler/monthly.vue'), meta: { title: '月度报表', permission: PERMISSIONS.MODULE_BOILER } },
+       { path: 'boiler/fuel', name: 'BoilerFuel', component: () => import('@/views/boiler/fuel.vue'), meta: { title: '燃料管理', permission: PERMISSIONS.MODULE_BOILER } },
++      { path: 'business/hotels', name: 'BusinessHotels', component: () => import('@/views/business/hotels.vue'), meta: { title: '客户档案', icon: OfficeBuilding, permission: PERMISSIONS.MODULE_BUSINESS } },
++      { path: 'business/match', name: 'BusinessMatch', component: () => import('@/views/business/match.vue'), meta: { title: '片区匹配复核', icon: TrendCharts, permission: PERMISSIONS.MODULE_BUSINESS } },
+       { path: 'users', name: 'Users', component: () => import('@/views/users/index.vue'), meta: { title: '用户管理', icon: User, permission: PERMISSIONS.USER_MANAGE } },
+       { path: 'factories', name: 'Factories', component: () => import('@/views/factories/index.vue'), meta: { title: '工厂管理', icon: OfficeBuilding, permission: PERMISSIONS.FACTORY_MANAGE } },
+       { path: 'inventory', name: 'Inventory', component: () => import('@/views/inventory/index.vue'), meta: { title: '库存管理', icon: Box } },
+diff --git a/pc-admin/src/utils/api-cloud.js b/pc-admin/src/utils/api-cloud.js
+index 82ae318..8655543 100755
+--- a/pc-admin/src/utils/api-cloud.js
++++ b/pc-admin/src/utils/api-cloud.js
+@@ -166,4 +166,18 @@ export const cloudApi = {
+     return call("getDailyTimeline", { date, factoryId: factoryId || undefined })
+   },
+ 
++  // ====== 业务部模块（地图/POI 匹配） ======
++  async bizGeocode(address, city) { return call('geocode', { address, city }) },
++  async bizSearchPOI(params = {}) { return call('searchPOI', params) },
++  async bizSearchAndMatch(params = {}) { return call('searchAndMatch', params) },
++  async bizListHotels(params = {}) { return call('listHotels', params) },
++  async bizListBindings(params = {}) { return call('listBindings', params) },
++  async bizBatchMatch(params = {}) { return call('batchMatch', params) },
++  async bizBindPOI(data) { return call('bindPOI', data) },
++  async bizUnbindPOI(data) { return call('unbindPOI', data) },
++  async bizSaveHotelFromPOI(data) { return call('saveHotelFromPOI', data) },
++  async bizSaveHotel(data) { return call('saveHotel', data) },
++  async bizUpdateHotel(data) { return call('updateHotel', data) },
++  async bizDeleteHotel(hotelId) { return call('deleteHotel', { hotelId }) },
++
+ }
+diff --git a/pc-admin/src/utils/api-http.js b/pc-admin/src/utils/api-http.js
+index b8d6ec3..c4c4cb2 100755
+--- a/pc-admin/src/utils/api-http.js
++++ b/pc-admin/src/utils/api-http.js
+@@ -210,4 +210,18 @@ export const httpApi = {
+     return call("getDailyTimeline", { date, factoryId: factoryId || undefined })
+   },
+ 
++  // ====== 业务部模块（地图/POI 匹配） ======
++  async bizGeocode(address, city) { return call('geocode', { address, city }) },
++  async bizSearchPOI(params = {}) { return call('searchPOI', params) },
++  async bizSearchAndMatch(params = {}) { return call('searchAndMatch', params) },
++  async bizListHotels(params = {}) { return call('listHotels', params) },
++  async bizListBindings(params = {}) { return call('listBindings', params) },
++  async bizBatchMatch(params = {}) { return call('batchMatch', params) },
++  async bizBindPOI(data) { return call('bindPOI', data) },
++  async bizUnbindPOI(data) { return call('unbindPOI', data) },
++  async bizSaveHotelFromPOI(data) { return call('saveHotelFromPOI', data) },
++  async bizSaveHotel(data) { return call('saveHotel', data) },
++  async bizUpdateHotel(data) { return call('updateHotel', data) },
++  async bizDeleteHotel(hotelId) { return call('deleteHotel', { hotelId }) },
++
+ }
+diff --git a/pc-admin/src/utils/api-real.js b/pc-admin/src/utils/api-real.js
+index 11a5893..782c9b7 100755
+--- a/pc-admin/src/utils/api-real.js
++++ b/pc-admin/src/utils/api-real.js
+@@ -159,4 +159,18 @@ export const realApi = {
+   async getAssetCostDetail(factoryId, assetId, yearMonth) { return call('getAssetCostDetail', { factoryId, assetId, yearMonth }) },
+   async getInventoryTrend(factoryId, months) { return call('getInventoryTrend', { factoryId, months }) },
+   async getCostTrend(factoryId, months) { return call('getCostTrend', { factoryId, months }) },
++
++  // ====== 业务部模块（地图/POI 匹配） ======
++  async bizGeocode(address, city) { return call('geocode', { address, city }) },
++  async bizSearchPOI(params = {}) { return call('searchPOI', params) },
++  async bizSearchAndMatch(params = {}) { return call('searchAndMatch', params) },
++  async bizListHotels(params = {}) { return call('listHotels', params) },
++  async bizListBindings(params = {}) { return call('listBindings', params) },
++  async bizBatchMatch(params = {}) { return call('batchMatch', params) },
++  async bizBindPOI(data) { return call('bindPOI', data) },
++  async bizUnbindPOI(data) { return call('unbindPOI', data) },
++  async bizSaveHotelFromPOI(data) { return call('saveHotelFromPOI', data) },
++  async bizSaveHotel(data) { return call('saveHotel', data) },
++  async bizUpdateHotel(data) { return call('updateHotel', data) },
++  async bizDeleteHotel(hotelId) { return call('deleteHotel', { hotelId }) },
+ }
+diff --git a/pc-admin/src/utils/api.js b/pc-admin/src/utils/api.js
+index 80ecb83..37c248c 100644
+--- a/pc-admin/src/utils/api.js
++++ b/pc-admin/src/utils/api.js
+@@ -29,6 +29,16 @@ const clone = (obj) => JSON.parse(JSON.stringify(obj))
+ 
+ // AI 分析配置（模拟 system_config，仅 Admin 可改）
+ const _aiConfig = { apiKey: "", model: "gpt-4o-mini", prompts: {} }
++
++// ===== 业务部模块 mock 状态 =====
++const _bizHotels = [
++  { _id: 'hotel-b001', name: '锦江之星昆明店', address: '云南省昆明市五华区东风西路18号', latitude: 25.045, longitude: 102.705, contact: '李经理', amapPoiId: 'B0FF800201', boundPoiName: '锦江之星昆明店', bindingId: 'bind-b001', locateSource: 'poi', geoLevel: 'POI', status: 'active', createdAt: Date.now() - 86400000 },
++  { _id: 'hotel-b002', name: '如家酒店翠湖店', address: '云南省昆明市五华区翠湖南路', latitude: 25.052, longitude: 102.708, contact: '王店长', locateSource: 'manual', status: 'active', createdAt: Date.now() - 172800000 },
++  { _id: 'hotel-b003', name: '汉庭酒店火车站店', address: '云南省昆明市官渡区北京路', latitude: 25.012, longitude: 102.728, contact: '', locateSource: 'manual', status: 'active', createdAt: Date.now() - 259200000 },
++]
++const _bizBindings = [
++  { bindingId: 'bind-b001', poiId: 'B0FF800201', poiName: '锦江之星昆明店', hotelId: 'hotel-b001', hotelName: '锦江之星昆明店' },
++]
+ // AI 报告历史：工程部与锅炉房完全独立存储，数据不串联
+ let _aiReportHistoryEng = []
+ let _aiReportHistoryBoiler = []
+@@ -498,6 +508,131 @@ const mockApi = {
+   async boilerAcknowledgeAlert(alertId) { await delay(); return { ok: true, data: { alertId, status: 'acknowledged' } } },
+   async boilerResolveAlert(alertId, resolveNote) { await delay(); return { ok: true, data: { alertId, status: 'resolved' } } },
+   async getFacilityOutboundSummary() { await delay(); return { ok: true, data: { totalQty: 0, totalCost: 0 } } },
++
++  // ====== 业务部模块 mock ======
++  async bizGeocode(address) {
++    await delay(200)
++    return { ok: true, data: { latitude: 25.04 + Math.random() * 0.1, longitude: 102.7 + Math.random() * 0.1, formattedAddress: address, level: '门牌号' } }
++  },
++  async bizSearchPOI(params = {}) {
++    await delay(300)
++    const kw = params.keywords || '酒店'
++    const page = params.page || 1, pageSize = params.pageSize || 25
++    const list = []
++    for (let i = 0; i < pageSize; i++) {
++      const n = (page - 1) * pageSize + i + 1
++      list.push({
++        id: `B0FF${String(1000 + n)}`, name: `${kw}${n}号店`,
++        address: `云南省昆明市${params.city || '五华区'}某路${n}号`,
++        latitude: 25.04 + Math.random() * 0.08, longitude: 102.70 + Math.random() * 0.08,
++        tel: '', type: '餐饮服务', typecode: '050000',
++      })
++    }
++    return { ok: true, data: { pois: list, total: 120, page, pageSize } }
++  },
++  async bizSearchAndMatch(params = {}) {
++    await delay(400)
++    const poiRes = await this.bizSearchPOI(params)
++    const hotelRes = await this.bizListHotels({})
++    const hotels = hotelRes.data.list
++    const pois = poiRes.data.pois.map((poi, idx) => {
++      const bound = _bizBindings.find(b => b.poiId === poi.id)
++      if (bound) {
++        return { ...poi, matchStatus: 'bound', matchLevel: 'bound', boundHotelId: bound.hotelId, boundHotelName: bound.hotelName, bindingId: bound.bindingId, matchScore: { total: 1, name: 1, coordinate: 1, address: 1 } }
++      }
++      const cand = hotels.find(h => !h.amapPoiId && h.name && poi.name.includes(h.name.slice(0, 2)))
++      if (cand && idx % 3 === 0) {
++        const total = 0.6 + Math.random() * 0.38
++        return { ...poi, matchStatus: 'suggested', matchLevel: total >= 0.8 ? 'high' : 'medium', suggestedHotelId: cand._id, suggestedHotelName: cand.name, matchScore: { total, name: total, coordinate: total * 0.9, address: total * 0.8 } }
++      }
++      return { ...poi, matchStatus: 'unmatched', matchLevel: 'none', matchScore: { total: 0.2, name: 0.2, coordinate: 0, address: 0 } }
++    })
++    const stats = { total: pois.length, bound: pois.filter(p => p.matchStatus === 'bound').length, suggested: pois.filter(p => p.matchStatus === 'suggested').length, unmatched: pois.filter(p => p.matchStatus === 'unmatched').length }
++    const hotelLayer = hotels.filter(h => h.latitude != null).map(h => ({ hotelId: h._id, name: h.name, latitude: h.latitude, longitude: h.longitude, bound: !!h.amapPoiId, matchedHere: pois.some(p => p.suggestedHotelId === h._id || p.boundHotelId === h._id) }))
++    return { ok: true, data: { pois, total: poiRes.data.total, page: poiRes.data.page, pageSize: poiRes.data.pageSize, stats, hotelCount: hotels.length, unboundHotelCount: hotels.filter(h => !h.amapPoiId).length, hotelLayer, blindCount: hotelLayer.filter(h => !h.matchedHere && !h.bound).length } }
++  },
++  async bizListHotels(params = {}) {
++    await delay(200)
++    let list = clone(_bizHotels).filter(h => h.status !== 'deleted')
++    if (params.onlyUnbound) list = list.filter(h => !h.amapPoiId)
++    return { ok: true, data: { list, total: list.length, page: 1, pageSize: list.length } }
++  },
++  async bizListBindings() {
++    await delay(150)
++    return { ok: true, data: { list: clone(_bizBindings), total: _bizBindings.length } }
++  },
++  async bizBatchMatch() {
++    await delay(600)
++    const unbound = _bizHotels.filter(h => h.status !== 'deleted' && !h.amapPoiId)
++    const results = unbound.map((h, i) => {
++      const total = i % 4 === 3 ? 0.4 : (0.55 + Math.random() * 0.4)
++      const suggested = total >= 0.55
++      return {
++        hotelId: h._id, hotelName: h.name, hotelAddress: h.address,
++        bestPoi: suggested ? { id: `B0FFM${i}`, name: `${h.name}（高德）`, address: h.address, latitude: h.latitude, longitude: h.longitude, tel: '' } : null,
++        matchScore: suggested ? { total, name: total, coordinate: total * 0.9, address: total * 0.8 } : null,
++        matchLevel: suggested ? (total >= 0.8 ? 'high' : 'medium') : 'none',
++        matchStatus: suggested ? 'suggested' : 'unmatched',
++      }
++    })
++    return { ok: true, data: { total: results.length, matched: results.filter(r => r.matchStatus === 'suggested').length, results } }
++  },
++  async bizBindPOI(data) {
++    await delay(200)
++    if (_bizBindings.some(b => b.poiId === data.poiId && b.hotelId !== data.hotelId)) return { ok: false, error: { code: 'CONFLICT', message: '该外部客户已绑定其他内部客户' } }
++    if (_bizBindings.some(b => b.hotelId === data.hotelId && b.poiId !== data.poiId)) return { ok: false, error: { code: 'CONFLICT', message: '该内部客户已绑定其他外部客户' } }
++    const existing = _bizBindings.find(b => b.poiId === data.poiId && b.hotelId === data.hotelId)
++    if (existing) return { ok: true, data: { bindingId: existing.bindingId, alreadyBound: true } }
++    const bindingId = genId('bind')
++    _bizBindings.push({ bindingId, poiId: data.poiId, poiName: data.poiName, hotelId: data.hotelId, hotelName: data.hotelName })
++    const h = _bizHotels.find(x => x._id === data.hotelId)
++    if (h) { h.amapPoiId = data.poiId; h.boundPoiName = data.poiName; h.bindingId = bindingId }
++    return { ok: true, data: { bindingId, created: true } }
++  },
++  async bizUnbindPOI(data) {
++    await delay(200)
++    const idx = _bizBindings.findIndex(b => (data.hotelId && b.hotelId === data.hotelId) || (data.poiId && b.poiId === data.poiId))
++    if (idx >= 0) {
++      const b = _bizBindings[idx]
++      const h = _bizHotels.find(x => x._id === b.hotelId)
++      if (h) { delete h.amapPoiId; delete h.boundPoiName; delete h.bindingId }
++      _bizBindings.splice(idx, 1)
++    }
++    return { ok: true, data: {} }
++  },
++  async bizSaveHotelFromPOI(data) {
++    await delay(300)
++    const poi = data.poi || {}
++    const _id = genId('hotel')
++    const hotel = { _id, name: poi.name, address: poi.address, latitude: poi.latitude, longitude: poi.longitude, amapPoiId: poi.id, locateSource: 'poi', geoLevel: 'POI', contact: data.contact || '', remark: data.remark || '', status: 'active', createdAt: Date.now() }
++    _bizHotels.unshift(hotel)
++    if (data.autoBind !== false) {
++      const bindingId = genId('bind')
++      _bizBindings.push({ bindingId, poiId: poi.id, poiName: poi.name, hotelId: _id, hotelName: poi.name })
++      hotel.bindingId = bindingId; hotel.boundPoiName = poi.name
++    }
++    return { ok: true, data: { hotelId: _id } }
++  },
++  async bizSaveHotel(data) {
++    await delay(300)
++    const _id = genId('hotel')
++    _bizHotels.unshift({ _id, name: data.name, address: data.address, latitude: data.latitude, longitude: data.longitude, contact: data.contact || '', remark: data.remark || '', locateSource: 'manual', status: 'active', createdAt: Date.now() })
++    return { ok: true, data: { hotelId: _id } }
++  },
++  async bizUpdateHotel(data) {
++    await delay(200)
++    const h = _bizHotels.find(x => x._id === data.hotelId)
++    if (!h) return { ok: false, error: { code: 'NOT_FOUND', message: '客户不存在' } }
++    Object.assign(h, data)
++    return { ok: true, data: {} }
++  },
++  async bizDeleteHotel(hotelId) {
++    await delay(200)
++    await this.bizUnbindPOI({ hotelId })
++    const h = _bizHotels.find(x => x._id === hotelId)
++    if (h) h.status = 'deleted'
++    return { ok: true, data: {} }
++  },
+ }
+ 
+ // 模式选择：http > cloud > real > mock
+diff --git a/pc-admin/src/utils/permissions.js b/pc-admin/src/utils/permissions.js
+index 6b67354..96ef465 100755
+--- a/pc-admin/src/utils/permissions.js
++++ b/pc-admin/src/utils/permissions.js
+@@ -4,6 +4,10 @@ export const PERMISSIONS = {
+   MODULE_ENGINEERING: 'module:engineering',
+   MODULE_BOILER: 'module:boiler',
+   MODULE_COMPANY: 'module:company',
++  MODULE_BUSINESS: 'module:business',
++
++  BUSINESS_VIEW: 'business:view',
++  BUSINESS_MANAGE: 'business:manage',
+ 
+   RECORD_WRITE: 'record:write',
+   RECORD_DELETE: 'record:delete',
+@@ -49,6 +53,14 @@ export const PERMISSION_GROUPS = [
+       { key: PERMISSIONS.MODULE_ENGINEERING, label: '工程部' },
+       { key: PERMISSIONS.MODULE_BOILER, label: '锅炉房' },
+       { key: PERMISSIONS.MODULE_COMPANY, label: '公司总览' },
++      { key: PERMISSIONS.MODULE_BUSINESS, label: '业务部' },
++    ],
++  },
++  {
++    label: '业务部操作',
++    items: [
++      { key: PERMISSIONS.BUSINESS_VIEW, label: '查看酒店/片区匹配' },
++      { key: PERMISSIONS.BUSINESS_MANAGE, label: '酒店建档/POI绑定管理' },
+     ],
+   },
+   {
+@@ -124,6 +136,8 @@ export const ROLE_TEMPLATES = {
+     PERMISSIONS.MODULE_ENGINEERING,
+     PERMISSIONS.MODULE_BOILER,
+     PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
+     PERMISSIONS.ALERT_VIEW,
+     PERMISSIONS.ALERT_ACK,
+     PERMISSIONS.COST_VIEW,
+@@ -177,6 +191,16 @@ export const ROLE_TEMPLATES = {
+     PERMISSIONS.AI_USE,
+     PERMISSIONS.PC_LOGIN,
+   ],
++  Business: [
++    PERMISSIONS.MODULE_COMPANY,
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++    PERMISSIONS.BUSINESS_MANAGE,
++  ],
++  BusinessViewer: [
++    PERMISSIONS.MODULE_BUSINESS,
++    PERMISSIONS.BUSINESS_VIEW,
++  ],
+ }
+ 
+ export function getPermissionsForRole(role) {
+diff --git a/pc-admin/src/views/business/hotels.vue b/pc-admin/src/views/business/hotels.vue
+new file mode 100644
+index 0000000..4102f8d
+--- /dev/null
++++ b/pc-admin/src/views/business/hotels.vue
+@@ -0,0 +1,236 @@
++<template>
++  <div class="page-container">
++    <div class="page-header">
++      <h2>客户档案与绑定</h2>
++      <div class="header-actions">
++        <el-input
++          v-model="filterText"
++          placeholder="搜索名称/地址"
++          clearable
++          style="width: 220px"
++          :prefix-icon="Search"
++        />
++        <el-button v-if="canManage" type="primary" @click="openAdd">
++          <el-icon><Plus /></el-icon>新增客户
++        </el-button>
++      </div>
++    </div>
++
++    <el-alert
++      type="info"
++      :closable="false"
++      show-icon
++      title="推荐使用「POI 建档」从高德地图选点录入，坐标精确、自动建立 1:1 绑定，匹配准确率更高。"
++      style="margin-bottom: 12px"
++    />
++
++    <el-table :data="filteredList" v-loading="loading" stripe>
++      <el-table-column prop="name" label="客户名称" min-width="180" />
++      <el-table-column prop="address" label="地址" min-width="220" show-overflow-tooltip />
++      <el-table-column prop="contact" label="联系人" width="110" />
++      <el-table-column label="绑定状态" width="160">
++        <template #default="{ row }">
++          <el-tag v-if="row.amapPoiId" type="success" size="small">已绑 POI</el-tag>
++          <el-tag v-else type="info" size="small">未绑定</el-tag>
++          <el-tag v-if="row.geoLevel === 'POI' || row.locateSource === 'poi'" type="warning" size="small" style="margin-left: 4px">POI精确</el-tag>
++        </template>
++      </el-table-column>
++      <el-table-column label="操作" width="180" fixed="right">
++        <template #default="{ row }">
++          <el-button v-if="canManage && row.amapPoiId" size="small" type="warning" @click="onUnbind(row)">解绑</el-button>
++          <el-button v-if="canManage" size="small" type="danger" @click="onDelete(row)">删除</el-button>
++          <span v-if="!canManage" class="text-muted">仅查看</span>
++        </template>
++      </el-table-column>
++    </el-table>
++
++    <!-- 新增弹窗 -->
++    <el-dialog v-model="dialogVisible" title="新增客户" width="640px" destroy-on-close>
++      <el-radio-group v-model="addMode" style="margin-bottom: 16px">
++        <el-radio-button label="poi">POI 建档（推荐）</el-radio-button>
++        <el-radio-button label="manual">手动录入</el-radio-button>
++      </el-radio-group>
++
++      <!-- POI 建档 -->
++      <div v-if="addMode === 'poi'">
++        <div class="poi-search-bar">
++          <el-input v-model="poiKeyword" placeholder="输入客户名称关键词" style="flex: 1" @keyup.enter="onSearchPoi" />
++          <el-input v-model="poiCity" placeholder="城市(如 昆明)" style="width: 140px" />
++          <el-button type="primary" :loading="poiLoading" @click="onSearchPoi">搜索</el-button>
++        </div>
++        <el-table :data="poiResults" v-loading="poiLoading" max-height="320" size="small" style="margin-top: 12px">
++          <el-table-column prop="name" label="名称" min-width="160" />
++          <el-table-column prop="address" label="地址" min-width="200" show-overflow-tooltip />
++          <el-table-column label="操作" width="90">
++            <template #default="{ row }">
++              <el-button size="small" type="primary" @click="onPickPoi(row)">建档</el-button>
++            </template>
++          </el-table-column>
++        </el-table>
++        <el-empty v-if="!poiLoading && poiSearched && poiResults.length === 0" description="无搜索结果" :image-size="60" />
++      </div>
++
++      <!-- 手动录入 -->
++      <el-form v-else ref="formRef" :model="form" :rules="formRules" label-width="90px">
++        <el-form-item label="客户名称" prop="name">
++          <el-input v-model="form.name" placeholder="请输入客户名称" />
++        </el-form-item>
++        <el-form-item label="地址" prop="address">
++          <el-input v-model="form.address" placeholder="详细地址（用于地理编码定位）" />
++        </el-form-item>
++        <el-form-item label="联系人">
++          <el-input v-model="form.contact" placeholder="可选" />
++        </el-form-item>
++        <el-form-item label="备注">
++          <el-input v-model="form.remark" type="textarea" :rows="2" placeholder="可选" />
++        </el-form-item>
++      </el-form>
++
++      <template #footer>
++        <el-button @click="dialogVisible = false">取消</el-button>
++        <el-button v-if="addMode === 'manual'" type="primary" :loading="submitLoading" @click="onSubmitManual">保存</el-button>
++      </template>
++    </el-dialog>
++  </div>
++</template>
++
++<script setup>
++import { ref, reactive, computed, onMounted } from 'vue'
++import { api } from '@/utils/api'
++import { useAuthStore } from '@/stores/auth'
++import { PERMISSIONS } from '@/utils/permissions'
++import { ElMessage, ElMessageBox } from 'element-plus'
++import { Plus, Search } from '@element-plus/icons-vue'
++
++const authStore = useAuthStore()
++const canManage = computed(() => authStore.hasPermission(PERMISSIONS.BUSINESS_MANAGE))
++
++const loading = ref(false)
++const list = ref([])
++const filterText = ref('')
++
++const filteredList = computed(() => {
++  const kw = filterText.value.trim()
++  if (!kw) return list.value
++  return list.value.filter(h => (h.name || '').includes(kw) || (h.address || '').includes(kw))
++})
++
++const dialogVisible = ref(false)
++const addMode = ref('poi')
++
++// POI 建档
++const poiKeyword = ref('')
++const poiCity = ref('昆明')
++const poiResults = ref([])
++const poiLoading = ref(false)
++const poiSearched = ref(false)
++
++// 手动录入
++const submitLoading = ref(false)
++const formRef = ref()
++const form = reactive({ name: '', address: '', contact: '', remark: '' })
++const formRules = {
++  name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
++  address: [{ required: true, message: '请输入地址', trigger: 'blur' }],
++}
++
++function openAdd() {
++  addMode.value = 'poi'
++  poiKeyword.value = ''
++  poiResults.value = []
++  poiSearched.value = false
++  Object.assign(form, { name: '', address: '', contact: '', remark: '' })
++  dialogVisible.value = true
++}
++
++async function onSearchPoi() {
++  if (!poiKeyword.value.trim()) return ElMessage.warning('请输入关键词')
++  poiLoading.value = true
++  poiSearched.value = true
++  try {
++    const res = await api.bizSearchPOI({ keywords: poiKeyword.value.trim(), city: poiCity.value.trim(), pageSize: 20 })
++    if (res.ok) poiResults.value = res.data.pois || []
++    else ElMessage.error(res.error?.message || '搜索失败')
++  } finally {
++    poiLoading.value = false
++  }
++}
++
++async function onPickPoi(poi) {
++  try {
++    await ElMessageBox.confirm(`确认以「${poi.name}」建档并自动绑定该 POI？`, '确认建档', { type: 'warning' })
++  } catch { return }
++  const res = await api.bizSaveHotelFromPOI({ poi, autoBind: true })
++  if (res.ok) {
++    ElMessage.success('建档成功')
++    dialogVisible.value = false
++    loadList()
++  } else {
++    ElMessage.error(res.error?.message || '建档失败')
++  }
++}
++
++async function onSubmitManual() {
++  try { await formRef.value.validate() } catch { return }
++  submitLoading.value = true
++  try {
++    const res = await api.bizSaveHotel({ ...form })
++    if (res.ok) {
++      ElMessage.success(res.data?.warning ? `保存成功（${res.data.warning}）` : '保存成功')
++      dialogVisible.value = false
++      loadList()
++    } else {
++      ElMessage.error(res.error?.message || '保存失败')
++    }
++  } finally {
++    submitLoading.value = false
++  }
++}
++
++async function onUnbind(row) {
++  try {
++    await ElMessageBox.confirm(`确认解除「${row.name}」与 POI 的绑定？`, '解除绑定', { type: 'warning' })
++  } catch { return }
++  const res = await api.bizUnbindPOI({ hotelId: row._id })
++  if (res.ok) { ElMessage.success('已解绑'); loadList() }
++  else ElMessage.error(res.error?.message || '解绑失败')
++}
++
++async function onDelete(row) {
++  try {
++    await ElMessageBox.confirm(`确认删除客户「${row.name}」？将同时解除其绑定。`, '删除客户', { type: 'warning' })
++  } catch { return }
++  const res = await api.bizDeleteHotel(row._id)
++  if (res.ok) { ElMessage.success('已删除'); loadList() }
++  else ElMessage.error(res.error?.message || '删除失败')
++}
++
++async function loadList() {
++  loading.value = true
++  try {
++    const res = await api.bizListHotels({ pageSize: 500 })
++    if (res.ok) list.value = res.data.list || []
++    else ElMessage.error(res.error?.message || '加载失败')
++  } finally {
++    loading.value = false
++  }
++}
++
++onMounted(loadList)
++</script>
++
++<style lang="scss" scoped>
++.header-actions {
++  display: flex;
++  gap: 8px;
++  align-items: center;
++}
++.poi-search-bar {
++  display: flex;
++  gap: 8px;
++}
++.text-muted {
++  color: #909399;
++  font-size: 13px;
++}
++</style>
+diff --git a/pc-admin/src/views/business/match.vue b/pc-admin/src/views/business/match.vue
+new file mode 100644
+index 0000000..a05c904
+--- /dev/null
++++ b/pc-admin/src/views/business/match.vue
+@@ -0,0 +1,352 @@
++<template>
++  <div class="page-container">
++    <div class="page-header">
++      <h2>片区匹配与复核</h2>
++    </div>
++
++    <el-tabs v-model="activeTab">
++      <!-- 批量复核 -->
++      <el-tab-pane label="批量匹配复核" name="review">
++        <div class="toolbar">
++          <el-button type="primary" :loading="reviewLoading" @click="loadReview">
++            <el-icon><Refresh /></el-icon>重新匹配未绑定客户
++          </el-button>
++          <el-button
++            v-if="canManage"
++            type="success"
++            :disabled="highCount === 0"
++            :loading="bulkLoading"
++            @click="onAcceptAllHigh"
++          >一键接受高分（{{ highCount }}）</el-button>
++          <div class="stat-group">
++            <span>待复核 <b>{{ reviewStats.total }}</b></span>
++            <span>建议匹配 <b class="c-blue">{{ reviewStats.matched }}</b></span>
++            <span>高置信 <b class="c-green">{{ highCount }}</b></span>
++          </div>
++        </div>
++
++        <el-alert
++          type="info"
++          :closable="false"
++          show-icon
++          title="匹配维度：名称相似度(0.6) + 坐标距离(0.25) + 地址相似度(0.15)，缺失维度自动按比例重分配权重。一个内部客户仅绑定一个外部 POI（严格 1:1）。"
++          style="margin: 8px 0 12px"
++        />
++
++        <el-table :data="reviewResults" v-loading="reviewLoading" stripe>
++          <el-table-column label="内部客户" min-width="200">
++            <template #default="{ row }">
++              <div class="cell-title">{{ row.hotelName }}</div>
++              <div class="cell-sub">{{ row.hotelAddress || '—' }}</div>
++            </template>
++          </el-table-column>
++          <el-table-column label="最佳 POI 候选" min-width="220">
++            <template #default="{ row }">
++              <template v-if="row.bestPoi">
++                <div class="cell-title">{{ row.bestPoi.name }}</div>
++                <div class="cell-sub">{{ row.bestPoi.address || '—' }}</div>
++              </template>
++              <span v-else class="text-muted">无候选</span>
++            </template>
++          </el-table-column>
++          <el-table-column label="匹配度" width="110">
++            <template #default="{ row }">
++              <span v-if="row.matchScore">{{ Math.round(row.matchScore.total * 100) }}%</span>
++              <span v-else>—</span>
++            </template>
++          </el-table-column>
++          <el-table-column label="置信" width="100">
++            <template #default="{ row }">
++              <el-tag :type="levelTag(row.matchLevel)" size="small">{{ levelLabel(row.matchLevel) }}</el-tag>
++            </template>
++          </el-table-column>
++          <el-table-column label="操作" width="170" fixed="right">
++            <template #default="{ row }">
++              <el-button
++                v-if="canManage && row.matchStatus === 'suggested'"
++                size="small"
++                type="primary"
++                @click="onAccept(row)"
++              >接受并绑定</el-button>
++              <el-button
++                v-if="row.matchStatus === 'suggested'"
++                size="small"
++                @click="onIgnore(row)"
++              >忽略</el-button>
++              <span v-if="row.matchStatus !== 'suggested'" class="text-muted">无建议</span>
++            </template>
++          </el-table-column>
++        </el-table>
++      </el-tab-pane>
++
++      <!-- 高德检索匹配 -->
++      <el-tab-pane label="高德检索匹配" name="search">
++        <div class="toolbar">
++          <el-input v-model="searchKw" placeholder="关键词（如：酒店）" style="width: 200px" @keyup.enter="doSearch" />
++          <el-input v-model="searchCity" placeholder="城市（如：昆明）" style="width: 140px" />
++          <el-button type="primary" :loading="searchLoading" @click="doSearch">检索匹配</el-button>
++          <div class="stat-group" v-if="searchStats">
++            <span>共 <b>{{ searchStats.total }}</b></span>
++            <span>已绑 <b class="c-gray">{{ searchStats.bound }}</b></span>
++            <span>建议 <b class="c-blue">{{ searchStats.suggested }}</b></span>
++            <span>未匹配 <b>{{ searchStats.unmatched }}</b></span>
++            <span v-if="blindCount > 0">盲区客户 <b class="c-purple">{{ blindCount }}</b></span>
++          </div>
++        </div>
++
++        <el-table :data="searchPois" v-loading="searchLoading" stripe>
++          <el-table-column label="高德 POI" min-width="220">
++            <template #default="{ row }">
++              <div class="cell-title">{{ row.name }}</div>
++              <div class="cell-sub">{{ row.address || '—' }}</div>
++            </template>
++          </el-table-column>
++          <el-table-column label="匹配状态" width="120">
++            <template #default="{ row }">
++              <el-tag :type="statusTag(row.matchStatus)" size="small">{{ statusLabel(row.matchStatus) }}</el-tag>
++            </template>
++          </el-table-column>
++          <el-table-column label="关联内部客户" min-width="180">
++            <template #default="{ row }">
++              <span v-if="row.matchStatus === 'bound'">{{ row.boundHotelName }}</span>
++              <span v-else-if="row.matchStatus === 'suggested'">{{ row.suggestedHotelName }}</span>
++              <span v-else class="text-muted">{{ row.bestCandidateName || '—' }}</span>
++            </template>
++          </el-table-column>
++          <el-table-column label="匹配度" width="100">
++            <template #default="{ row }">
++              {{ row.matchScore ? Math.round(row.matchScore.total * 100) + '%' : '—' }}
++            </template>
++          </el-table-column>
++          <el-table-column label="操作" width="160" fixed="right">
++            <template #default="{ row }">
++              <el-button
++                v-if="canManage && row.matchStatus === 'suggested'"
++                size="small"
++                type="primary"
++                @click="onBindSuggested(row)"
++              >绑定</el-button>
++              <el-button
++                v-if="canManage && row.matchStatus === 'bound'"
++                size="small"
++                type="warning"
++                @click="onUnbindBound(row)"
++              >解绑</el-button>
++              <span v-if="row.matchStatus === 'unmatched'" class="text-muted">无建议</span>
++            </template>
++          </el-table-column>
++        </el-table>
++
++        <div v-if="searchTotal > searchPois.length" class="load-more">
++          <el-button :loading="searchLoading" @click="loadMorePois">加载更多 POI</el-button>
++        </div>
++      </el-tab-pane>
++    </el-tabs>
++  </div>
++</template>
++
++<script setup>
++import { ref, reactive, computed, onMounted } from 'vue'
++import { api } from '@/utils/api'
++import { useAuthStore } from '@/stores/auth'
++import { PERMISSIONS } from '@/utils/permissions'
++import { ElMessage, ElMessageBox } from 'element-plus'
++import { Refresh } from '@element-plus/icons-vue'
++
++const authStore = useAuthStore()
++const canManage = computed(() => authStore.hasPermission(PERMISSIONS.BUSINESS_MANAGE))
++
++const activeTab = ref('review')
++
++// ===== 批量复核 =====
++const reviewLoading = ref(false)
++const bulkLoading = ref(false)
++const reviewResults = ref([])
++const reviewStats = reactive({ total: 0, matched: 0 })
++const highCount = computed(() => reviewResults.value.filter(r => r.matchStatus === 'suggested' && r.matchLevel === 'high').length)
++
++function levelTag(level) {
++  return { high: 'success', medium: 'warning', bound: 'info', none: 'info' }[level] || 'info'
++}
++function levelLabel(level) {
++  return { high: '强烈建议', medium: '建议', bound: '已绑定', none: '无' }[level] || '无'
++}
++
++async function loadReview() {
++  reviewLoading.value = true
++  try {
++    const res = await api.bizBatchMatch({})
++    if (res.ok) {
++      reviewResults.value = res.data.results || []
++      reviewStats.total = res.data.total || 0
++      reviewStats.matched = res.data.matched || 0
++    } else {
++      ElMessage.error(res.error?.message || '匹配失败')
++    }
++  } finally {
++    reviewLoading.value = false
++  }
++}
++
++async function bindOne(row) {
++  return api.bizBindPOI({
++    poiId: row.bestPoi.id,
++    poiName: row.bestPoi.name,
++    hotelId: row.hotelId,
++    hotelName: row.hotelName,
++    poiData: row.bestPoi,
++  })
++}
++
++async function onAccept(row) {
++  const res = await bindOne(row)
++  if (res.ok) {
++    ElMessage.success('已绑定')
++    reviewResults.value = reviewResults.value.filter(r => r.hotelId !== row.hotelId)
++    reviewStats.matched = Math.max(0, reviewStats.matched - 1)
++  } else {
++    ElMessage.error(res.error?.message || '绑定失败')
++  }
++}
++
++function onIgnore(row) {
++  reviewResults.value = reviewResults.value.filter(r => r.hotelId !== row.hotelId)
++}
++
++async function onAcceptAllHigh() {
++  const highs = reviewResults.value.filter(r => r.matchStatus === 'suggested' && r.matchLevel === 'high')
++  if (highs.length === 0) return
++  try {
++    await ElMessageBox.confirm(`确认一键接受 ${highs.length} 条高置信建议并自动绑定？`, '批量绑定', { type: 'warning' })
++  } catch { return }
++  bulkLoading.value = true
++  let ok = 0, fail = 0
++  try {
++    for (const row of highs) {
++      const res = await bindOne(row)
++      if (res.ok) ok++; else fail++
++    }
++    ElMessage.success(`完成：成功 ${ok} 条${fail ? `，失败 ${fail} 条` : ''}`)
++    await loadReview()
++  } finally {
++    bulkLoading.value = false
++  }
++}
++
++// ===== 高德检索匹配 =====
++const searchLoading = ref(false)
++const searchKw = ref('')
++const searchCity = ref('昆明')
++const searchPois = ref([])
++const searchStats = ref(null)
++const searchTotal = ref(0)
++const searchPage = ref(1)
++const blindCount = ref(0)
++const PAGE_SIZE = 25
++
++function statusTag(s) {
++  return { bound: 'info', suggested: 'primary', unmatched: 'warning' }[s] || 'info'
++}
++function statusLabel(s) {
++  return { bound: '已绑定', suggested: '建议匹配', unmatched: '未匹配' }[s] || s
++}
++
++async function doSearch() {
++  if (!searchKw.value.trim()) return ElMessage.warning('请输入关键词')
++  searchPage.value = 1
++  searchPois.value = []
++  await fetchSearch()
++}
++
++async function fetchSearch() {
++  searchLoading.value = true
++  try {
++    const res = await api.bizSearchAndMatch({
++      keywords: searchKw.value.trim(),
++      city: searchCity.value.trim(),
++      page: searchPage.value,
++      pageSize: PAGE_SIZE,
++    })
++    if (res.ok) {
++      const d = res.data
++      if (searchPage.value === 1) searchPois.value = d.pois || []
++      else searchPois.value = searchPois.value.concat(d.pois || [])
++      searchStats.value = d.stats
++      searchTotal.value = d.total || 0
++      blindCount.value = d.blindCount || 0
++    } else {
++      ElMessage.error(res.error?.message || '检索失败')
++    }
++  } finally {
++    searchLoading.value = false
++  }
++}
++
++async function loadMorePois() {
++  searchPage.value += 1
++  await fetchSearch()
++}
++
++async function onBindSuggested(row) {
++  const res = await api.bizBindPOI({
++    poiId: row.id,
++    poiName: row.name,
++    hotelId: row.suggestedHotelId,
++    hotelName: row.suggestedHotelName,
++    poiData: row,
++  })
++  if (res.ok) {
++    ElMessage.success('已绑定')
++    row.matchStatus = 'bound'
++    row.boundHotelName = row.suggestedHotelName
++    if (searchStats.value) { searchStats.value.suggested--; searchStats.value.bound++ }
++  } else {
++    ElMessage.error(res.error?.message || '绑定失败')
++  }
++}
++
++async function onUnbindBound(row) {
++  try {
++    await ElMessageBox.confirm(`确认解除「${row.name}」与「${row.boundHotelName}」的绑定？`, '解除绑定', { type: 'warning' })
++  } catch { return }
++  const res = await api.bizUnbindPOI({ poiId: row.id })
++  if (res.ok) {
++    ElMessage.success('已解绑')
++    row.matchStatus = 'unmatched'
++    if (searchStats.value) { searchStats.value.bound--; searchStats.value.unmatched++ }
++  } else {
++    ElMessage.error(res.error?.message || '解绑失败')
++  }
++}
++
++onMounted(loadReview)
++</script>
++
++<style lang="scss" scoped>
++.toolbar {
++  display: flex;
++  gap: 10px;
++  align-items: center;
++  flex-wrap: wrap;
++  margin-bottom: 4px;
++}
++.stat-group {
++  display: flex;
++  gap: 16px;
++  margin-left: auto;
++  color: #606266;
++  font-size: 13px;
++  b { font-size: 15px; }
++}
++.c-blue { color: #409eff; }
++.c-green { color: #67c23a; }
++.c-gray { color: #909399; }
++.c-purple { color: #8e44ad; }
++.cell-title { font-weight: 500; }
++.cell-sub { color: #909399; font-size: 12px; margin-top: 2px; }
++.text-muted { color: #909399; font-size: 13px; }
++.load-more {
++  text-align: center;
++  margin-top: 12px;
++}
++</style>
+diff --git a/pc-admin/src/views/company/index.vue b/pc-admin/src/views/company/index.vue
+index 767b511..1aafabc 100755
+--- a/pc-admin/src/views/company/index.vue
++++ b/pc-admin/src/views/company/index.vue
+@@ -130,6 +130,24 @@
+         </el-card>
+       </el-col>
+ 
++      <!-- 业务部 -->
++      <el-col v-if="canBusiness" :xs="24" :sm="12">
++        <el-card shadow="hover" class="dept-card" @click="$router.push('/business/match')">
++          <div class="dept-header">
++            <div class="dept-icon dept-icon-business">
++              <el-icon :size="28"><MapLocation /></el-icon>
++            </div>
++            <div class="dept-info">
++              <span class="dept-name">业务部</span>
++              <el-tag type="success" size="small" round>片区匹配</el-tag>
++            </div>
++          </div>
++          <div class="placeholder-body">
++            <p class="dept-desc">高德地图片区检索、POI 与内部客户智能匹配（严格 1:1 绑定）、批量复核与客户档案管理。</p>
++          </div>
++        </el-card>
++      </el-col>
++
+       <!-- 生产部（预留） -->
+       <el-col :xs="24" :sm="12">
+         <el-card shadow="never" class="dept-card dept-card-placeholder">
+@@ -210,13 +228,17 @@
+ import { ref, computed, watch, onMounted } from 'vue'
+ import { api } from '@/utils/api'
+ import { useAppStore } from '@/stores/app'
++import { useAuthStore } from '@/stores/auth'
++import { PERMISSIONS } from '@/utils/permissions'
+ import {
+   Monitor, Sunrise, Document, Box, Warning, Bell,
+-  SetUp, Van, OfficeBuilding, Coin,
++  SetUp, Van, OfficeBuilding, Coin, MapLocation,
+ } from '@element-plus/icons-vue'
+ import dayjs from 'dayjs'
+ 
+ const appStore = useAppStore()
++const authStore = useAuthStore()
++const canBusiness = computed(() => authStore.hasPermission(PERMISSIONS.MODULE_BUSINESS))
+ 
+ const currentMonth = ref(dayjs().format('YYYY年MM月'))
+ 
+@@ -364,6 +386,17 @@ onMounted(loadData)
+     background: linear-gradient(135deg, #E6A23C, #cf8a1e);
+   }
+ 
++  .dept-icon-business {
++    background: linear-gradient(135deg, #8e44ad, #5b2c91);
++  }
++
++  .dept-desc {
++    margin: 6px 0 0;
++    font-size: 13px;
++    color: #606266;
++    line-height: 1.6;
++  }
++
+   .dept-info {
+     display: flex;
+     flex-direction: column;

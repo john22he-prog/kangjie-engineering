@@ -5,7 +5,7 @@
 
     <view class="page-header">
       <text class="page-title">酒店管理</text>
-      <view class="add-btn" bind:tap="onShowAdd">+ 添加酒店</view>
+      <view class="add-btn" wx:if="{{canManage}}" bind:tap="onShowAdd">+ 添加酒店</view>
     </view>
 
     <view class="loading-tip" wx:if="{{loading}}">加载中...</view>
@@ -23,15 +23,14 @@
           <text wx:if="{{item.contact && item.phone}}"> · </text>
           <text wx:if="{{item.phone}}" class="phone-text" bind:tap="onCallPhone" data-phone="{{item.phone}}">{{item.phone}}</text>
         </view>
-        <view class="hotel-coords" wx:if="{{item.latitude}}">
-          <text class="coord-tag">已定位</text>
-          <text class="coord-text">{{item.latitude}}, {{item.longitude}}</text>
-        </view>
-        <view class="hotel-coords" wx:else>
-          <text class="coord-tag warn">未定位</text>
+        <view class="hotel-coords">
+          <text class="coord-tag" wx:if="{{item.latitude}}">已定位</text>
+          <text class="coord-tag warn" wx:else>未定位</text>
+          <text class="coord-tag bound" wx:if="{{item.amapPoiId}}">已绑POI</text>
+          <text class="coord-tag poi" wx:if="{{item.locateSource === 'poi'}}">POI精确</text>
         </view>
       </view>
-      <view class="hotel-actions">
+      <view class="hotel-actions" wx:if="{{canManage}}">
         <view class="action-link" bind:tap="onEdit" data-hotel="{{item}}">编辑</view>
         <view class="action-link danger" bind:tap="onDelete" data-hotel="{{item}}">删除</view>
       </view>
@@ -45,6 +44,41 @@
       <view class="cancel-btn" bind:tap="onCancel">取消</view>
     </view>
 
+    <!-- 录入方式切换（仅新增时） -->
+    <view class="mode-switch" wx:if="{{!editingId}}">
+      <view class="mode-opt {{addMode === 'poi' ? 'active' : ''}}" data-mode="poi" bind:tap="onModeChange">🔍 POI搜索建档（推荐·精确）</view>
+      <view class="mode-opt {{addMode === 'manual' ? 'active' : ''}}" data-mode="manual" bind:tap="onModeChange">✏️ 手动录入</view>
+    </view>
+
+    <!-- POI 搜索建档 -->
+    <block wx:if="{{addMode === 'poi' && !editingId}}">
+      <view class="form-group">
+        <view class="form-label">名称关键词</view>
+        <input class="form-input" placeholder="输入酒店名称搜索高德POI" value="{{poiKeyword}}" bind:input="onPoiKeywordInput" bind:confirm="onSearchPoi" confirm-type="search" />
+      </view>
+      <view class="form-group">
+        <view class="form-label">所在城市（辅助）</view>
+        <input class="form-input" placeholder="如：昆明市（可选，提高精度）" value="{{poiCity}}" bind:input="onPoiCityInput" />
+      </view>
+      <button class="submit-btn" bind:tap="onSearchPoi" loading="{{poiSearching}}">{{poiSearching ? '搜索中...' : '搜索POI'}}</button>
+
+      <view class="poi-list" wx:if="{{poiResults.length > 0}}">
+        <view class="poi-list-title">搜索结果（点击建档）</view>
+        <view class="poi-item" wx:for="{{poiResults}}" wx:key="id" data-poi="{{item}}" bind:tap="onPickPoi">
+          <view class="poi-name">{{item.name}}</view>
+          <view class="poi-addr">{{item.address || item.district}}</view>
+          <view class="poi-meta">
+            <text wx:if="{{item.tel}}">📞 {{item.tel}}</text>
+            <text wx:if="{{item.latitude}}" class="poi-located">· 已定位</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="form-tip">💡 POI搜索建档会直接带回精确坐标和标准名称，并自动建立 1:1 绑定，匹配准确率最高。搜不到时可切换"手动录入"。</view>
+    </block>
+
+    <!-- 手动录入 -->
+    <block wx:if="{{addMode === 'manual' || editingId}}">
     <view class="form-group">
       <view class="form-label required">酒店名称</view>
       <input class="form-input" placeholder="请输入酒店名称" value="{{form.name}}" data-field="name" bind:input="onInput" />
@@ -97,7 +131,8 @@
     </button>
 
     <view class="form-tip">
-      💡 输入地址后点击「测试解析」可预览定位效果。保存时会自动调用高德地理编码获取坐标。
+      💡 输入地址后点击「测试解析」可预览定位效果。保存时会自动调用高德地理编码获取坐标（精度可能不如POI搜索）。
     </view>
+    </block>
   </view>
 </view>
